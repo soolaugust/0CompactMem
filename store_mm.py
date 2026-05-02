@@ -6597,3 +6597,189 @@ def sched_rt_bandwidth(conn: "sqlite3.Connection", project: str,
         "recall_rates": recall_rates,
         "window_size": window_size,
     }
+
+
+# ── iter532: cpuset — FTS5 Index Quarantine for Bandwidth Violators ──────────
+
+_QUARANTINE_FILE = os.path.join(str(MEMORY_OS_DIR), ".cpuset_quarantine.json")
+
+
+def _cpuset_load() -> dict:
+    """Load quarantine registry: {chunk_id: {"sessions_remaining": N, "quarantined_at": ts}}"""
+    try:
+        if os.path.exists(_QUARANTINE_FILE):
+            with open(_QUARANTINE_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _cpuset_save(data: dict) -> None:
+    """Persist quarantine registry."""
+    try:
+        with open(_QUARANTINE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def cpuset_quarantine(conn: "sqlite3.Connection", project: str) -> dict:
+    """
+    iter532: cpuset — FTS5 Index Quarantine for Bandwidth Violators.
+
+    OS 类比：Linux sched_setaffinity() / cpuset (Ingo Molnár, 2004)
+      nice(19) 只减少时间片——进程仍可在任意 CPU 上运行。
+      cpuset 是物理隔离：强制进程只能在指定 CPU 子集运行，
+      不在 allowed CPUs 中 → 调度器**物理上不可能**选中它。
+
+    Memory-OS 类比：
+      bandwidth_throttle (iter527): 软惩罚，score ×0.15——chunk 仍在 FTS5 候选池
+      cpuset_quarantine (iter532): 硬隔离，从 FTS5 索引移除——搜索物理上找不到它
+
+    问题（数据驱动）：
+      chunk 3192147e (design_constraint, access=89) 在 30-window 中 recall_rate=60%。
+      bandwidth_throttle ×0.15 后 score 仍高于其他 chunk（因 FTS5 relevance 极高）。
+      sched_rt_bandwidth (iter529) 排除 loader 路径，但 retriever FTS5 路径无法物理隔离。
+
+    策略：
+      1. cpuset_quarantine(conn, project) — SessionStart 时扫描 recall_traces
+         召回率 > bw_quarantine_pct(50%) 的 chunk → 从 FTS5 索引移除 + 注册 cooldown
+      2. cpuset_release(conn) — 每次 SessionStart 先检查 cooldown 到期的 chunk → 恢复 FTS5
+
+    保护机制：
+      - 只隔离 FTS5 索引，不删除主表数据（chunk 仍可通过 checkpoint/working_set ID 直接访问）
+      - max_quarantine 限制同时隔离数（防止信息真空）
+      - cooldown_sessions 到期自动恢复（不是永久移除）
+      - min_traces 样本保护（样本不足时跳过）
+
+    返回：
+      quarantined: 本次新隔离的 chunk IDs
+      released: 本次解除隔离的 chunk IDs
+      active: 当前仍在隔离中的总数
+    """
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"quarantined": [], "released": [], "active": 0}
+
+    bw_quarantine_pct = _cfg("cpuset.bw_quarantine_pct")
+    cooldown_sessions = int(_cfg("cpuset.cooldown_sessions"))
+    max_quarantine = int(_cfg("cpuset.max_quarantine"))
+    min_traces = int(_cfg("cpuset.min_traces"))
+
+    result = {"quarantined": [], "released": [], "active": 0}
+
+    # ── Phase 1: Release expired quarantines ──
+    registry = _cpuset_load()
+    released_ids = []
+    for cid, info in list(registry.items()):
+        remaining = info.get("sessions_remaining", 0) - 1
+        if remaining <= 0:
+            released_ids.append(cid)
+            del registry[cid]
+        else:
+            registry[cid]["sessions_remaining"] = remaining
+
+    # Re-index released chunks
+    for cid in released_ids:
+        try:
+            from store_vfs import _fts5_sync_chunk
+            _fts5_sync_chunk(conn, cid)
+        except Exception:
+            pass
+    result["released"] = released_ids
+
+    # ── Phase 2: Detect new bandwidth violators ──
+    # Check minimum sample size
+    trace_count = conn.execute(
+        "SELECT COUNT(*) FROM recall_traces WHERE project = ?", (project,)
+    ).fetchone()[0]
+    if trace_count < min_traces:
+        result["active"] = len(registry)
+        _cpuset_save(registry)
+        if released_ids:
+            bump_chunk_version()
+        return result
+
+    # Get recall counts from recent window
+    window = int(_cfg("scorer.bw_window") if _cfg("scorer.bw_window") else 30)
+    rows = conn.execute(
+        "SELECT top_k_json FROM recall_traces WHERE project = ? "
+        "ORDER BY rowid DESC LIMIT ?",
+        (project, window)
+    ).fetchall()
+
+    if len(rows) < min_traces:
+        result["active"] = len(registry)
+        _cpuset_save(registry)
+        if released_ids:
+            bump_chunk_version()
+        return result
+
+    # Count per-chunk recall frequency
+    chunk_counts = Counter()
+    for (tk_json,) in rows:
+        if not tk_json:
+            continue
+        try:
+            items = json.loads(tk_json)
+            for item in items:
+                cid = item.get("id", "") if isinstance(item, dict) else str(item)
+                if cid:
+                    chunk_counts[cid] += 1
+        except Exception:
+            continue
+
+    window_size = len(rows)
+    # Find violators: recall_rate > bw_quarantine_pct
+    violators = []
+    for cid, cnt in chunk_counts.most_common():
+        rate = cnt / window_size
+        if rate > bw_quarantine_pct and cid not in registry:
+            violators.append((cid, rate))
+
+    # Respect max_quarantine limit
+    available_slots = max_quarantine - len(registry)
+    new_quarantine = violators[:max(0, available_slots)]
+
+    # ── Phase 3: Quarantine violators — remove from FTS5 ──
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for cid, rate in new_quarantine:
+        # Remove from FTS5 index (chunk stays in main table)
+        row = conn.execute(
+            "SELECT rowid FROM memory_chunks WHERE id = ?", (cid,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "DELETE FROM memory_chunks_fts WHERE rowid_ref = ?",
+                (str(row[0]),)
+            )
+            registry[cid] = {
+                "sessions_remaining": cooldown_sessions,
+                "quarantined_at": now_iso,
+                "recall_rate": round(rate, 3),
+            }
+            result["quarantined"].append(cid)
+
+    result["active"] = len(registry)
+    _cpuset_save(registry)
+
+    # Bump chunk_version if any FTS5 change occurred
+    if result["quarantined"] or result["released"]:
+        bump_chunk_version()
+
+    # dmesg log
+    try:
+        dmesg_log(conn, DMESG_INFO, "cpuset",
+                  f"quarantine: new={len(result['quarantined'])} "
+                  f"released={len(result['released'])} active={result['active']}",
+                  extra=json.dumps({
+                      "quarantined_sample": result["quarantined"][:3],
+                      "released_sample": result["released"][:3],
+                      "project": project,
+                  }))
+    except Exception:
+        pass
+
+    return result

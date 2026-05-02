@@ -3135,6 +3135,16 @@ _REGISTRY: dict = {
         "校准衰减因子：非驻留 chunk importance *= decay（默认 0.75）"),
     "mincore.max_per_scan": (30, int, 5, 100, None,
         "每次扫描最多校准的 chunk 数（默认 30）"),
+
+    # ── iter532: cpuset — FTS5 Index Quarantine for Bandwidth Violators ──
+    "cpuset.bw_quarantine_pct": (0.50, float, 0.30, 0.90, None,
+        "召回率超过此阈值时触发 FTS5 隔离（默认 0.50：窗口内出现>50%即隔离）"),
+    "cpuset.cooldown_sessions": (3, int, 1, 10, None,
+        "隔离冷却期（session 数）：经过 N 次 SessionStart 后自动解除隔离恢复 FTS5"),
+    "cpuset.max_quarantine": (5, int, 1, 20, None,
+        "同时最多隔离的 chunk 数（防止过度隔离导致信息真空）"),
+    "cpuset.min_traces": (10, int, 5, 50, None,
+        "触发判定所需最低 recall_traces 数（样本不足时跳过）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

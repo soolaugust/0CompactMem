@@ -1147,6 +1147,20 @@ def main():
         except Exception:
             pass
 
+        # ── iter532：cpuset — FTS5 Index Quarantine for Bandwidth Violators ──
+        # OS 类比：Linux sched_setaffinity() / cpuset (Ingo Molnár, 2004)
+        # 召回率超 50% 的垄断 chunk 从 FTS5 物理移除，cooldown 后自动恢复
+        try:
+            from store_mm import cpuset_quarantine
+            cpuset_result = cpuset_quarantine(_log_conn, project)
+            if cpuset_result["quarantined"] or cpuset_result["released"]:
+                dmesg_log(_log_conn, DMESG_INFO, "cpuset",
+                          f"quarantine: new={len(cpuset_result['quarantined'])} "
+                          f"released={len(cpuset_result['released'])} active={cpuset_result['active']}",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代146：Swap GC — 孤儿 project 清理 ──
         # OS 类比：process exit → free anonymous swap pages (do_exit → exit_mmap)
         # 消亡 project（主表已无 chunk）的 swap 条目永久占位，不会被 swap_in，
