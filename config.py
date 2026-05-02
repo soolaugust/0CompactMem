@@ -2809,6 +2809,9 @@ _REGISTRY: dict = {
     # ── TLB v2（迭代64）──
     "retriever.tlb_max_entries": (8, int, 1, 64, None,
         "TLB 最大 slot 数量（类比 CPU TLB 通常 64-1024 entries）"),
+    # ── iter583: TLB Generation Age-Out ──
+    "retriever.tlb_max_generation_age": (5, int, 1, 50, None,
+        "TLB entry 最大存活代数（generation gap >= 此值时强制 miss，保证 scan_unevictable 有执行机会）"),
 
     # ── Memory Zones（迭代82）──
     "retriever.exclude_types": ("prompt_context", str, None, None, None,

@@ -102,6 +102,7 @@ STORE_DB = _db_env if _db_env else os.path.join(MEMORY_OS_DIR, "store.db")
 HASH_FILE = os.path.join(MEMORY_OS_DIR, ".last_injection_hash")
 TLB_FILE = os.path.join(MEMORY_OS_DIR, ".last_tlb.json")       # 迭代57→64: TLB v2 multi-slot
 CHUNK_VERSION_FILE = os.path.join(MEMORY_OS_DIR, ".chunk_version")  # 迭代64: chunk_version
+TLB_GENERATION_FILE = os.path.join(MEMORY_OS_DIR, ".tlb_generation")  # iter583: TLB generation counter
 PAGE_FAULT_LOG = os.path.join(MEMORY_OS_DIR, "page_fault_log.json")
 SHADOW_TRACE_FILE = os.path.join(MEMORY_OS_DIR, ".shadow_trace.json")  # 迭代85: Shadow Trace
 IOR_FILE = os.path.join(MEMORY_OS_DIR, ".ior_state.json")  # iter391: Inhibition of Return
@@ -454,14 +455,39 @@ def _vdso_fast_exit() -> bool:
                 except (ValueError, OSError):
                     chunk_ver = 0
 
+            # ── iter583: TLB Generation Age-Out ──────────────────────────
+            # OS 类比：Linux TLB generation counter (Andy Lutomirski, 2017,
+            #   PCID/ASID generation tracking) — 每个 TLB entry 绑定
+            #   写入时的 generation number，当 global generation 超过
+            #   entry generation + max_age 时自动失效。
+            #
+            # 根因：chunk_version 只在 insert/delete/swap 递增。稳态下
+            #   （无新写入）chunk_version 永不变 → TLB 永远 hit →
+            #   scan_unevictable 永远不执行 → dark pages 永远不曝光。
+            #
+            # 方案：全局 generation 计数器（每次 FULL 检索完成递增）。
+            #   TLB hit 检查：generation gap >= max_age → 强制 miss，
+            #   让 scan_unevictable 有机会注入 diversity slots。
+            _tlb_gen_current = 0
+            try:
+                if os.path.exists(TLB_GENERATION_FILE):
+                    with open(TLB_GENERATION_FILE, encoding="utf-8") as _f:
+                        _tlb_gen_current = int(_f.read().strip())
+            except (ValueError, OSError):
+                _tlb_gen_current = 0
+            _tlb_max_gen_age = int(_sysctl("retriever.tlb_max_generation_age"))
+
             if os.path.exists(TLB_FILE):
                 with open(TLB_FILE, encoding="utf-8") as _f:
                     tlb = json.loads(_f.read())
                 slots = tlb.get("slots", {})
                 tlb_ver = tlb.get("chunk_version", -1)
+                # iter583: entry generation（TLB 上次被写入时的全局 generation）
+                _tlb_entry_gen = tlb.get("generation", 0)
+                _gen_expired = (_tlb_gen_current - _tlb_entry_gen) >= _tlb_max_gen_age
 
                 # L1: prompt_hash + chunk_version 完全匹配
-                if chunk_ver == tlb_ver and prompt_hash in slots:
+                if chunk_ver == tlb_ver and prompt_hash in slots and not _gen_expired:
                     try:
                         with open(HASH_FILE, encoding="utf-8") as _f:
                             last_hash = _f.read().strip()
@@ -472,7 +498,7 @@ def _vdso_fast_exit() -> bool:
 
                 # L2: chunk_version 匹配（chunk 未变）+ HASH_FILE 匹配任意 slot
                 # 当 prompt 变了但 DB 内容未变时，Top-K 结果仍然有效
-                if chunk_ver == tlb_ver:
+                if chunk_ver == tlb_ver and not _gen_expired:
                     try:
                         with open(HASH_FILE, encoding="utf-8") as _f:
                             last_hash = _f.read().strip()
@@ -1088,6 +1114,7 @@ def _tlb_write(prompt_hash: str, injection_hash: str, db_mtime: float) -> None:
     """
     写入 TLB v2 缓存。
     迭代64：multi-slot + chunk_version 替代 db_mtime。
+    iter583：写入当前 generation，供 age-out 判定。
     保留 db_mtime 参数签名以保持向后兼容（不改调用方），但实际使用 chunk_version。
     """
     try:
@@ -1101,6 +1128,15 @@ def _tlb_write(prompt_hash: str, injection_hash: str, db_mtime: float) -> None:
                     chunk_ver = int(_f.read().strip())
             except (ValueError, OSError):
                 chunk_ver = 0
+
+        # iter583: 读取当前 generation
+        gen = 0
+        try:
+            if os.path.exists(TLB_GENERATION_FILE):
+                with open(TLB_GENERATION_FILE, encoding="utf-8") as _f:
+                    gen = int(_f.read().strip())
+        except (ValueError, OSError):
+            gen = 0
 
         # 读取现有 TLB 并更新 slot
         existing = _tlb_read()
@@ -1121,9 +1157,34 @@ def _tlb_write(prompt_hash: str, injection_hash: str, db_mtime: float) -> None:
             _f.write(json.dumps({
                 "chunk_version": chunk_ver,
                 "slots": slots,
+                "generation": gen,  # iter583: 记录写入时的 generation
             }))
     except Exception:
         pass
+
+
+def _tlb_bump_generation() -> int:
+    """
+    iter583: FULL 检索完成后递增全局 TLB generation 计数器。
+    OS 类比：Linux flush_tlb_mm_range() 递增 mm_struct->context.ctx_id（generation），
+      让其他 CPU 的 TLB 在下次 context switch 时发现 generation 不匹配而 flush。
+    返回新的 generation 值。
+    """
+    try:
+        gen = 0
+        if os.path.exists(TLB_GENERATION_FILE):
+            try:
+                with open(TLB_GENERATION_FILE, encoding="utf-8") as _f:
+                    gen = int(_f.read().strip())
+            except (ValueError, OSError):
+                gen = 0
+        gen += 1
+        os.makedirs(MEMORY_OS_DIR, exist_ok=True)
+        with open(TLB_GENERATION_FILE, 'w', encoding="utf-8") as _f:
+            _f.write(str(gen))
+        return gen
+    except Exception:
+        return 0
 
 
 def _get_db_mtime() -> float:
@@ -2657,6 +2718,7 @@ def main():
                         context_text = context_text[:effective_max_chars] + "…"
                     _write_hash(current_hash)
                     _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
+                    _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
                     duration_ms = _elapsed_ms()
                     accessed_ids = [c["id"] for _, c in top_k]
                     # 迭代323: SM-2 recall_quality — 从 top_k 分数推断
@@ -3435,6 +3497,7 @@ def main():
 
         if current_hash == _read_hash():
             _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB 回填
+            _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
             # 迭代61：PSI Noise Floor — skipped_same_hash 记录 duration_ms=0
             # 迭代84：切换到写连接记录 trace + flush deferred logs
             conn.close()
@@ -3839,6 +3902,7 @@ def main():
             reason += f"|dedup:{_iter359_dedup_count}"  # 迭代359：去重计数
         _write_hash(current_hash)
         _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
+        _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
 
         output = {
             "hookSpecificOutput": {
