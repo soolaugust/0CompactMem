@@ -3021,6 +3021,12 @@ _REGISTRY: dict = {
     "oom_reaper.protect_types": ("design_constraint,quantitative_evidence", str, None, None, None,
         "iter508: 受保护的 chunk_type（逗号分隔），即使零访问也不回收"),
 
+    # ── iter542: oom_reaper_onfault — MLOCK_ONFAULT Demotion Reaper ──
+    "oom_reaper_onfault.grace_sessions": (3, int, 1, 20, None,
+        "iter542: ONFAULT chunk 宽限 session 数（默认 3，至少 N 轮曝光机会后才降级）"),
+    "oom_reaper_onfault.max_per_scan": (10, int, 1, 50, None,
+        "iter542: 单次扫描最大降级数（默认 10）"),
+
     # ── iter513: overcommit_kill — Global Layer Aggressive Reclaim ──
     "overcommit.zero_access_threshold": (0.6, float, 0.3, 0.95, None,
         "iter513: global 层零访问率超过此比例时触发（默认 0.6 = 60%）"),

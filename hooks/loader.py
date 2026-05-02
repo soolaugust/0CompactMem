@@ -1267,6 +1267,22 @@ def main():
         except Exception:
             pass
 
+        # ── iter542：oom_reaper_onfault — MLOCK_ONFAULT Demotion Reaper ──
+        # OS 类比：Linux oom_reaper (Michal Hocko, 2016, kernel 4.6)
+        # ONFAULT(-200) 零访问 chunk 处于保护死区（munlock_idle 不管，全局 oom_reaper 不触发）
+        # 定向降级为 OOM_ADJ_PREFER(300)，允许正常回收路径处理
+        try:
+            if not _defer_reclaim:  # iter535: deferred_initcall gate
+                from store_mm import oom_reaper_onfault
+                reaper_result = oom_reaper_onfault(_log_conn, project)
+                if reaper_result["reaped"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "oom_reaper_onfault",
+                              f"reaped={reaper_result['reaped']} scanned={reaper_result['scanned']} "
+                              f"grace_skip={reaper_result['skipped_grace']}",
+                              session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter532：cpuset — FTS5 Index Quarantine for Bandwidth Violators ──
         # OS 类比：Linux sched_setaffinity() / cpuset (Ingo Molnár, 2004)
         # 召回率超 50% 的垄断 chunk 从 FTS5 物理移除，cooldown 后自动恢复

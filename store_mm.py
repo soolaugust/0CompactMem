@@ -4521,6 +4521,121 @@ def mlock_onfault_promote(conn: sqlite3.Connection, chunk_ids: list) -> dict:
     return {"promoted": promoted}
 
 
+# ── oom_reaper_onfault — MLOCK_ONFAULT Demotion Reaper（iter542）───────────────
+#
+# OS 类比：Linux oom_reaper (Michal Hocko, 2016, kernel 4.6)
+#   OOM killer 标记牺牲进程 TIF_MEMDIE 后，若进程阻塞在不可中断 sleep（D state），
+#   内存无法释放。oom_reaper 内核线程独立异步回收其匿名页，不等待进程退出。
+#   关键设计：oom_reaper 仅处理 TIF_MEMDIE 已标记但未释放的进程——
+#   介于 "已选中" 和 "已回收" 之间的死区。
+#
+# 问题（数据驱动）：
+#   mlock2(MLOCK_ONFAULT) iter531 为 quantitative_evidence / design_constraint
+#   在写入时授予 oom_adj=-200（延迟保护，等待首次检索命中后升级为 -500）。
+#   但如果 chunk 从未被检索命中（永远不 page fault），它处于保护死区：
+#     - munlock_idle 只扫描 oom_adj <= -500，不管 -200
+#     - 全局 oom_reaper（iter508）需零访问率 >70% 才触发，当前 20.5% 远不够
+#     - 结果：5/5 oom_adj=-200 chunks 零访问，100% 浪费保护槽位
+#   这等价于 TIF_MEMDIE 进程卡在 D state——已被标记但内存永远不释放。
+
+def oom_reaper_onfault(conn: sqlite3.Connection, project: str) -> dict:
+    """
+    iter542: oom_reaper_onfault — 定向回收从未 page fault 的 ONFAULT chunk。
+
+    扫描 oom_adj == OOM_ADJ_ONFAULT(-200) + access_count == 0 + 超过宽限期的 chunks，
+    将其降级为 OOM_ADJ_DEFAULT(0)，允许正常回收路径处理。
+
+    与 munlock_idle 的区别：
+      - munlock_idle: oom_adj <= -500 → 0（解除硬保护）
+      - oom_reaper_onfault: oom_adj == -200 → 0（ONFAULT 死区 → 正常优先级）
+
+    与 oom_reaper（iter508）的区别：
+      - iter508: 全局零访问率 >70% 才触发（大规模危机 last resort）
+      - iter542: 精确定向 ONFAULT chunk，无全局阈值（手术刀 vs 核弹）
+
+    降级而非删除：给 chunk 一次被自然回收的机会（kswapd/page_idle/numa_balancing）。
+    如果 chunk 后续被检索命中，retriever 的 mlock_onfault_promote 会重新升级它。
+
+    宽限期：grace_sessions（默认 3），给新 chunk 至少 N 个 session 的曝光机会。
+    """
+    t0 = _time.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"scanned": 0, "reaped": 0, "skipped_grace": 0, "duration_ms": 0}
+
+    grace_sessions = int(_cfg("oom_reaper_onfault.grace_sessions") or 3)
+    max_per_scan = int(_cfg("oom_reaper_onfault.max_per_scan") or 10)
+
+    # Phase 1: 找到所有 ONFAULT + zero-access chunks
+    from store_core import OOM_ADJ_ONFAULT
+    candidates = conn.execute(
+        """SELECT id, chunk_type, importance, created_at, source_session
+           FROM memory_chunks
+           WHERE project IN (?, 'global')
+             AND oom_adj = ?
+             AND access_count = 0""",
+        (project, OOM_ADJ_ONFAULT)
+    ).fetchall()
+
+    if not candidates:
+        return {"scanned": 0, "reaped": 0, "skipped_grace": 0,
+                "duration_ms": round((_time.time() - t0) * 1000, 2)}
+
+    # Phase 2: 计算 session 年龄（用 page_idle bitmap 的 idle_rounds 作近似）
+    bitmap = _page_idle_load()
+    project_bitmap = bitmap.get(project, {})
+    global_bitmap = bitmap.get("global", {})
+
+    reaped = 0
+    skipped_grace = 0
+    reaped_ids = []
+
+    for chunk_id, chunk_type, importance, created_at, source_session in candidates:
+        if reaped >= max_per_scan:
+            break
+
+        # 宽限期检查：idle_rounds < grace_sessions → 跳过
+        idle_rounds = project_bitmap.get(chunk_id, global_bitmap.get(chunk_id, 0))
+        if idle_rounds < grace_sessions:
+            skipped_grace += 1
+            continue
+
+        # 执行降级：oom_adj → OOM_ADJ_DEFAULT(0)
+        # 不用 PREFER(500) 避免过度惩罚——给 chunk 回到正常回收优先级的机会
+        conn.execute(
+            "UPDATE memory_chunks SET oom_adj = ? WHERE id = ?",
+            (OOM_ADJ_DEFAULT, chunk_id)
+        )
+        reaped += 1
+        reaped_ids.append(chunk_id)
+
+    if reaped > 0:
+        conn.commit()
+        try:
+            bump_chunk_version()
+        except Exception:
+            pass
+        try:
+            dmesg_log(conn, DMESG_INFO, "oom_reaper_onfault",
+                      f"reaped={reaped} scanned={len(candidates)} "
+                      f"skipped_grace={skipped_grace}",
+                      project=project,
+                      extra={"reaped_ids": reaped_ids[:10]})
+        except Exception:
+            pass
+
+    duration_ms = (_time.time() - t0) * 1000
+    return {
+        "scanned": len(candidates),
+        "reaped": reaped,
+        "skipped_grace": skipped_grace,
+        "reaped_ids": reaped_ids,
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
 # ── gc_namespace — Process Namespace Cleanup（迭代512）───────────────
 
 # 测试 namespace 正则：匹配 test_*、test-*、perf_*、bench_* 前缀的 project ID
