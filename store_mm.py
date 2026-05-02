@@ -4757,6 +4757,81 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
     return result
 
 
+# ── userfaultfd — Demand-Paged Import Promotion（迭代515）────────────
+
+def userfaultfd_promote(conn: "sqlite3.Connection",
+                        chunk_ids: list) -> dict:
+    """
+    迭代515：userfaultfd — 按需导入 page fault 处理。
+    OS 类比：Linux userfaultfd (Andrea Arcangeli, 2015) — 用户空间 page fault handler。
+
+    当 mmap(MAP_LAZY) 映射的页面被首次访问时触发 page fault，
+    userfaultfd handler 在用户空间按需分配物理页面并填充数据。
+
+    Memory-OS 类比：
+      - import_knowledge 写入 chunks 时 importance=0.15（mapped but not present）
+      - FTS5 可发现但 Top-K 排序中基本不可见
+      - 首次检索命中 = page fault → promote importance + reset oom_adj
+      - 后续访问走正常 MGLRU/update_accessed 路径（page 已 resident）
+
+    参数：
+      conn — 写连接（在 retriever write-back 阶段调用）
+      chunk_ids — 本次检索命中的 chunk ID 列表
+
+    返回 dict：
+      promoted — 被提升的 chunk 数
+      ids — 被提升的 chunk ID 列表
+    """
+    result = {"promoted": 0, "ids": []}
+    if not chunk_ids:
+        return result
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return result
+
+    promote_imp = _cfg("userfaultfd.promote_importance")
+    promote_oom = _cfg("userfaultfd.promote_oom_adj")
+
+    placeholders = ",".join("?" * len(chunk_ids))
+    # 找到 import 来源 + importance 仍然很低（未被 promote 过） + 首次访问的 chunks
+    # access_count <= 1 因为 update_accessed 可能在本次调用前已自增
+    rows = conn.execute(
+        f"SELECT id, importance FROM memory_chunks "
+        f"WHERE id IN ({placeholders}) "
+        f"  AND source_session LIKE 'import:%' "
+        f"  AND importance < 0.4 "
+        f"  AND access_count <= 1",
+        chunk_ids,
+    ).fetchall()
+
+    if not rows:
+        return result
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for row in rows:
+        chunk_id, old_imp = row
+        conn.execute(
+            "UPDATE memory_chunks SET importance=?, oom_adj=?, updated_at=? "
+            "WHERE id=?",
+            (promote_imp, promote_oom, now_iso, chunk_id),
+        )
+        result["ids"].append(chunk_id)
+
+    result["promoted"] = len(result["ids"])
+
+    if result["promoted"] > 0:
+        try:
+            dmesg_log(conn, DMESG_INFO, "userfaultfd",
+                      f"page_fault: promoted={result['promoted']} "
+                      f"ids={result['ids'][:3]} imp→{promote_imp} oom→{promote_oom}")
+        except Exception:
+            pass
+
+    return result
+
+
 def _page_idle_load() -> dict:
     """加载 page_idle bitmap 文件。"""
     try:

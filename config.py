@@ -3039,6 +3039,16 @@ _REGISTRY: dict = {
         "fingerprint 中 bracket topic 后取多少字符（越短越激进，越长越精确）"),
     "ksm_scan.protect_min_access": (2, int, 1, 10, None,
         "access_count >= N 的 chunk 不被合并（已有实战价值）"),
+
+    # ── 迭代515：userfaultfd — Demand-Paged Import 按需导入 ──
+    "userfaultfd.import_base_importance": (0.15, float, 0.05, 0.5, None,
+        "import_knowledge 写入 chunks 的基础 importance（低于此值不参与 Top-K 排序）"),
+    "userfaultfd.import_oom_adj": (300, int, 0, 800, None,
+        "import 写入 chunks 的 oom_adj（高值 = 优先被回收，降低 reclaim 压力）"),
+    "userfaultfd.promote_importance": (0.75, float, 0.5, 0.95, None,
+        "首次检索命中 import chunk 时提升到的 importance（page fault 处理）"),
+    "userfaultfd.promote_oom_adj": (0, int, -500, 300, None,
+        "首次检索命中 import chunk 时设置的 oom_adj（0=默认保护级别）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

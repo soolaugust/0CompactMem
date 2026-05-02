@@ -2559,6 +2559,12 @@ def main():
                         ensure_schema(wconn)
                         update_accessed(wconn, accessed_ids, recall_quality=_hd_recall_quality)
                         mglru_promote(wconn, accessed_ids)
+                        # 迭代515：userfaultfd — import chunk 首次命中时 promote
+                        try:
+                            from store_mm import userfaultfd_promote as _uffd
+                            _uffd(wconn, accessed_ids)
+                        except Exception:
+                            pass
                         # 迭代511：page_idle clear — 从 idle bitmap 移除被命中的 chunks
                         try:
                             from store_mm import page_idle_clear as _pic
@@ -3649,6 +3655,12 @@ def main():
             ensure_schema(wconn)
             update_accessed(wconn, accessed_ids, recall_quality=_recall_quality_main)
             mglru_promote(wconn, accessed_ids)  # 迭代45：MGLRU promote
+            # 迭代515：userfaultfd — import chunk 首次命中时 promote
+            try:
+                from store_mm import userfaultfd_promote as _uffd
+                _uffd(wconn, accessed_ids)
+            except Exception:
+                pass
             # 迭代511：page_idle clear — 从 idle bitmap 移除被命中的 chunks
             try:
                 from store_mm import page_idle_clear as _pic

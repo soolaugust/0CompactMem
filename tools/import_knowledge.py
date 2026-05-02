@@ -34,7 +34,23 @@ for arg in sys.argv[1:]:
 stats = {"scanned": 0, "imported": 0, "skipped_dup": 0, "skipped_low": 0}
 
 
-def make_chunk(chunk_type, summary, content, importance=0.7, tags=None, source_file=""):
+def _get_import_defaults():
+    """迭代515: userfaultfd — 从 sysctl 读取 import 默认 importance/oom_adj。"""
+    try:
+        from config import get as _cfg
+        return _cfg("userfaultfd.import_base_importance"), _cfg("userfaultfd.import_oom_adj")
+    except Exception:
+        return 0.15, 300
+
+
+def make_chunk(chunk_type, summary, content, importance=None, tags=None, source_file=""):
+    # 迭代515: userfaultfd — demand-paged import
+    # import chunks 以低 importance 写入（mapped but not present），
+    # 首次检索命中时由 userfaultfd_promote 提升（page fault handler）
+    base_imp, base_oom = _get_import_defaults()
+    if importance is None:
+        importance = base_imp
+
     chunk_id = f"import-{hashlib.md5(summary.encode()).hexdigest()[:12]}"
     now = datetime.now(timezone.utc).isoformat()
     return {
@@ -53,7 +69,7 @@ def make_chunk(chunk_type, summary, content, importance=0.7, tags=None, source_f
         "access_count": 0,
         "last_accessed": now,
         "lru_gen": 0,
-        "oom_adj": 0,
+        "oom_adj": base_oom,
     }
 
 
@@ -68,26 +84,28 @@ def extract_wiki_knowledge():
         rel = md_file.relative_to(SELF_IMPROVING)
         text = md_file.read_text(encoding="utf-8")
 
+        # 迭代515: userfaultfd — chunk_type 分类保留，importance 统一用 sysctl 默认值
+        # 所有 import chunks 以低 importance 写入，首次检索命中时由 userfaultfd_promote 提升
         if "decisions/" in str(rel):
-            chunk_type, importance = "decision", 0.8
+            chunk_type = "decision"
         elif "capabilities/" in str(rel):
-            chunk_type, importance = "procedure", 0.85
+            chunk_type = "procedure"
         elif "pe_analysis/" in str(rel):
-            chunk_type, importance = "procedure", 0.8
+            chunk_type = "procedure"
         elif "sched_ext/" in str(rel):
-            chunk_type, importance = "decision", 0.75
+            chunk_type = "decision"
         elif "schedqos/" in str(rel):
-            chunk_type, importance = "decision", 0.7
+            chunk_type = "decision"
         elif "kernel_process/" in str(rel):
-            chunk_type, importance = "decision", 0.8
+            chunk_type = "decision"
         elif "persona/" in str(rel):
-            chunk_type, importance = "decision", 0.6
+            chunk_type = "decision"
         elif "todos/" in str(rel):
             continue
         elif "execution-log" in str(rel):
             continue
         else:
-            chunk_type, importance = "decision", 0.65
+            chunk_type = "decision"
 
         title_match = re.search(r'^#\s+(.+)', text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
@@ -108,7 +126,7 @@ def extract_wiki_knowledge():
                 sec_summary = f"[{rel.parent.name}] {title} > {sec_title}"[:120]
                 tags = [str(rel.parent.name), md_file.stem, f"sec{i}"]
                 chunks.append(make_chunk(chunk_type, sec_summary, sec_body,
-                                          importance, tags, str(rel)))
+                                          None, tags, str(rel)))
         else:
             # 单节文件：整文件 1 chunk（原逻辑）
             content = re.sub(r'^#.*\n', '', clean_text).strip()[:500]
@@ -116,7 +134,7 @@ def extract_wiki_knowledge():
                 continue
             tags = [str(rel.parent.name), md_file.stem]
             chunks.append(make_chunk(chunk_type, f"[{rel.parent.name}] {title}",
-                                      content, importance, tags, str(rel)))
+                                      content, None, tags, str(rel)))
 
     return chunks
 
@@ -136,7 +154,7 @@ def extract_corrections():
             date, wrong, correct = parts[0], parts[1], parts[2]
             summary = f"[纠正] {wrong[:60]}"
             content = f"错误：{wrong}\n正确：{correct}"
-            chunks.append(make_chunk("excluded_path", summary, content, 0.9,
+            chunks.append(make_chunk("excluded_path", summary, content, None,
                                       ["correction", date], "corrections.md"))
 
     return chunks
@@ -169,7 +187,7 @@ def extract_project_decisions():
             summary = f"[{proj_name}/iter{iter_num}] {title[:60]}"
             content = f"{title}\n{os_analogy}\n{body[:300]}" if os_analogy else f"{title}\n{body[:300]}"
 
-            chunks.append(make_chunk("decision", summary, content, 0.7,
+            chunks.append(make_chunk("decision", summary, content, None,
                                       [proj_name, f"iter{iter_num}"], f"projects/{md_file.name}"))
 
         # Pattern 2: - 迭代 N：Title（列表项级，迭代99 新增）
@@ -184,7 +202,7 @@ def extract_project_decisions():
             os_tag = os_match.group(1).strip()[:60] if os_match else ""
             summary = f"[{proj_name}/iter{iter_num}] {inline_text[:80]}"
             content = f"{inline_text[:400]}" + (f"\nOS: {os_tag}" if os_tag else "")
-            chunks.append(make_chunk("decision", summary, content, 0.65,
+            chunks.append(make_chunk("decision", summary, content, None,
                                       [proj_name, f"iter{iter_num}"], f"projects/{md_file.name}"))
 
     return chunks
@@ -211,7 +229,7 @@ def extract_memory_rules():
             if len(bullet) < 20:
                 continue
             summary = f"[规则/{header}] {bullet[:80]}"
-            chunks.append(make_chunk("decision", summary, bullet, 0.75,
+            chunks.append(make_chunk("decision", summary, bullet, None,
                                       ["rule", header.lower()], "memory.md"))
 
     return chunks
