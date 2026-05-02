@@ -1725,6 +1725,42 @@ def _route_info_class(chunk_type: str, summary: str) -> str:
     return _classify(chunk_type, summary)
 
 
+def _vma_validate(summary: str) -> bool:
+    """
+    iter562: vma_validate — 写入时最终准入校验（insert_vm_struct 验证）。
+
+    OS 类比：Linux insert_vm_struct() (kernel/mm/mmap.c) — mmap() 在插入 VMA
+    到红黑树前的最终验证。即使 mmap_region() 已经做了权限/对齐检查，
+    insert_vm_struct() 仍然检查 VMA 不与已有区间重叠、不超出地址空间限制。
+    这是写路径的"最后关卡"——上游所有过滤器漏掉的碎片在这里被最终拦截。
+
+    根因：_is_quality_chunk() 和 _is_fragment() 在提取阶段过滤，但某些代码路径
+    （量化证据、因果链、design_constraint）有独立的提取逻辑绕过了这两个函数。
+    生产 DB 中 6 个零访问高 importance chunk 就是漏网碎片：
+      - 行号前缀（Read 工具输出泄漏）：'1260:- 性能：...'
+      - 状态报告前缀（健康检查输出）：'⚠️ DEGRADED: 9/10 passed...'
+      - markdown 表格单元格：'| 测试 | 22/22 通过，0.69s |'
+
+    返回 True 表示通过验证（可写入），False 表示拒绝。
+    """
+    s = summary.strip()
+    if not s or len(s) < 10:
+        return False
+    # V1 行号前缀：Read 工具输出（'1260:- 性能：...'、'547:  if text[0]...'）
+    if re.match(r'^\d{1,5}[:：]\s*[-\s]', s):
+        return False
+    # V2 状态/健康报告：emoji + 状态关键词（'⚠️ DEGRADED:'、'✅ PASS:'）
+    if re.match(r'^[⚠️✅❌🔴🟡🟢]+\s*(?:DEGRADED|PASS|FAIL|WARNING|OK|HEALTHY|ERROR)', s):
+        return False
+    # V3 markdown 表格行（任何含 2+ pipe 的行）— 加强 _is_fragment 的 >= 2 检查
+    if s.count('|') >= 2:
+        return False
+    # V4 行号引用前缀（'line 547:'、'L1260:'、'第42行'）
+    if re.match(r'^(?:line\s+\d+|L\d+|第\d+行)\s*[:：]', s, re.I):
+        return False
+    return True
+
+
 def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
                  topic: str = "", conn: sqlite3.Connection = None,
                  importance_override: float = None,
@@ -1747,6 +1783,11 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         "procedure": 0.85,              # 可复用操作步骤/协议（wiki import 来源）
     }
     importance = importance_override if importance_override is not None else importance_map.get(chunk_type, 0.70)
+
+    # ── iter562: vma_validate — 写入时最终准入校验 ──────────────────────────────
+    # OS 类比：Linux insert_vm_struct() — mmap 写路径最终关卡，拦截漏网碎片。
+    if not _vma_validate(summary):
+        return
 
     # ── iter534: io_uring SQE validation — 写入时内容密度验证 ──────────────────
     # OS 类比：Linux io_uring SQE flags validation (Jens Axboe, 2019) — 提交到 SQ 前
