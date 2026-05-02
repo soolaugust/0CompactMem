@@ -25,6 +25,19 @@ from utils import resolve_project_id
 from scorer import working_set_score as _unified_ws_score
 from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, DMESG_DEBUG, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace, overcommit_kill, ksm_scan, perf_counters
 from config import get as _sysctl  # 迭代27: sysctl Runtime Tunables
+from store_mm import (timer_slack_load, timer_slack_should_skip,  # iter552
+                      timer_slack_report, timer_slack_tick, timer_slack_save,
+                      timer_slack_stats,
+                      sched_deadline_load, sched_deadline_save,  # iter553
+                      sched_deadline_update, sched_deadline_should_throttle,
+                      sched_deadline_tick, sched_deadline_stats,
+                      cgroup_budget_load, cgroup_budget_save,  # iter554
+                      cgroup_budget_should_throttle, cgroup_budget_consume,
+                      cgroup_budget_settle, cgroup_budget_tick, cgroup_budget_stats,
+                      CGROUP_GROUPS, _SUBSYSTEM_TO_GROUP,
+                      schedstat_load, schedstat_save,  # iter555
+                      schedstat_record_skip, schedstat_record_exec,
+                      schedstat_record_session, schedstat_blame)
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
 LATEST_JSON = MEMORY_OS_DIR / "latest.json"
@@ -959,13 +972,15 @@ def main():
         # Stickgold (2005): 海马重放最近学习的记忆 → stability 提升（light sleep consolidation）
         if _ict_enabled: _ict_milestones.append(("sleep_consolidation", _ict_time.time()))
         consolidation_result = {"consolidated": 0}
-        try:
-            from store_vfs import run_sleep_consolidation
-            consolidation_result = run_sleep_consolidation(_log_conn, project)
-            if consolidation_result.get("consolidated", 0) > 0:
-                _log_conn.commit()
-        except Exception:
-            pass
+        if not _ts_skip("sleep_consolidation"):
+            try:
+                from store_vfs import run_sleep_consolidation
+                consolidation_result = run_sleep_consolidation(_log_conn, project)
+                if consolidation_result.get("consolidated", 0) > 0:
+                    _log_conn.commit()
+                _ts_report("sleep_consolidation", consolidation_result.get("consolidated", 0) > 0)
+            except Exception:
+                pass
 
         # ── 迭代44：MGLRU aging — 推进 generation clock ──
         # OS 类比：MGLRU lru_gen_inc() — SessionStart 时推进所有 chunk 的 gen
@@ -991,37 +1006,122 @@ def main():
                       session_id=_session_id, project=project)
         # ── End deferred_initcall gate ──
 
+        # ── iter552: timer_slack — 加载降频状态 + tick ──
+        _ts_enabled = _sysctl("timer_slack.enabled")
+        _ts_state = {}
+        _ts_skipped_subsystems = []
+        if _ts_enabled:
+            try:
+                _ts_state = timer_slack_load()
+                _ts_state = timer_slack_tick(_ts_state)
+            except Exception:
+                _ts_state = {}
+
+        # ── iter553: sched_deadline — 加载预算执行状态 + tick ──
+        _sd_enabled = _sysctl("sched_deadline.enabled")
+        _sd_state = {}
+        _sd_throttled_subsystems = []
+        if _sd_enabled:
+            try:
+                _sd_state = sched_deadline_load()
+                _sd_state = sched_deadline_tick(_sd_state)
+            except Exception:
+                _sd_state = {}
+
+        # ── iter554: cgroup_budget — 加载分组预算状态 + tick ──
+        _cg_enabled = _sysctl("cgroup_budget.enabled")
+        _cg_state = {}
+        _cg_throttled_subsystems = []
+        if _cg_enabled:
+            try:
+                _cg_state = cgroup_budget_load()
+                _cg_state = cgroup_budget_tick(_cg_state)
+            except Exception:
+                _cg_state = {}
+
+        # ── iter555: schedstat — 加载累积调度统计 ──
+        _ss_enabled = _sysctl("schedstat.enabled")
+        _ss_state = {}
+        if _ss_enabled:
+            try:
+                _ss_state = schedstat_load()
+            except Exception:
+                _ss_state = {"subsystems": {}, "session_count": 0, "boot_times_ms": []}
+
+        def _ts_skip(name):
+            """检查子系统是否应跳过。
+            优先级：sched_deadline(per-task) > cgroup_budget(per-group) > timer_slack(idle)
+            iter552: timer_slack — 空转子系统降频
+            iter553: sched_deadline — 超预算子系统节流
+            iter554: cgroup_budget — 分组预算耗尽节流
+            iter555: schedstat — 跳过事件累积记录
+            任一触发则跳过。"""
+            nonlocal _ss_state
+            # iter553: sched_deadline throttle 优先检查（per-task 超预算）
+            if _sd_enabled and sched_deadline_should_throttle(_sd_state, name):
+                _sd_throttled_subsystems.append(name)
+                if _ss_enabled:
+                    _ss_state = schedstat_record_skip(_ss_state, name, "throttle")
+                return True
+            # iter554: cgroup_budget throttle（per-group 预算耗尽）
+            if _cg_enabled and cgroup_budget_should_throttle(_cg_state, name):
+                _cg_throttled_subsystems.append(name)
+                if _ss_enabled:
+                    _ss_state = schedstat_record_skip(_ss_state, name, "group_throttle")
+                return True
+            # iter552: timer_slack idle 跳过
+            if _ts_enabled and timer_slack_should_skip(_ts_state, name):
+                _ts_skipped_subsystems.append(name)
+                if _ss_enabled:
+                    _ss_state = schedstat_record_skip(_ss_state, name, "idle")
+                return True
+            return False
+
+        def _ts_report(name, did_work):
+            """汇报子系统执行结果。"""
+            nonlocal _ts_state, _ss_state
+            if _ts_enabled:
+                try:
+                    _ts_state = timer_slack_report(_ts_state, name, did_work)
+                except Exception:
+                    pass
+        # ── End timer_slack + sched_deadline init ──
+
         # ── iter518：migrate_pages — 跨 project_id 知识迁移 ──
         if _ict_enabled: _ict_milestones.append(("migrate_pages", _ict_time.time()))
         # OS 类比：Linux migrate_pages() (Christoph Lameter, 2006) — 跨 NUMA 节点页面迁移
         # 同一物理仓库产生不同 project_id 时，将旧别名下的知识迁移到当前 project
         # 必须在回收器之前运行，否则旧别名 chunks 可能被误删
-        try:
-            from store_mm import migrate_pages
-            mig_result = migrate_pages(_log_conn, project)
-            if mig_result["migrated"] > 0:
-                dmesg_log(_log_conn, DMESG_INFO, "migrate_pages",
-                          f"migrate: aliases={mig_result['aliases_found']} "
-                          f"migrated={mig_result['migrated']} dup={mig_result['skipped_dup']} "
-                          f"{mig_result['duration_ms']:.1f}ms",
-                          session_id=_session_id, project=project)
-        except Exception:
-            pass
+        if not _ts_skip("migrate_pages"):
+            try:
+                from store_mm import migrate_pages
+                mig_result = migrate_pages(_log_conn, project)
+                if mig_result["migrated"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "migrate_pages",
+                              f"migrate: aliases={mig_result['aliases_found']} "
+                              f"migrated={mig_result['migrated']} dup={mig_result['skipped_dup']} "
+                              f"{mig_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("migrate_pages", mig_result.get("migrated", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter519：mem_scrub — ECC patrol scrub 数据完整性巡检 ──
         if _ict_enabled: _ict_milestones.append(("mem_scrub", _ict_time.time()))
         # OS 类比：Intel EDAC patrol scrub (2005) — 后台巡检修复 ECC CE
         # 在回收器之前运行：修复腐蚀数据避免影响 DAMON/kswapd 决策
-        try:
-            from store_mm import mem_scrub
-            scrub_result = mem_scrub(_log_conn, project)
-            if scrub_result["ce_fixed"] > 0 or scrub_result["ue_marked"] > 0:
-                dmesg_log(_log_conn, DMESG_INFO, "mem_scrub",
-                          f"scrub: ce={scrub_result['ce_fixed']} ue={scrub_result['ue_marked']} "
-                          f"scanned={scrub_result['scanned']} {scrub_result['duration_ms']:.1f}ms",
-                          session_id=_session_id, project=project)
-        except Exception:
-            pass
+        if not _ts_skip("mem_scrub"):
+            try:
+                from store_mm import mem_scrub
+                scrub_result = mem_scrub(_log_conn, project)
+                if scrub_result["ce_fixed"] > 0 or scrub_result["ue_marked"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "mem_scrub",
+                              f"scrub: ce={scrub_result['ce_fixed']} ue={scrub_result['ue_marked']} "
+                              f"scanned={scrub_result['scanned']} {scrub_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("mem_scrub", (scrub_result.get("ce_fixed", 0) + scrub_result.get("ue_marked", 0)) > 0)
+            except Exception:
+                pass
 
         # ── iter520：checkpoint_gc — 全局 checkpoint 垃圾回收 ──
         # OS 类比：Linux memcg hierarchy v2 memory.max — 全局上限防止 per-session 膨胀
@@ -1041,67 +1141,71 @@ def main():
         # OS 类比：Linux DAMON (2021) 在系统运行时主动采样 access pattern
         # SessionStart 时做一次全量扫描，识别 dead/cold chunk 并主动回收
         damon_result = {"heatmap": {}, "actions": {}}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("damon_scan"):
+            try:
                 damon_result = damon_scan(_log_conn, project)
-            damon_actions = damon_result.get("actions", {})
-            if any(v > 0 for v in damon_actions.values()):
-                _log_conn.commit()
-        except Exception:
-            pass
+                damon_actions = damon_result.get("actions", {})
+                if any(v > 0 for v in damon_actions.values()):
+                    _log_conn.commit()
+                _ts_report("damon_scan", any(v > 0 for v in damon_actions.values()))
+            except Exception:
+                pass
 
         # ── iter505：shrink_dcache — Cross-Project Stale Object Reclaim ──
         if _ict_enabled: _ict_milestones.append(("shrink_dcache", _ict_time.time()))
         # OS 类比：Linux shrink_dcache_sb() (Al Viro, 2001) — 超级块级 dentry cache 回收
         # 跨所有 project 扫描零访问+超龄 chunks，分级降权/删除，解决 82%+ 零访问率
         shrink_result = {"phase1_candidates": 0, "phase2_demoted": 0, "phase3_deleted": 0}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("shrink_dcache"):
+            try:
                 from store_vfs import shrink_dcache
                 shrink_result = shrink_dcache(_log_conn, project)
                 if shrink_result.get("phase2_demoted", 0) > 0 or shrink_result.get("phase3_deleted", 0) > 0:
                     dmesg_log(_log_conn, DMESG_INFO, "shrink_dcache",
                               f"reclaim: candidates={shrink_result['phase1_candidates']} demoted={shrink_result['phase2_demoted']} deleted={shrink_result['phase3_deleted']} {shrink_result.get('duration_ms', 0):.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("shrink_dcache", (shrink_result.get("phase2_demoted", 0) + shrink_result.get("phase3_deleted", 0)) > 0)
+            except Exception:
+                pass
 
         # ── iter508：oom_reaper — 零访问率超标时批量降级回收 ──
         if _ict_enabled: _ict_milestones.append(("oom_reaper", _ict_time.time()))
         # OS 类比：Linux oom_reaper (Michal Hocko, 2016) — OOM 选中后立即回收匿名页
         # 不受 min_age_days 限制，专门处理各回收器保护条件叠加形成的"回收死区"
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("oom_reaper"):
+            try:
                 from store_vfs import oom_reaper
                 reaper_result = oom_reaper(_log_conn, project)
                 if reaper_result.get("triggered"):
                     dmesg_log(_log_conn, DMESG_INFO, "oom_reaper",
                               f"reap: ratio={reaper_result['zero_access_ratio']:.1%} reaped={reaper_result['reaped']} deleted={reaper_result['deleted']} {reaper_result.get('duration_ms', 0):.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("oom_reaper", reaper_result.get("triggered", False))
+            except Exception:
+                pass
 
         # ── iter513：overcommit_kill — Global 层过度承诺知识回收 ──
         if _ict_enabled: _ict_milestones.append(("overcommit_kill", _ict_time.time()))
         # OS 类比：Linux vm.overcommit_memory=2 (Rik van Riel, 2001) — 严格内存计量
         # global 层批量导入的知识绕过有机准入，85%+ 零访问需要激进回收
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("overcommit_kill"):
+            try:
                 oc_result = overcommit_kill(_log_conn)
                 if oc_result.get("triggered"):
                     dmesg_log(_log_conn, DMESG_INFO, "overcommit_kill",
                               f"reap: global={oc_result['global_total']} zero={oc_result['global_zero_access']}({oc_result['zero_access_ratio']:.1%}) reaped={oc_result['reaped']} deleted={oc_result['deleted']} {oc_result.get('duration_ms', 0):.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("overcommit_kill", oc_result.get("triggered", False))
+            except Exception:
+                pass
 
         # ── iter521：free_pages_ok — Dead Page Frame Final Reclaim ──
         if _ict_enabled: _ict_milestones.append(("free_pages_ok", _ict_time.time()))
         # OS 类比：Linux __free_pages_ok() (Linus Torvalds, 1991) — refcount=0 归还 buddy
         # 统一最终回收：所有降级器（shrink/reaper/page_idle/overcommit）跑完后，
         # 清理 importance < 0.2 + access_count = 0 的 zombie chunks
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("free_pages_ok"):
+            try:
                 from store_mm import free_pages_ok
                 fp_result = free_pages_ok(_log_conn, project)
                 if fp_result["freed"] > 0:
@@ -1111,15 +1215,16 @@ def main():
                               f"skip_prot={fp_result['skipped_protected']} "
                               f"{fp_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("free_pages_ok", fp_result.get("freed", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter523：kfree_rcu — Deferred Cross-Project Zombie Reclaim ──
         if _ict_enabled: _ict_milestones.append(("kfree_rcu", _ict_time.time()))
         # OS 类比：Linux kfree_rcu() (Paul E. McKenney, 2002) — 延迟到 grace period 后全局释放
         # free_pages_ok 只扫描当前 project，global 层 zombie 无人回收 → 全局扫描补漏
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("kfree_rcu"):
+            try:
                 from store_mm import kfree_rcu
                 kr_result = kfree_rcu(_log_conn)
                 if kr_result["freed"] > 0:
@@ -1128,15 +1233,16 @@ def main():
                               f"skip_prot={kr_result['skipped_protected']} "
                               f"{kr_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("kfree_rcu", kr_result.get("freed", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter530：put_page — Unified Final Release + Bitmap Scrub ──
         if _ict_enabled: _ict_milestones.append(("put_page", _ict_time.time()))
         # OS 类比：Linux put_page()/__page_cache_release() — refcount=0 时统一释放路径
         # 三盲区修复：UE force kill(imp=0+acc>0) + OOM_MAX reap + bitmap stale scrub
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("put_page"):
+            try:
                 from store_mm import put_page
                 pp_result = put_page(_log_conn, project)
                 total_pp = (pp_result["ue_killed"] + pp_result["oom_max_reaped"]
@@ -1148,15 +1254,16 @@ def main():
                               f"bitmap_stale={pp_result['bitmap_stale_removed']} "
                               f"{pp_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("put_page", total_pp > 0)
+            except Exception:
+                pass
 
         # ── iter522：numa_balancing — Access-Pattern Importance Rebalancing ──
         if _ict_enabled: _ict_milestones.append(("numa_balancing", _ict_time.time()))
         # OS 类比：Linux AutoNUMA (Ingo Molnár, 2012) — 观察访问模式动态迁移页面到正确 NUMA node
         # 双向平衡：高访问+低imp → promote，高imp+零访问+超龄 → demote
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("numa_balancing"):
+            try:
                 from store_mm import numa_balancing
                 nb_result = numa_balancing(_log_conn, project)
                 if nb_result["promoted"] > 0 or nb_result["demoted"] > 0:
@@ -1166,15 +1273,16 @@ def main():
                               f"skip_prot={nb_result['skipped_protected']} "
                               f"{nb_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("numa_balancing", (nb_result.get("promoted", 0) + nb_result.get("demoted", 0)) > 0)
+            except Exception:
+                pass
 
         # ── iter524：mincore — Memory Residency Validation ──
         if _ict_enabled: _ict_milestones.append(("mincore", _ict_time.time()))
         # OS 类比：Linux mincore() (Linus Torvalds, 1994) — 查询哪些页面真实驻留在物理内存
         # 诊断高 importance 段的"虚假驻留"并校准 importance
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("mincore"):
+            try:
                 from store_mm import mincore
                 mc_result = mincore(_log_conn, project)
                 if mc_result["calibrated"] > 0:
@@ -1185,47 +1293,51 @@ def main():
                               f"calibrated={mc_result['calibrated']} "
                               f"{mc_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("mincore", mc_result.get("calibrated", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter514：ksm_scan — 同页合并扫描（去除版本化重复） ──
         if _ict_enabled: _ict_milestones.append(("ksm_scan", _ict_time.time()))
         # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面合并为 COW 共享页
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("ksm_scan"):
+            try:
                 ksm_result = ksm_scan(_log_conn)
                 if ksm_result.get("triggered"):
                     dmesg_log(_log_conn, DMESG_INFO, "ksm_scan",
                               f"ksm: groups={ksm_result['groups_found']} merged={ksm_result['chunks_merged']} deleted={ksm_result['chunks_deleted']} {ksm_result.get('duration_ms', 0):.1f}ms",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("ksm_scan", ksm_result.get("triggered", False))
+            except Exception:
+                pass
 
         # ── 迭代516：madv_free — 惰性页面回收与 FTS5 索引排除 ──
         if _ict_enabled: _ict_milestones.append(("madv_free", _ict_time.time()))
         # OS 类比：Linux madvise(MADV_FREE) (Minchan Kim, 2016) — 标记页面可释放，移除 PTE mapping
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("madv_free"):
+            try:
                 from store_mm import madv_free_scan
                 mf_result = madv_free_scan(_log_conn)
                 if mf_result["unmapped"] > 0 or mf_result["freed"] > 0:
                     dmesg_log(_log_conn, DMESG_INFO, "madv_free",
                               f"madv_free: unmapped={mf_result['unmapped']} freed={mf_result['freed']} lazy={mf_result['total_lazy']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("madv_free", (mf_result.get("unmapped", 0) + mf_result.get("freed", 0)) > 0)
+            except Exception:
+                pass
 
         # ── 迭代512：gc_namespace — 测试命名空间清理 ──
         # OS 类比：Linux pid_ns_release_proc() — namespace 销毁时批量清理所有 artifacts
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("gc_namespace"):
+            try:
                 ns_result = gc_namespace(_log_conn)
                 if ns_result["traces_deleted"] > 0 or ns_result["chunks_deleted"] > 0:
                     dmesg_log(_log_conn, DMESG_INFO, "gc",
                               f"gc_namespace: projects={len(ns_result['test_projects'])} traces={ns_result['traces_deleted']} ckpts={ns_result['checkpoints_deleted']} chunks={ns_result['chunks_deleted']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("gc_namespace", (ns_result.get("traces_deleted", 0) + ns_result.get("chunks_deleted", 0)) > 0)
+            except Exception:
+                pass
 
         # ── 迭代63：Trace GC — recall_traces 生命周期管理 ──
         # OS 类比：logrotate — SessionStart 时清理过期日志
@@ -1300,8 +1412,8 @@ def main():
         # ── iter528：munlock_idle — 撤销过期 mlock 保护 ──
         # OS 类比：Linux munlock() + MADV_COLD (Minchan Kim, 2019)
         # mlock 保护的 chunk 若连续 N 轮 idle 且 access=0，说明从未被实战验证，撤销保护
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("munlock_idle"):
+            try:
                 from store_mm import munlock_idle
                 munlock_result = munlock_idle(_log_conn, project)
                 if munlock_result["unlocked"] > 0:
@@ -1309,15 +1421,16 @@ def main():
                               f"unlocked={munlock_result['unlocked']} scanned={munlock_result['scanned']} "
                               f"grace_skip={munlock_result['skipped_grace']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("munlock_idle", munlock_result.get("unlocked", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter542：oom_reaper_onfault — MLOCK_ONFAULT Demotion Reaper ──
         # OS 类比：Linux oom_reaper (Michal Hocko, 2016, kernel 4.6)
         # ONFAULT(-200) 零访问 chunk 处于保护死区（munlock_idle 不管，全局 oom_reaper 不触发）
         # 定向降级为 OOM_ADJ_PREFER(300)，允许正常回收路径处理
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("oom_reaper_onfault"):
+            try:
                 from store_mm import oom_reaper_onfault
                 reaper_result = oom_reaper_onfault(_log_conn, project)
                 if reaper_result["reaped"] > 0:
@@ -1325,14 +1438,15 @@ def main():
                               f"reaped={reaper_result['reaped']} scanned={reaper_result['scanned']} "
                               f"grace_skip={reaper_result['skipped_grace']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("oom_reaper_onfault", reaper_result.get("reaped", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter532：cpuset — FTS5 Index Quarantine for Bandwidth Violators ──
         # OS 类比：Linux sched_setaffinity() / cpuset (Ingo Molnár, 2004)
         # 召回率超 50% 的垄断 chunk 从 FTS5 物理移除，cooldown 后自动恢复
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("cpuset_quarantine"):
+            try:
                 from store_mm import cpuset_quarantine
                 cpuset_result = cpuset_quarantine(_log_conn, project)
                 if cpuset_result["quarantined"] or cpuset_result["released"]:
@@ -1340,15 +1454,16 @@ def main():
                               f"quarantine: new={len(cpuset_result['quarantined'])} "
                               f"released={len(cpuset_result['released'])} active={cpuset_result['active']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("cpuset_quarantine", bool(cpuset_result.get("quarantined") or cpuset_result.get("released")))
+            except Exception:
+                pass
 
         # ── iter545：vmstat_scan — Scan Efficiency & Dark Page Demotion ──
         # OS 类比：Linux /proc/vmstat pgscan/pgsteal (Mel Gorman, 2004)
         # 扫描效率审计：candidates_count(pgscan) vs top_k items(pgsteal)
         # dark pages（从未出现在 top_k）降级 oom_adj 为新知识让路
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("vmstat_scan"):
+            try:
                 from store_mm import vmstat_scan
                 vmstat_result = vmstat_scan(_log_conn, project)
                 if vmstat_result["dark_pages_demoted"] > 0 or vmstat_result["pgscan"] > 0:
@@ -1357,16 +1472,17 @@ def main():
                               f"pgscan={vmstat_result['pgscan']} pgsteal={vmstat_result['pgsteal']} "
                               f"dark={vmstat_result['dark_pages_total']} demoted={vmstat_result['dark_pages_demoted']}",
                               session_id=_session_id, project=project)
-        except Exception:
-            pass
+                _ts_report("vmstat_scan", vmstat_result.get("dark_pages_demoted", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter546：shrink_slab — Watermark-Independent Slab Object Reaper ──
         if _ict_enabled: _ict_milestones.append(("shrink_slab", _ict_time.time()))
         # OS 类比：do_shrink_slab() (Dave Chinner, 2013, mm/vmscan.c)
         # 回收高 oom_adj + 零访问的 zombie chunks，不依赖 kswapd 水位线
         slab_result = {"freeable": 0, "reclaimed": 0, "skipped_grace": 0}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("shrink_slab"):
+            try:
                 from store_mm import shrink_slab
                 slab_result = shrink_slab(_log_conn, project)
                 if slab_result["reclaimed"] > 0:
@@ -1376,22 +1492,22 @@ def main():
                               f"{slab_result['duration_ms']:.1f}ms",
                               session_id=_session_id, project=project)
                     _log_conn.commit()
-        except Exception:
-            pass
+                _ts_report("shrink_slab", slab_result.get("reclaimed", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter547：fstrim — Auxiliary Table Dead Block TRIM ──
         # OS 类比：fstrim / FITRIM ioctl (Lukas Czerner, 2010, kernel 2.6.37)
         # 辅助表（entity_edges/entity_map/chunk_coactivation/chunk_pins 等）
         # 保留指向已删除 chunks 的 stale references → TRIM 清除死块
         fstrim_result = {"total_trimmed": 0, "trimmed": {}}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("fstrim"):
+            try:
                 from config import get as _cfg547
                 if _cfg547("fstrim.enabled"):
                     from store_mm import fstrim
                     fstrim_result = fstrim(_log_conn)
                     if fstrim_result["total_trimmed"] > 0:
-                        # Build compact summary of non-zero tables
                         parts = [f"{k}={v}" for k, v in fstrim_result["trimmed"].items() if v > 0]
                         dmesg_log(_log_conn, DMESG_INFO, "fstrim",
                                   f"trimmed={fstrim_result['total_trimmed']} "
@@ -1399,15 +1515,16 @@ def main():
                                   f"{fstrim_result['duration_ms']:.1f}ms",
                                   session_id=_session_id, project=project)
                         _log_conn.commit()
-        except Exception:
-            pass
+                    _ts_report("fstrim", fstrim_result.get("total_trimmed", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter548：logrotate — Metadata Table Lifecycle Rotation ──
         # OS 类比：logrotate (Red Hat, 1997) — 元数据/日志表无 chunk 外键，
         # 不能被 fstrim 清理。logrotate 按 per-table policy 轮转过期记录。
         logrotate_result = {"total_rotated": 0, "rotated": {}}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("logrotate"):
+            try:
                 from config import get as _cfg548
                 if _cfg548("logrotate.enabled"):
                     from store_mm import logrotate
@@ -1420,16 +1537,17 @@ def main():
                                   f"{logrotate_result['duration_ms']:.1f}ms",
                                   session_id=_session_id, project=project)
                         _log_conn.commit()
-        except Exception:
-            pass
+                    _ts_report("logrotate", logrotate_result.get("total_rotated", 0) > 0)
+            except Exception:
+                pass
 
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。
         # SQLite freelist pages = invalidated pages, VACUUM = background GC compaction。
         vacuum_result = {"vacuumed": False, "freed_kb": 0}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("vacuum"):
+            try:
                 from config import get as _cfg549
                 if _cfg549("vacuum.enabled"):
                     from store_mm import vacuum
@@ -1442,15 +1560,16 @@ def main():
                                   f"{vacuum_result['duration_ms']:.1f}ms",
                                   session_id=_session_id, project=project)
                         _log_conn.commit()
-        except Exception:
-            pass
+                    _ts_report("vacuum", vacuum_result.get("vacuumed", False))
+            except Exception:
+                pass
 
         # ── iter550：release_task — Per-Session Runtime State Cleanup ──
         # OS 类比：release_task() (kernel/exit.c) — 进程退出时清理 per-process 运行时状态
         # (/proc/PID/, fd, mm_struct)。没有 release_task → zombie 资源泄漏。
         release_task_result = {"total_cleaned": 0, "phases": {}}
-        try:
-            if not _defer_reclaim:  # iter535: deferred_initcall gate
+        if not _defer_reclaim and not _ts_skip("release_task"):
+            try:
                 from config import get as _cfg550
                 if _cfg550("release_task.enabled"):
                     from store_mm import release_task
@@ -1472,8 +1591,9 @@ def main():
                                   f"{release_task_result['duration_ms']:.1f}ms",
                                   session_id=_session_id, project=project)
                         _log_conn.commit()
-        except Exception:
-            pass
+                    _ts_report("release_task", release_task_result.get("total_cleaned", 0) > 0)
+            except Exception:
+                pass
 
         # ── 迭代146：Swap GC — 孤儿 project 清理 ──
         if _ict_enabled: _ict_milestones.append(("gc_swap", _ict_time.time()))
@@ -1535,6 +1655,83 @@ def main():
         except Exception:
             pass  # initcall_debug 失败不影响 SessionStart
 
+        # ── iter553: sched_deadline — 喂入 timing 数据 + 保存 ──
+        if _sd_enabled and _ict_timings:
+            try:
+                for _sd_name, _sd_ms, _sd_ok in _ict_timings:
+                    if _sd_ok:  # 只对成功执行的子系统更新 EMA
+                        _sd_state = sched_deadline_update(_sd_state, _sd_name, _sd_ms)
+                sched_deadline_save(_sd_state)
+                _sd_stats_result = sched_deadline_stats(_sd_state)
+                if _sd_throttled_subsystems:
+                    dmesg_log(_log_conn, DMESG_DEBUG, "sched_deadline",
+                              f"throttled={len(_sd_throttled_subsystems)} "
+                              f"({','.join(_sd_throttled_subsystems)}) "
+                              f"over_budget={_sd_stats_result['over_budget']}",
+                              session_id=_session_id, project=project)
+            except Exception:
+                pass
+
+        # ── iter554: cgroup_budget — 从 timing 数据计算 per-group 合计 + settle ──
+        if _cg_enabled and _ict_timings:
+            try:
+                # 按 group 聚合本 session 各子系统耗时
+                _cg_group_totals = {}
+                for _cg_name, _cg_ms, _cg_ok in _ict_timings:
+                    if _cg_ok:
+                        _cg_grp = _SUBSYSTEM_TO_GROUP.get(_cg_name)
+                        if _cg_grp:
+                            _cg_group_totals[_cg_grp] = _cg_group_totals.get(_cg_grp, 0.0) + _cg_ms
+                # settle: 用实际合计更新 EMA + throttle 判定
+                _cg_state = cgroup_budget_settle(_cg_state, _cg_group_totals)
+                cgroup_budget_save(_cg_state)
+                _cg_stats_result = cgroup_budget_stats(_cg_state)
+                if _cg_throttled_subsystems:
+                    dmesg_log(_log_conn, DMESG_DEBUG, "cgroup_budget",
+                              f"throttled={len(_cg_throttled_subsystems)} "
+                              f"({','.join(_cg_throttled_subsystems)}) "
+                              f"over_budget_groups={_cg_stats_result['over_budget_groups']}",
+                              session_id=_session_id, project=project)
+            except Exception:
+                pass
+
+        # ── iter552: timer_slack — 保存状态 + dmesg 统计 ──
+        if _ts_enabled:
+            try:
+                _ts_stats = timer_slack_stats(_ts_state)
+                if _ts_skipped_subsystems:
+                    dmesg_log(_log_conn, DMESG_DEBUG, "timer_slack",
+                              f"skipped={len(_ts_skipped_subsystems)} "
+                              f"({','.join(_ts_skipped_subsystems)}) "
+                              f"idle={_ts_stats['idle_subsystems']}",
+                              session_id=_session_id, project=project)
+                timer_slack_save(_ts_state)
+            except Exception:
+                pass
+
+        # ── iter555: schedstat — 从 initcall_debug timing 记录执行统计 + session boot time ──
+        if _ss_enabled:
+            try:
+                # 记录每个已执行子系统的 runtime + did_work
+                if _ict_enabled:
+                    for _ss_name, _ss_ms, _ss_ok in _ict_timings:
+                        if _ss_ok:
+                            # did_work: 用 elapsed > 1ms 作为"有实质工作"的保守估算
+                            _ss_state = schedstat_record_exec(_ss_state, _ss_name, _ss_ms, _ss_ms > 1.0)
+                    # 记录 session boot time
+                    _ss_boot_ms = _ict_result.get("total_ms", 0.0) if _ict_result else 0.0
+                    if _ss_boot_ms > 0:
+                        _ss_state = schedstat_record_session(_ss_state, _ss_boot_ms)
+                # blame line → dmesg
+                _ss_blame_line = schedstat_blame(_ss_state)
+                if _ss_blame_line:
+                    dmesg_log(_log_conn, DMESG_DEBUG, "schedstat",
+                              _ss_blame_line,
+                              session_id=_session_id, project=project)
+                schedstat_save(_ss_state)
+            except Exception:
+                pass
+
         # 迭代29 dmesg：SessionStart 加载记录
         damon_summary = ""
         damon_hm = damon_result.get("heatmap", {})
@@ -1591,8 +1788,12 @@ def main():
         if release_task_result.get("total_cleaned", 0) > 0:
             release_task_summary = f" release_task={release_task_result['total_cleaned']}cleaned"
 
+        cgroup_summary = ""
+        if _cg_throttled_subsystems:
+            cgroup_summary = f" cgroup_throttled={len(_cg_throttled_subsystems)}"
+
         dmesg_log(_log_conn, DMESG_INFO, "loader",
-                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{logrotate_summary}{vacuum_summary}{release_task_summary}{consolidation_summary}",
+                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{logrotate_summary}{vacuum_summary}{release_task_summary}{consolidation_summary}{cgroup_summary}",
                   session_id=_session_id, project=project)
         _log_conn.commit()
         _log_conn.close()

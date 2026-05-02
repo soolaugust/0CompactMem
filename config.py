@@ -3274,12 +3274,45 @@ _REGISTRY: dict = {
     "release_task.checkpoint_max_age_hours": (48, int, 1, 720, None,
         "已消费 checkpoints 最大保留时间（小时）"),
 
+    # ── iter552: timer_slack — Idle Subsystem Frequency Reduction ──
+    # OS 类比：Linux timer_slack_ns (Arjan van de Ven, 2008, kernel 2.6.28)
+    "timer_slack.idle_threshold": (3, int, 1, 10, None,
+        "连续空转 N 次后开始降频跳过"),
+    "timer_slack.max_skip_sessions": (4, int, 1, 10, None,
+        "最大连续跳过 session 数（指数退避上限）"),
+    "timer_slack.enabled": (True, bool, None, None, None,
+        "是否启用 timer_slack 子系统降频调度"),
+
     # ── iter551: initcall_debug — Boot Subsystem Latency Instrumentation ──
     # OS 类比：Linux initcall_debug (Arjan van de Ven, 2008, kernel 2.6.24)
     "initcall_debug.enabled": (True, bool, None, None, None,
         "是否启用 SessionStart per-subsystem 延迟追踪"),
     "initcall_debug.top_n": (5, int, 1, 30, None,
         "blame 输出中展示的 Top-N 最慢子系统数"),
+
+    # ── iter553: sched_deadline — Per-Subsystem Runtime Budget Enforcement ──
+    # OS 类比：Linux SCHED_DEADLINE (Luca Abeni & Juri Lelli, 2014, kernel 3.14)
+    "sched_deadline.enabled": (True, bool, None, None, None,
+        "是否启用 per-subsystem 运行时预算强制执行"),
+    "sched_deadline.budget_ms": (20.0, float, 1.0, 200.0, None,
+        "单个子系统 EMA 运行时预算上限(ms)，超出则 throttle"),
+    "sched_deadline.throttle_sessions": (3, int, 1, 10, None,
+        "超预算子系统被节流的 session 数"),
+
+    # ── iter554: cgroup_budget — Subsystem Group Budget Enforcement ──
+    # OS 类比：Linux cgroup v2 memory.max (Tejun Heo, 2015, kernel 4.5)
+    "cgroup_budget.enabled": (True, bool, None, None, None,
+        "是否启用子系统分组预算强制执行"),
+    "cgroup_budget.group_budget_ms": (60.0, float, 10.0, 500.0, None,
+        "每组子系统合计 EMA 预算上限(ms)，超出则 throttle 整组"),
+    "cgroup_budget.throttle_sessions": (2, int, 1, 5, None,
+        "超预算组被节流的 session 数"),
+
+    # ── iter555: schedstat — Unified Scheduler Statistics Accumulator ──
+    "schedstat.enabled": (True, bool, None, None, None,
+        "是否启用跨 session 调度统计累积"),
+    "schedstat.max_history_sessions": (20, int, 5, 100, None,
+        "boot_times_ms 环形缓冲区保留的最近 session 数"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

@@ -8165,6 +8165,119 @@ def release_task(conn: sqlite3.Connection, project: str = None) -> dict:
 #   2. initcall_debug() — 分析 timings，输出 Top-N 最慢 + total + deferred 节省
 #   3. loader.py 集成：wrap 每个子系统调用，SessionStart 末尾写 dmesg
 
+# ── iter552: timer_slack — Idle Subsystem Frequency Reduction ──────────
+# OS 类比：Linux timer_slack_ns (Arjan van de Ven, 2008, kernel 2.6.28)
+#   为非精确定时器添加 slack，内核将相近 timer 合并到同一 wakeup 点（batch），
+#   减少不必要的 CPU 唤醒。Android timer_slack_ms 在 PowerManager 中进一步放大
+#   休眠态 slack。核心：如果定时回调"大多数时候 nothing to do"，增大 slack 降频。
+
+_TIMER_SLACK_FILE = MEMORY_OS_DIR / "timer_slack_state.json"
+
+# 关键子系统标记为 CLOCK_REALTIME — 不可降频，每次 session 必须执行
+_CLOCK_REALTIME_SUBSYSTEMS = frozenset({
+    "watchdog", "autotune", "initcall_debug", "mglru_aging",
+    "page_idle",  # bitmap 标记必须每次执行保证追踪连续性
+    "gc_traces", "rmap_sweep", "vma_merge",  # 引用完整性
+})
+
+
+def timer_slack_load() -> dict:
+    """
+    加载 timer_slack 状态文件。
+    格式: {subsystem_name: {"idle_streak": N, "skip_sessions": N}, ...}
+    """
+    try:
+        if _TIMER_SLACK_FILE.exists():
+            data = json.loads(_TIMER_SLACK_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def timer_slack_should_skip(state: dict, subsystem: str) -> bool:
+    """
+    判断子系统是否应被跳过（处于 slack 休眠期）。
+
+    Returns True 表示跳过，False 表示执行。
+    CLOCK_REALTIME 子系统永远返回 False。
+    """
+    if subsystem in _CLOCK_REALTIME_SUBSYSTEMS:
+        return False
+    entry = state.get(subsystem)
+    if not entry or not isinstance(entry, dict):
+        return False
+    return entry.get("skip_sessions", 0) > 0
+
+
+def timer_slack_report(state: dict, subsystem: str, did_work: bool) -> dict:
+    """
+    汇报子系统执行结果，更新 slack 状态。
+
+    did_work=True  → reset idle_streak=0, skip_sessions=0
+    did_work=False → idle_streak++, 超过阈值时设置 skip_sessions
+
+    Returns: 更新后的完整 state dict
+    """
+    from config import get as _cfg
+    slack_threshold = int(_cfg("timer_slack.idle_threshold"))
+    max_skip = int(_cfg("timer_slack.max_skip_sessions"))
+
+    if subsystem in _CLOCK_REALTIME_SUBSYSTEMS:
+        # CLOCK_REALTIME 不参与 slack 调度
+        return state
+
+    entry = state.get(subsystem, {"idle_streak": 0, "skip_sessions": 0})
+    if not isinstance(entry, dict):
+        entry = {"idle_streak": 0, "skip_sessions": 0}
+
+    if did_work:
+        entry["idle_streak"] = 0
+        entry["skip_sessions"] = 0
+    else:
+        entry["idle_streak"] = entry.get("idle_streak", 0) + 1
+        if entry["idle_streak"] >= slack_threshold:
+            # 指数退避但有上限：skip = min(idle_streak - threshold + 1, max_skip)
+            entry["skip_sessions"] = min(
+                entry["idle_streak"] - slack_threshold + 1, max_skip
+            )
+
+    state[subsystem] = entry
+    return state
+
+
+def timer_slack_tick(state: dict) -> dict:
+    """
+    每个 session 开始时调用：所有被跳过的子系统 skip_sessions -= 1。
+    skip_sessions 到 0 时下次将执行。
+
+    Returns: tick 后的 state dict
+    """
+    for sub, entry in state.items():
+        if isinstance(entry, dict) and entry.get("skip_sessions", 0) > 0:
+            entry["skip_sessions"] -= 1
+    return state
+
+
+def timer_slack_save(state: dict) -> None:
+    """持久化 timer_slack 状态到磁盘。"""
+    try:
+        _TIMER_SLACK_FILE.write_text(json.dumps(state, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def timer_slack_stats(state: dict) -> dict:
+    """返回 timer_slack 统计摘要。"""
+    total = len(state)
+    skipping = sum(1 for e in state.values()
+                   if isinstance(e, dict) and e.get("skip_sessions", 0) > 0)
+    idle = sum(1 for e in state.values()
+               if isinstance(e, dict) and e.get("idle_streak", 0) >= 3)
+    return {"total_tracked": total, "currently_skipping": skipping, "idle_subsystems": idle}
+
+
 class _InitcallTimer:
     """
     轻量级 SessionStart 子系统计时收集器。
@@ -8282,4 +8395,664 @@ def initcall_debug(timings: list, top_n: int = 5) -> dict:
         "failed": failed,
         "blame_line": blame_line,
         "below_1ms": below_1ms,
+    }
+
+
+# ── iter553: sched_deadline — Per-Subsystem Runtime Budget Enforcement ────────
+# OS 类比：Linux SCHED_DEADLINE (Luca Abeni & Juri Lelli, 2014, kernel 3.14, sched/deadline.c)
+#
+# 每个 SCHED_DEADLINE 任务声明 (runtime, deadline, period) 三元组：
+#   - runtime: 每个 period 内允许消耗的 CPU 时间上限
+#   - 超出 runtime → dl_throttled=1，任务从 runqueue 中移除直到下个 period
+#   - 与 CFS nice 值不同：nice 是相对权重（soft），deadline 是硬预算（hard enforcement）
+#
+# Memory-OS 等价：
+#   initcall_debug(iter551) 只测量不执行（类似 perf stat）
+#   timer_slack(iter552) 只跳过空转子系统（idle_streak >= threshold）
+#   sched_deadline 补充第三维度：跳过超预算子系统（runtime EMA > budget）
+#
+#   问题：sleep_consolidation 占 39%（27ms/69ms），但 timer_slack 不管它
+#   （因为它 did_work=True）。sched_deadline 说："你做了工作，但太慢了，
+#   throttle 你 N 个 session，让总 boot time 回到合理范围。"
+#
+# 与 timer_slack 的关系（互补）：
+#   timer_slack:     idle (did_work=False) for N sessions → skip
+#   sched_deadline:  slow (EMA > budget_ms) → throttle for N sessions
+#   两者独立判断，任一触发则跳过。
+
+_SCHED_DEADLINE_FILE = MEMORY_OS_DIR / "sched_deadline_state.json"
+
+# 关键子系统永不被 deadline throttle（等同 CLOCK_REALTIME）
+_DEADLINE_EXEMPT_SUBSYSTEMS = frozenset({
+    "watchdog", "autotune", "initcall_debug",
+    "mglru_aging", "gc_traces", "rmap_sweep", "vma_merge",
+})
+
+
+def sched_deadline_load() -> dict:
+    """
+    加载 sched_deadline 持久化状态。
+
+    格式: {subsystem_name: {
+        "ema_ms": float,       # 运行时 EMA (指数移动平均)
+        "throttle_sessions": int,  # 剩余 throttle 轮数
+        "samples": int,        # 样本数（用于 EMA 启动阶段）
+    }, ...}
+    """
+    try:
+        if _SCHED_DEADLINE_FILE.exists():
+            data = json.loads(_SCHED_DEADLINE_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def sched_deadline_save(state: dict) -> None:
+    """持久化 sched_deadline 状态到磁盘。"""
+    try:
+        _SCHED_DEADLINE_FILE.write_text(json.dumps(state, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def sched_deadline_update(state: dict, name: str, elapsed_ms: float) -> dict:
+    """
+    记录子系统本次执行耗时，更新 EMA。
+
+    EMA 公式 (α=0.3): ema = α × current + (1-α) × prev_ema
+    α=0.3 意味着最近一次占 30% 权重，历史占 70%——
+    既不被单次 spike 误导，又能在 3-4 个 session 内收敛到新均值。
+
+    首次记录直接用当前值作为 EMA（冷启动无历史）。
+
+    超过 budget_ms 时设置 throttle_sessions。
+    """
+    from config import get as _cfg
+
+    if name in _DEADLINE_EXEMPT_SUBSYSTEMS:
+        return state
+
+    budget_ms = float(_cfg("sched_deadline.budget_ms"))
+    throttle_n = int(_cfg("sched_deadline.throttle_sessions"))
+    alpha = 0.3  # EMA smoothing factor
+
+    entry = state.get(name, {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0})
+    if not isinstance(entry, dict):
+        entry = {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0}
+
+    samples = entry.get("samples", 0)
+    prev_ema = entry.get("ema_ms", 0.0)
+
+    # 首次样本直接赋值；后续按 EMA 平滑
+    if samples == 0:
+        new_ema = elapsed_ms
+    else:
+        new_ema = alpha * elapsed_ms + (1 - alpha) * prev_ema
+
+    entry["ema_ms"] = round(new_ema, 2)
+    entry["samples"] = samples + 1
+
+    # 判断是否超预算：需要至少 3 个样本（避免冷启动误判）
+    if entry["samples"] >= 3 and new_ema > budget_ms:
+        entry["throttle_sessions"] = throttle_n
+    elif new_ema <= budget_ms:
+        # EMA 回到预算内 → 解除 throttle
+        entry["throttle_sessions"] = 0
+
+    state[name] = entry
+    return state
+
+
+def sched_deadline_should_throttle(state: dict, name: str) -> bool:
+    """
+    判断子系统是否被 deadline throttle。
+
+    Returns True 表示应跳过（超预算被节流），False 表示正常执行。
+    豁免子系统永远返回 False。
+    """
+    if name in _DEADLINE_EXEMPT_SUBSYSTEMS:
+        return False
+    entry = state.get(name)
+    if not entry or not isinstance(entry, dict):
+        return False
+    return entry.get("throttle_sessions", 0) > 0
+
+
+def sched_deadline_tick(state: dict) -> dict:
+    """
+    每个 session 开始时调用：所有被 throttle 的子系统 throttle_sessions -= 1。
+    throttle_sessions 到 0 时下次将执行（自动恢复）。
+    """
+    for sub, entry in state.items():
+        if isinstance(entry, dict) and entry.get("throttle_sessions", 0) > 0:
+            entry["throttle_sessions"] -= 1
+    return state
+
+
+def sched_deadline_stats(state: dict) -> dict:
+    """返回 sched_deadline 统计摘要。"""
+    total = len(state)
+    throttled = sum(1 for e in state.values()
+                    if isinstance(e, dict) and e.get("throttle_sessions", 0) > 0)
+    over_budget = 0
+    try:
+        from config import get as _cfg
+        budget_ms = float(_cfg("sched_deadline.budget_ms"))
+        over_budget = sum(1 for e in state.values()
+                         if isinstance(e, dict) and e.get("ema_ms", 0) > budget_ms)
+    except Exception:
+        pass
+    return {
+        "total_tracked": total,
+        "currently_throttled": throttled,
+        "over_budget": over_budget,
+    }
+
+
+# ── iter554: cgroup_budget — Subsystem Group Budget Enforcement ────────────────
+# OS 类比：Linux cgroup v2 memory.max (Tejun Heo, 2015, kernel 4.5, kernel/cgroup/)
+#
+# Linux cgroup 演化:
+#   进程级调度（nice/SCHED_DEADLINE）→ 分组级资源控制（cgroup v1/v2）
+#   per-task 预算不足以控制"群体效应"：单个子系统 15ms 不超标，
+#   但 reclaim 组 9 个子系统 × 15ms = 135ms，远超合理 boot time。
+#   cgroup v2 memory.max 对组施加 hard ceiling：组内进程合计不能超过上限。
+#
+# Memory-OS 等价：
+#   sched_deadline(iter553) = per-subsystem 预算（单任务超 20ms → throttle）
+#   cgroup_budget(iter554) = per-group 预算（组合计超 group_budget → 组内后续跳过）
+#
+#   问题：reclaim 组 9 个子系统，每个 10-18ms 不触发 sched_deadline(20ms)，
+#   但合计 90-162ms 让 boot 变慢。cgroup_budget 在组级别 enforce 上限。
+#
+# 与 sched_deadline 的关系（互补）：
+#   sched_deadline:  per-task hard budget（单个超标 → throttle 个体）
+#   cgroup_budget:   per-group hard budget（组合计超标 → throttle 整组剩余）
+
+_CGROUP_BUDGET_FILE = Path(os.environ.get(
+    "MEMORY_OS_DIR", str(Path.home() / ".claude" / "memory-os")
+)) / "cgroup_budget_state.json"
+
+# 子系统分组定义（按功能域）
+# exempt 子系统（CLOCK_REALTIME / DEADLINE_EXEMPT）不属于任何 cgroup
+CGROUP_GROUPS = {
+    "reclaim": [
+        "shrink_dcache", "oom_reaper", "overcommit_kill", "free_pages_ok",
+        "kfree_rcu", "put_page", "munlock_idle", "oom_reaper_onfault", "shrink_slab",
+    ],
+    "gc": [
+        "gc_namespace", "gc_swap",
+        "trim_shadow", "fstrim", "logrotate", "vacuum", "release_task",
+    ],
+    "rebalance": [
+        "numa_balancing", "mincore", "ksm_scan", "vmstat_scan",
+        "cpuset_quarantine", "madv_free",
+    ],
+    "audit": [
+        "damon_scan", "mem_scrub", "perf_counters", "migrate_pages",
+    ],
+}
+
+# 反向索引：subsystem → group
+_SUBSYSTEM_TO_GROUP = {}
+for _grp, _members in CGROUP_GROUPS.items():
+    for _m in _members:
+        _SUBSYSTEM_TO_GROUP[_m] = _grp
+
+
+def cgroup_budget_load() -> dict:
+    """
+    加载 cgroup_budget 持久化状态。
+
+    格式: {group_name: {
+        "ema_ms": float,           # 组合计 EMA (指数移动平均)
+        "throttle_sessions": int,  # 剩余组 throttle 轮数
+        "samples": int,            # 样本数
+        "consumed_ms": float,      # 当前 session 已消耗（运行时累计）
+    }, ...}
+    """
+    try:
+        if _CGROUP_BUDGET_FILE.exists():
+            data = json.loads(_CGROUP_BUDGET_FILE.read_text())
+            if isinstance(data, dict):
+                # 清除运行时字段（每 session 重新累计）
+                for grp in data.values():
+                    if isinstance(grp, dict):
+                        grp["consumed_ms"] = 0.0
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def cgroup_budget_save(state: dict) -> None:
+    """持久化 cgroup_budget 状态到磁盘。"""
+    try:
+        # 保存前清除运行时字段
+        save_state = {}
+        for grp, entry in state.items():
+            if isinstance(entry, dict):
+                save_state[grp] = {
+                    "ema_ms": entry.get("ema_ms", 0.0),
+                    "throttle_sessions": entry.get("throttle_sessions", 0),
+                    "samples": entry.get("samples", 0),
+                }
+        _CGROUP_BUDGET_FILE.write_text(json.dumps(save_state, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def cgroup_budget_should_throttle(state: dict, subsystem: str) -> bool:
+    """
+    判断子系统所在 cgroup 是否被 throttle。
+
+    两个触发条件（任一为 True → 跳过）：
+      1. 组级 EMA 历史超标（throttle_sessions > 0）— 上 session 组合计超标
+      2. 当前 session 组内已消耗超出 budget — 实时预算耗尽
+
+    不属于任何 cgroup 的子系统永远返回 False。
+    CLOCK_REALTIME 子系统（引用完整性保证）永远返回 False。
+    """
+    # CLOCK_REALTIME 子系统强制执行，不受 cgroup 控制
+    if subsystem in _CLOCK_REALTIME_SUBSYSTEMS:
+        return False
+    group = _SUBSYSTEM_TO_GROUP.get(subsystem)
+    if not group:
+        return False
+
+    entry = state.get(group)
+    if not entry or not isinstance(entry, dict):
+        return False
+
+    # 条件 1：历史超标 throttle
+    if entry.get("throttle_sessions", 0) > 0:
+        return True
+
+    # 条件 2：当前 session 实时预算耗尽
+    try:
+        from config import get as _cfg
+        budget_ms = float(_cfg("cgroup_budget.group_budget_ms"))
+        consumed = entry.get("consumed_ms", 0.0)
+        if consumed >= budget_ms:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def cgroup_budget_consume(state: dict, subsystem: str, elapsed_ms: float) -> dict:
+    """
+    记录子系统执行消耗，累加到所在 cgroup 的当前 session 已消耗量。
+
+    每个子系统执行完后调用，用于实时预算检查。
+    """
+    group = _SUBSYSTEM_TO_GROUP.get(subsystem)
+    if not group:
+        return state
+
+    if group not in state:
+        state[group] = {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0, "consumed_ms": 0.0}
+
+    entry = state[group]
+    if not isinstance(entry, dict):
+        state[group] = {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0, "consumed_ms": 0.0}
+        entry = state[group]
+
+    entry["consumed_ms"] = entry.get("consumed_ms", 0.0) + elapsed_ms
+    return state
+
+
+def cgroup_budget_settle(state: dict, group_totals: dict) -> dict:
+    """
+    Session 结束时，用 initcall_debug 的 per-group 合计数据更新 EMA。
+
+    参数：
+      group_totals — {group_name: total_ms} 本 session 各组实际耗时合计
+
+    EMA 公式 (α=0.3): ema = α × current + (1-α) × prev_ema
+    组 EMA 超过 group_budget_ms → 设置 throttle_sessions
+
+    注意：throttle_sessions 对整组生效——下个 session 组内所有子系统跳过。
+    """
+    try:
+        from config import get as _cfg
+        budget_ms = float(_cfg("cgroup_budget.group_budget_ms"))
+        throttle_n = int(_cfg("cgroup_budget.throttle_sessions"))
+    except Exception:
+        budget_ms = 60.0
+        throttle_n = 2
+
+    alpha = 0.3
+
+    for group, total_ms in group_totals.items():
+        if group not in state:
+            state[group] = {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0, "consumed_ms": 0.0}
+
+        entry = state[group]
+        if not isinstance(entry, dict):
+            state[group] = {"ema_ms": 0.0, "throttle_sessions": 0, "samples": 0, "consumed_ms": 0.0}
+            entry = state[group]
+
+        samples = entry.get("samples", 0)
+        prev_ema = entry.get("ema_ms", 0.0)
+
+        if samples == 0:
+            new_ema = total_ms
+        else:
+            new_ema = alpha * total_ms + (1 - alpha) * prev_ema
+
+        entry["ema_ms"] = round(new_ema, 2)
+        entry["samples"] = samples + 1
+
+        # 超预算判定：至少 2 个样本（组级冷启动容忍度比个体低）
+        if entry["samples"] >= 2 and new_ema > budget_ms:
+            entry["throttle_sessions"] = throttle_n
+        elif new_ema <= budget_ms:
+            entry["throttle_sessions"] = 0
+
+    return state
+
+
+def cgroup_budget_tick(state: dict) -> dict:
+    """
+    每个 session 开始时调用：所有被 throttle 的 group throttle_sessions -= 1。
+    """
+    for group, entry in state.items():
+        if isinstance(entry, dict) and entry.get("throttle_sessions", 0) > 0:
+            entry["throttle_sessions"] -= 1
+    return state
+
+
+def cgroup_budget_stats(state: dict) -> dict:
+    """返回 cgroup_budget 统计摘要。"""
+    total_groups = len(CGROUP_GROUPS)
+    throttled_groups = 0
+    over_budget_groups = 0
+    group_details = {}
+
+    try:
+        from config import get as _cfg
+        budget_ms = float(_cfg("cgroup_budget.group_budget_ms"))
+    except Exception:
+        budget_ms = 60.0
+
+    for group in CGROUP_GROUPS:
+        entry = state.get(group, {})
+        if isinstance(entry, dict):
+            ema = entry.get("ema_ms", 0.0)
+            throttled = entry.get("throttle_sessions", 0) > 0
+            over = ema > budget_ms
+            if throttled:
+                throttled_groups += 1
+            if over:
+                over_budget_groups += 1
+            group_details[group] = {
+                "ema_ms": ema,
+                "throttled": throttled,
+                "over_budget": over,
+                "members": len(CGROUP_GROUPS[group]),
+            }
+
+    return {
+        "total_groups": total_groups,
+        "throttled_groups": throttled_groups,
+        "over_budget_groups": over_budget_groups,
+        "budget_ms": budget_ms,
+        "groups": group_details,
+    }
+
+
+# ── iter555: schedstat — Unified Scheduler Statistics Accumulator ────────────
+# OS 类比：Linux SCHEDSTAT (Mike Galbraith, 2004, kernel 2.6.7, kernel/sched/stats.c)
+#   /proc/schedstat 暴露 per-CPU 调度统计：total runtime, wait time, timeslices。
+#   /proc/PID/schedstat 暴露 per-task 级别统计。
+#   管理员通过这些累积计数器识别调度病理（饥饿、过度抢占），
+#   无需打开 ftrace 全量追踪（开销 <1%）。
+#
+# 根因：timer_slack(iter552) / sched_deadline(iter553) / cgroup_budget(iter554)
+#   各自在独立 JSON 文件中维护状态，但都是「当前快照」——
+#   不保留跨 session 的累积历史。无法回答：
+#     - 某子系统历史上被跳过了多少次？主要原因是什么？
+#     - sched_deadline 的 throttle 是否有效（throttle 后 boot time 下降）？
+#     - boot time 跨 session 的趋势是上升还是下降？
+#     - 哪些子系统是"空转大户"（idle 率 > 80%）？
+#
+# 实现：
+#   schedstat_state.json 持久化累积统计，per-subsystem 记录：
+#     - exec_count: 总执行次数
+#     - skip_idle: timer_slack 空转跳过次数
+#     - skip_throttle: sched_deadline 超预算节流次数
+#     - skip_group_throttle: cgroup_budget 分组预算节流次数
+#     - total_runtime_ms: 累积运行时间
+#     - did_work_count: 实际做了工作的次数（非空转执行）
+#   全局记录：
+#     - session_count: 总 session 数
+#     - boot_times_ms: 最近 N 个 session 的 boot time（环形缓冲区）
+
+_SCHEDSTAT_FILE = os.path.join(MEMORY_OS_DIR, "schedstat_state.json")
+
+
+def schedstat_load() -> dict:
+    """加载 schedstat 累积统计状态。"""
+    try:
+        with open(_SCHEDSTAT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return {"subsystems": {}, "session_count": 0, "boot_times_ms": []}
+
+
+def schedstat_save(state: dict) -> None:
+    """持久化 schedstat 状态。"""
+    try:
+        os.makedirs(os.path.dirname(_SCHEDSTAT_FILE), exist_ok=True)
+        with open(_SCHEDSTAT_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def schedstat_record_skip(state: dict, subsystem: str, reason: str) -> dict:
+    """
+    记录子系统被跳过。
+
+    reason: "idle" (timer_slack), "throttle" (sched_deadline),
+            "group_throttle" (cgroup_budget)
+    """
+    subs = state.setdefault("subsystems", {})
+    entry = subs.setdefault(subsystem, _schedstat_empty_entry())
+    if not isinstance(entry, dict):
+        entry = _schedstat_empty_entry()
+        subs[subsystem] = entry
+
+    key = f"skip_{reason}"
+    if key in entry:
+        entry[key] = entry.get(key, 0) + 1
+    # 不论原因，总跳过计数 +1 方便计算 skip_rate
+    entry["skip_total"] = entry.get("skip_total", 0) + 1
+    return state
+
+
+def schedstat_record_exec(state: dict, subsystem: str,
+                          elapsed_ms: float, did_work: bool) -> dict:
+    """
+    记录子系统执行结果。
+
+    elapsed_ms: 本次执行耗时
+    did_work: 是否实际做了工作（True=有效执行，False=空转执行）
+    """
+    subs = state.setdefault("subsystems", {})
+    entry = subs.setdefault(subsystem, _schedstat_empty_entry())
+    if not isinstance(entry, dict):
+        entry = _schedstat_empty_entry()
+        subs[subsystem] = entry
+
+    entry["exec_count"] = entry.get("exec_count", 0) + 1
+    entry["total_runtime_ms"] = round(entry.get("total_runtime_ms", 0.0) + elapsed_ms, 2)
+    if did_work:
+        entry["did_work_count"] = entry.get("did_work_count", 0) + 1
+    return state
+
+
+def schedstat_record_session(state: dict, boot_time_ms: float,
+                             max_history: int = 0) -> dict:
+    """
+    记录一次 session boot 完成。
+
+    boot_time_ms: 本次 SessionStart 总耗时
+    max_history: boot_times_ms 环形缓冲区大小（0=从 config 读取）
+    """
+    if max_history <= 0:
+        try:
+            from config import get as _cfg
+            max_history = int(_cfg("schedstat.max_history_sessions"))
+        except Exception:
+            max_history = 20
+
+    state["session_count"] = state.get("session_count", 0) + 1
+
+    boot_times = state.get("boot_times_ms", [])
+    if not isinstance(boot_times, list):
+        boot_times = []
+    boot_times.append(round(boot_time_ms, 2))
+    # 环形缓冲区：只保留最近 max_history 条
+    if len(boot_times) > max_history:
+        boot_times = boot_times[-max_history:]
+    state["boot_times_ms"] = boot_times
+    return state
+
+
+def schedstat_report(state: dict) -> dict:
+    """
+    生成 schedstat 统计报告。
+
+    返回 dict：
+      session_count — 总 session 数
+      boot_time_avg_ms — 平均 boot time
+      boot_time_trend — "improving" / "stable" / "degrading"（比较前半 vs 后半均值）
+      subsystem_count — 被追踪的子系统数
+      top_idle — skip_rate 最高的 N 个子系统（空转大户）
+      top_slow — avg_runtime 最高的 N 个子系统
+      skip_breakdown — {idle: N, throttle: N, group_throttle: N} 全局跳过原因分布
+      effective_work_rate — 全局有效工作率 = did_work_count / exec_count
+    """
+    subs = state.get("subsystems", {})
+    boot_times = state.get("boot_times_ms", [])
+    session_count = state.get("session_count", 0)
+
+    # Boot time 统计
+    boot_avg = round(sum(boot_times) / len(boot_times), 2) if boot_times else 0.0
+    boot_trend = "stable"
+    if len(boot_times) >= 4:
+        mid = len(boot_times) // 2
+        first_half = sum(boot_times[:mid]) / mid
+        second_half = sum(boot_times[mid:]) / (len(boot_times) - mid)
+        # 后半比前半低 10%+ → improving；高 10%+ → degrading
+        if first_half > 0:
+            change_pct = (second_half - first_half) / first_half
+            if change_pct < -0.10:
+                boot_trend = "improving"
+            elif change_pct > 0.10:
+                boot_trend = "degrading"
+
+    # 全局跳过原因分布
+    skip_breakdown = {"idle": 0, "throttle": 0, "group_throttle": 0}
+    total_exec = 0
+    total_did_work = 0
+    sub_stats = []
+
+    for name, entry in subs.items():
+        if not isinstance(entry, dict):
+            continue
+        exec_count = entry.get("exec_count", 0)
+        skip_total = entry.get("skip_total", 0)
+        did_work = entry.get("did_work_count", 0)
+        total_ms = entry.get("total_runtime_ms", 0.0)
+        attempts = exec_count + skip_total
+
+        skip_breakdown["idle"] += entry.get("skip_idle", 0)
+        skip_breakdown["throttle"] += entry.get("skip_throttle", 0)
+        skip_breakdown["group_throttle"] += entry.get("skip_group_throttle", 0)
+        total_exec += exec_count
+        total_did_work += did_work
+
+        skip_rate = round(skip_total / attempts, 3) if attempts > 0 else 0.0
+        avg_ms = round(total_ms / exec_count, 2) if exec_count > 0 else 0.0
+        work_rate = round(did_work / exec_count, 3) if exec_count > 0 else 0.0
+
+        sub_stats.append({
+            "name": name,
+            "exec_count": exec_count,
+            "skip_total": skip_total,
+            "skip_rate": skip_rate,
+            "avg_runtime_ms": avg_ms,
+            "work_rate": work_rate,
+        })
+
+    # Top idle（skip_rate 最高，至少有 2 次 attempt）
+    eligible = [s for s in sub_stats if s["exec_count"] + s["skip_total"] >= 2]
+    top_idle = sorted(eligible, key=lambda x: x["skip_rate"], reverse=True)[:5]
+    top_slow = sorted(eligible, key=lambda x: x["avg_runtime_ms"], reverse=True)[:5]
+
+    effective_work_rate = round(total_did_work / total_exec, 3) if total_exec > 0 else 0.0
+
+    return {
+        "session_count": session_count,
+        "boot_time_avg_ms": boot_avg,
+        "boot_time_trend": boot_trend,
+        "subsystem_count": len(subs),
+        "top_idle": top_idle,
+        "top_slow": top_slow,
+        "skip_breakdown": skip_breakdown,
+        "effective_work_rate": effective_work_rate,
+    }
+
+
+def schedstat_blame(state: dict) -> str:
+    """
+    生成一行 blame 摘要（类似 initcall_debug blame_line），
+    适合写入 dmesg。
+
+    格式：sessions=N avg_boot=Xms trend=Y work_rate=Z% top_idle: a(80%) b(60%)
+    """
+    report = schedstat_report(state)
+    parts = [
+        f"sessions={report['session_count']}",
+        f"avg_boot={report['boot_time_avg_ms']}ms",
+        f"trend={report['boot_time_trend']}",
+        f"work_rate={report['effective_work_rate'] * 100:.0f}%",
+    ]
+
+    # top idle 子系统
+    idle_parts = []
+    for s in report["top_idle"][:3]:
+        if s["skip_rate"] > 0:
+            idle_parts.append(f"{s['name']}({s['skip_rate'] * 100:.0f}%)")
+    if idle_parts:
+        parts.append("top_idle: " + " ".join(idle_parts))
+
+    # skip breakdown
+    sb = report["skip_breakdown"]
+    total_skips = sb["idle"] + sb["throttle"] + sb["group_throttle"]
+    if total_skips > 0:
+        parts.append(f"skips: idle={sb['idle']} throttle={sb['throttle']} group={sb['group_throttle']}")
+
+    return " ".join(parts)
+
+
+def _schedstat_empty_entry() -> dict:
+    """返回新子系统的初始 schedstat 条目。"""
+    return {
+        "exec_count": 0,
+        "skip_total": 0,
+        "skip_idle": 0,
+        "skip_throttle": 0,
+        "skip_group_throttle": 0,
+        "total_runtime_ms": 0.0,
+        "did_work_count": 0,
     }
