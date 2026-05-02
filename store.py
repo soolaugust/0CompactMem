@@ -20,6 +20,7 @@ from store_core import (  # noqa: F401
     DMESG_ERR,
     OOM_ADJ_MIN,
     OOM_ADJ_PROTECTED,
+    OOM_ADJ_ONFAULT,
     OOM_ADJ_DEFAULT,
     OOM_ADJ_PREFER,
     OOM_ADJ_MAX,

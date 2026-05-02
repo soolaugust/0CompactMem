@@ -21,7 +21,7 @@ _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 from schema import MemoryChunk
 from utils import resolve_project_id
-from store import open_db, ensure_schema, insert_chunk, already_exists, merge_similar, get_project_chunk_count, evict_lowest_retention, kswapd_scan, dmesg_log, DMESG_INFO, DMESG_WARN, DMESG_DEBUG, madvise_write, set_oom_adj, OOM_ADJ_PROTECTED, OOM_ADJ_PREFER, cgroup_throttle_check, checkpoint_dump, checkpoint_collect_hits, aimd_window, pin_chunk
+from store import open_db, ensure_schema, insert_chunk, already_exists, merge_similar, get_project_chunk_count, evict_lowest_retention, kswapd_scan, dmesg_log, DMESG_INFO, DMESG_WARN, DMESG_DEBUG, madvise_write, set_oom_adj, OOM_ADJ_PROTECTED, OOM_ADJ_ONFAULT, OOM_ADJ_PREFER, cgroup_throttle_check, checkpoint_dump, checkpoint_collect_hits, aimd_window, pin_chunk
 from config import get as _sysctl  # 迭代27: sysctl Runtime Tunables
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
@@ -2938,17 +2938,18 @@ def main():
                 if row:
                     constraint_chunk_ids.append(row[0])
 
-        # 迭代38：为量化证据 chunk 设置 OOM_ADJ_PROTECTED（高保护）
+        # 迭代38+531：为量化证据 chunk 设置 OOM_ADJ_ONFAULT（延迟保护）
         # 迭代104：soft pin 到当前 project（保护 stale reclaim + DAMON DEAD，不挡 kswapd ZONE_MIN）
-        # OS 类比：systemd OOMPolicy=continue 标记关键服务不被 OOM Killer 杀死
+        # iter531: mlock2(MLOCK_ONFAULT) — 写入时仅标记为"可锁定"，首次检索命中后升级为 PROTECTED
         for cid in quant_chunk_ids:
-            set_oom_adj(conn, cid, OOM_ADJ_PROTECTED)
+            set_oom_adj(conn, cid, OOM_ADJ_ONFAULT)
             pin_chunk(conn, cid, project, pin_type="soft")  # 迭代104: 量化证据 → soft pin
 
-        # 迭代98：为设计约束 chunk 设置 OOM_ADJ_PROTECTED（架构级知识最高保护）
+        # 迭代98+531：为设计约束 chunk 设置 OOM_ADJ_ONFAULT（延迟保护）
         # 迭代104：同时 hard pin 到当前 project（VMA mlock 语义，跨 project 不互干扰）
+        # iter531: mlock2(MLOCK_ONFAULT) — 首次检索命中后由 retriever 升级为 PROTECTED(-500)
         for cid in constraint_chunk_ids:
-            set_oom_adj(conn, cid, OOM_ADJ_PROTECTED)
+            set_oom_adj(conn, cid, OOM_ADJ_ONFAULT)
             pin_chunk(conn, cid, project, pin_type="hard")  # 迭代104: design_constraint → hard pin
 
         # 迭代40：为 throttled chunk 设置 oom_adj（加速未来回收）

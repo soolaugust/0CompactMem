@@ -2593,6 +2593,12 @@ def main():
                             _uffd(wconn, accessed_ids)
                         except Exception:
                             pass
+                        # iter531：mlock_onfault — ONFAULT chunk 首次命中时升级为 PROTECTED
+                        try:
+                            from store_mm import mlock_onfault_promote as _mop
+                            _mop(wconn, accessed_ids)
+                        except Exception:
+                            pass
                         # 迭代511：page_idle clear — 从 idle bitmap 移除被命中的 chunks
                         try:
                             from store_mm import page_idle_clear as _pic
@@ -3687,6 +3693,12 @@ def main():
             try:
                 from store_mm import userfaultfd_promote as _uffd
                 _uffd(wconn, accessed_ids)
+            except Exception:
+                pass
+            # iter531：mlock_onfault — ONFAULT chunk 首次命中时升级为 PROTECTED
+            try:
+                from store_mm import mlock_onfault_promote as _mop
+                _mop(wconn, accessed_ids)
             except Exception:
                 pass
             # 迭代511：page_idle clear — 从 idle bitmap 移除被命中的 chunks

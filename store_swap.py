@@ -20,6 +20,7 @@ from store_vfs import open_db, ensure_schema, STORE_DB, bump_chunk_version
 # OOM_SCORE_ADJ 常量（与 Linux /proc/[pid]/oom_score_adj 一致）
 OOM_ADJ_MIN = -1000   # 绝对保护（等价于 init/sshd 的 -1000，不可淘汰不可 swap）
 OOM_ADJ_PROTECTED = -500  # 高保护（量化证据、核心架构决策）
+OOM_ADJ_ONFAULT = -200    # iter531: 延迟保护（mlock2(MLOCK_ONFAULT) 语义，首次命中后升级为 PROTECTED）
 OOM_ADJ_DEFAULT = 0    # 默认（正常淘汰优先级）
 OOM_ADJ_PREFER = 500   # 优先淘汰（临时信息、prompt_context）
 OOM_ADJ_MAX = 1000     # 最先淘汰（明确标记为可丢弃）

@@ -4412,6 +4412,63 @@ def munlock_idle(conn: sqlite3.Connection, project: str) -> dict:
     }
 
 
+# ── mlock_onfault_promote — mlock2(MLOCK_ONFAULT) Page Fault Promotion（iter531）──
+#
+# OS 类比：Linux mlock2(MLOCK_ONFAULT) (Eric B Munson, 2015, kernel 4.4)
+#   mlock() 立即锁定所有页面；mlock2(MLOCK_ONFAULT) 仅标记地址范围为"lock-on-fault"，
+#   页面在首次 page fault 时才被锁入 RAM。这避免了预分配未使用页面的资源浪费。
+#
+# 问题（数据驱动）：
+#   extractor 在写入时立即授予 OOM_ADJ_PROTECTED(-500) 给 quantitative_evidence 和
+#   design_constraint 类型 chunks。这些 chunk 在被 retriever 召回验证前就获得了完全保护，
+#   导致 5/18 零访问 chunks 拥有 mlock 且 munlock_idle 需 5 轮才能撤销（太慢）。
+#
+# 解决：
+#   写入时使用 OOM_ADJ_ONFAULT(-200) 代替 OOM_ADJ_PROTECTED(-500)：
+#     - -200: 受保护于 aggressive reclaim（oom_reaper 阈值 -500），但 page_idle/numa_balancing 可降级
+#     - 首次检索命中（page fault）时 promote 到 OOM_ADJ_PROTECTED(-500)
+#   retriever write-back 路径调用 mlock_onfault_promote(conn, accessed_ids)
+
+
+def mlock_onfault_promote(conn: sqlite3.Connection, chunk_ids: list) -> dict:
+    """
+    iter531: mlock2(MLOCK_ONFAULT) — 首次检索命中时将 ONFAULT 升级为 PROTECTED。
+
+    当 retriever 命中一个 oom_adj == OOM_ADJ_ONFAULT(-200) 的 chunk 时，
+    说明该知识已被实战验证有价值，将其升级为真正的 mlock (OOM_ADJ_PROTECTED=-500)。
+
+    条件：oom_adj == -200 (ONFAULT 状态，尚未被验证)
+    动作：oom_adj → -500 (PROTECTED，经过验证的核心知识)
+
+    幂等：已经是 -500 或更低的 chunk 不受影响。
+    """
+    if not chunk_ids:
+        return {"promoted": 0}
+
+    from store_swap import OOM_ADJ_ONFAULT, OOM_ADJ_PROTECTED
+
+    promoted = 0
+    for cid in chunk_ids:
+        row = conn.execute(
+            "SELECT oom_adj FROM memory_chunks WHERE id = ?", (cid,)
+        ).fetchone()
+        if row and row[0] == OOM_ADJ_ONFAULT:
+            conn.execute(
+                "UPDATE memory_chunks SET oom_adj = ? WHERE id = ?",
+                (OOM_ADJ_PROTECTED, cid)
+            )
+            promoted += 1
+
+    if promoted:
+        try:
+            from store_vfs import bump_chunk_version
+            bump_chunk_version()
+        except Exception:
+            pass
+
+    return {"promoted": promoted}
+
+
 # ── gc_namespace — Process Namespace Cleanup（迭代512）───────────────
 
 # 测试 namespace 正则：匹配 test_*、test-*、perf_*、bench_* 前缀的 project ID
