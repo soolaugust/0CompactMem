@@ -934,6 +934,22 @@ def main():
         except Exception:
             pass
 
+        # ── iter522：numa_balancing — Access-Pattern Importance Rebalancing ──
+        # OS 类比：Linux AutoNUMA (Ingo Molnár, 2012) — 观察访问模式动态迁移页面到正确 NUMA node
+        # 双向平衡：高访问+低imp → promote，高imp+零访问+超龄 → demote
+        try:
+            from store_mm import numa_balancing
+            nb_result = numa_balancing(_log_conn, project)
+            if nb_result["promoted"] > 0 or nb_result["demoted"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "numa_balancing",
+                          f"rebalance: promoted={nb_result['promoted']} "
+                          f"demoted={nb_result['demoted']} "
+                          f"skip_prot={nb_result['skipped_protected']} "
+                          f"{nb_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter514：ksm_scan — 同页合并扫描（去除版本化重复） ──
         # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面合并为 COW 共享页
         try:

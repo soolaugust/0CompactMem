@@ -3084,6 +3084,20 @@ _REGISTRY: dict = {
         "importance 低于此值视为 dead page frame（默认 0.2）"),
     "free_pages.max_per_scan": (40, int, 5, 200, None,
         "每次 SessionStart 最多释放 N 个 dead chunks（默认 40）"),
+
+    # ── iter522: numa_balancing — Access-Pattern Importance Rebalancing ──
+    "numa_balancing.promote_min_access": (3, int, 1, 20, None,
+        "Promote 触发的最低 access_count（默认 3：至少被召回 3 次才算实战验证）"),
+    "numa_balancing.promote_floor": (0.70, float, 0.3, 0.95, None,
+        "Promote 后 importance 的下限值（默认 0.70）"),
+    "numa_balancing.demote_min_importance": (0.70, float, 0.3, 0.99, None,
+        "Demote 触发的最低 importance（默认 0.70：只下调高估值，不碰已经低的）"),
+    "numa_balancing.demote_decay": (0.70, float, 0.3, 0.95, None,
+        "Demote 衰减因子（默认 0.70：imp × 0.7）"),
+    "numa_balancing.demote_min_age_days": (3, int, 1, 30, None,
+        "Demote 最低存活天数（默认 3：新 chunk 有宽限期）"),
+    "numa_balancing.max_per_scan": (30, int, 5, 100, None,
+        "每次 SessionStart 最多 rebalance 的 chunk 数（默认 30）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

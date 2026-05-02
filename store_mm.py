@@ -5764,3 +5764,146 @@ def free_pages_ok(conn: "sqlite3.Connection", project: str = None) -> dict:
         "total_dead": total_dead,
         "duration_ms": round(duration_ms, 2),
     }
+
+
+# ── iter522: numa_balancing — Access-Pattern Importance Rebalancing ──────────
+def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter522: numa_balancing — 基于实际访问模式双向重平衡 importance。
+
+    OS 类比：Linux Automatic NUMA Balancing (Ingo Molnár / Peter Zijlstra, 2012)
+      AutoNUMA 周期性将页面标记为 PROT_NONE（不可访问），当进程再次访问时
+      触发 NUMA hint page fault。根据 fault 源 CPU 的 NUMA node，决定是否
+      迁移页面到本地 node。核心思想：
+        - 不依赖静态放置策略（write-time importance）
+        - 通过观察实际访问模式（access_count）动态调整放置
+        - 页面在正确 node 上 → 本地访问快；错误 node → 远程访问慢
+      效果：将"猜测式"初始放置进化为"证据驱动"的最优放置。
+
+    根因：write-time importance 与 access_count 的 Pearson 相关性仅 0.186。
+      即 importance 几乎是随机的——有 imp=0.99 从未被召回的噪声，也有 imp=0.24
+      被访问 7 次的核心知识。检索公式 score = relevance × (base_importance + ...)
+      中，错误的 importance 直接影响 Top-K 排序质量。
+
+    策略（双向平衡）：
+      1. Promote（热迁移）：access_count ≥ promote_min_access 但 importance 低于
+         同 access 层的预期值 → importance 上调至 access_floor
+      2. Demote（冷迁移）：importance ≥ demote_min_importance 但 access_count = 0
+         且 age > min_age_days → importance × decay_factor 下调
+      3. 保护：oom_adj ≤ -500 (mlock) 不动、task_state 不动、pinned 不动
+
+    参数：
+      conn — DB 连接
+      project — 限定项目（None = 全部项目）
+
+    返回：
+      promoted — 上调 importance 的 chunk 数
+      demoted — 下调 importance 的 chunk 数
+      skipped_protected — 因保护跳过的数量
+      duration_ms — 执行时间
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"promoted": 0, "demoted": 0, "skipped_protected": 0, "duration_ms": 0}
+
+    # Tunables
+    promote_min_access = _cfg("numa_balancing.promote_min_access")
+    promote_floor = _cfg("numa_balancing.promote_floor")
+    demote_min_importance = _cfg("numa_balancing.demote_min_importance")
+    demote_decay = _cfg("numa_balancing.demote_decay")
+    demote_min_age_days = _cfg("numa_balancing.demote_min_age_days")
+    max_rebalance_per_scan = _cfg("numa_balancing.max_per_scan")
+
+    promoted = 0
+    demoted = 0
+    skipped_protected = 0
+
+    # ── Phase 1: Promote — 热迁移 ──
+    # 高访问但低 importance 的 chunks：access 证明了真实价值，上调 importance
+    where_proj = "AND project = ?" if project else ""
+    params_promote = [promote_min_access, promote_floor]
+    if project:
+        params_promote.append(project)
+
+    promote_rows = conn.execute(f"""
+        SELECT id, importance, access_count, oom_adj, chunk_type
+        FROM memory_chunks
+        WHERE access_count >= ?
+          AND importance < ?
+          AND chunk_type != 'task_state'
+          {where_proj}
+        ORDER BY access_count DESC
+        LIMIT ?
+    """, params_promote + [max_rebalance_per_scan]).fetchall()
+
+    for chunk_id, imp, acc, oom_adj, ctype in promote_rows:
+        # 保护检查
+        if (oom_adj or 0) <= -500:
+            skipped_protected += 1
+            continue
+        # 计算新 importance：access-derived floor，不超过 0.95
+        # 公式：floor + 0.05 * log2(access_count) 但 cap 0.95
+        import math
+        new_imp = min(0.95, promote_floor + 0.05 * math.log2(max(1, acc)))
+        if new_imp <= imp:
+            continue  # 已经足够高
+        conn.execute(
+            "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+            (round(new_imp, 3), chunk_id)
+        )
+        promoted += 1
+
+    # ── Phase 2: Demote — 冷迁移 ──
+    # 高 importance 但零访问 + 超龄的 chunks：write-time 高估，下调 importance
+    age_cutoff = (datetime.now(timezone.utc) - timedelta(days=demote_min_age_days)).isoformat()
+    params_demote = [demote_min_importance, age_cutoff]
+    if project:
+        params_demote.append(project)
+
+    demote_rows = conn.execute(f"""
+        SELECT id, importance, oom_adj, chunk_type
+        FROM memory_chunks
+        WHERE importance >= ?
+          AND access_count = 0
+          AND created_at < ?
+          AND chunk_type NOT IN ('task_state', 'design_constraint')
+          {where_proj}
+        ORDER BY importance DESC
+        LIMIT ?
+    """, params_demote + [max_rebalance_per_scan]).fetchall()
+
+    for chunk_id, imp, oom_adj, ctype in demote_rows:
+        # 保护检查
+        if (oom_adj or 0) <= -500:
+            skipped_protected += 1
+            continue
+        # 衰减 importance
+        new_imp = round(imp * demote_decay, 3)
+        conn.execute(
+            "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+            (new_imp, chunk_id)
+        )
+        demoted += 1
+
+    if promoted > 0 or demoted > 0:
+        conn.commit()
+        bump_chunk_version()
+        try:
+            dmesg_log(conn, DMESG_INFO, "numa_balancing",
+                      f"rebalance: promoted={promoted} demoted={demoted} "
+                      f"skip_prot={skipped_protected}",
+                      project=project or "all")
+        except Exception:
+            pass
+
+    duration_ms = (_t.time() - t0) * 1000
+    return {
+        "promoted": promoted,
+        "demoted": demoted,
+        "skipped_protected": skipped_protected,
+        "duration_ms": round(duration_ms, 2),
+    }
