@@ -238,6 +238,14 @@ class SQLiteBackend(VFSBackend):
 
             # 简化版本：仅插入，生成新 ID
             import uuid
+            # ── iter541: inode_permission — knowledge_vfs 写入门控 ──
+            try:
+                from store_vfs import _vfs_write_protect
+                if _vfs_write_protect(item.summary[:120] if item.summary else ""):
+                    conn.close()
+                    return
+            except ImportError:
+                pass
             new_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat()
 

@@ -4035,6 +4035,14 @@ def _promote_to_global(conn, project: str, session_id: str) -> int:
                 continue
             if re.match(r'^\[sched_ext\].*>\s', summary):  # sched_ext 子章节碎片
                 continue
+            # ── iter541: inode_permission — 全局晋升路径写入门控 ──
+            # 此前直接 INSERT 绕过 _vfs_write_protect()，导致碎片泄漏
+            try:
+                from store_vfs import _vfs_write_protect
+                if _vfs_write_protect(summary):
+                    continue
+            except ImportError:
+                pass
             # 检查全局层是否已有
             exists = conn.execute(
                 "SELECT id FROM memory_chunks WHERE project='global' AND summary=?",

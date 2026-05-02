@@ -202,6 +202,16 @@ def swap_in(conn: sqlite3.Connection, chunk_ids: list) -> dict:
         # 恢复到主表（更新时间戳）
         chunk_data["last_accessed"] = now_iso
         chunk_data["updated_at"] = now_iso
+        # ── iter541: inode_permission — swap_in 路径写入门控 ──────────────
+        # OS 类比：swap_in 恢复数据到物理内存前也经过 inode_permission 检查，
+        # 防止损坏的 swap 数据（如截断/碎片 summary）回到主表。
+        try:
+            from store_vfs import _vfs_write_protect
+            if _vfs_write_protect(chunk_data.get("summary", "")):
+                not_found += 1
+                continue
+        except ImportError:
+            pass
         tags = chunk_data.get("tags", "[]")
         if isinstance(tags, list):
             tags = json.dumps(tags, ensure_ascii=False)

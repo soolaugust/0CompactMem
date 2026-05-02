@@ -2486,6 +2486,18 @@ class IoUringSQ:
                     break
 
             if not merged_this:
+                # ── iter541: inode_permission — 统一写入门控 ──────────────────
+                # OS 类比：Linux inode_permission() (Al Viro, 1999) — VFS 层强制权限检查，
+                # 无论哪条 syscall 路径（open/creat/link/rename）到达文件系统，
+                # 都必须经过 inode_permission()。此前 IoUringSQ 直接 INSERT 绕过了
+                # _vfs_write_protect()，导致表格行碎片泄漏到生产 DB。
+                try:
+                    from store_vfs import _vfs_write_protect
+                    if _vfs_write_protect(summary):
+                        skipped_quality += 1
+                        continue
+                except ImportError:
+                    pass
                 # 准备 INSERT
                 tags = [chunk_type, entry["project"]]
                 if entry["topic"]:
