@@ -37,7 +37,8 @@ from store_mm import (timer_slack_load, timer_slack_should_skip,  # iter552
                       CGROUP_GROUPS, _SUBSYSTEM_TO_GROUP,
                       schedstat_load, schedstat_save,  # iter555
                       schedstat_record_skip, schedstat_record_exec,
-                      schedstat_record_session, schedstat_blame)
+                      schedstat_record_session, schedstat_blame,
+                      sched_autogroup)  # iter556
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
 LATEST_JSON = MEMORY_OS_DIR / "latest.json"
@@ -1731,6 +1732,22 @@ def main():
                 schedstat_save(_ss_state)
             except Exception:
                 pass
+
+        # ── iter556: sched_autogroup — 基于 schedstat 自动调参 ──
+        # OS 类比：Linux sched_autogroup (Mike Galbraith, 2010, kernel 2.6.38)
+        # 读取 schedstat 累积数据，自动调节 timer_slack/sched_deadline/cgroup_budget 参数
+        if _ss_enabled and _sysctl("sched_autogroup.enabled"):
+            try:
+                _ag_result = sched_autogroup(_ss_state)
+                if _ag_result.get("adjusted"):
+                    _ag_adj_str = ", ".join(
+                        f"{a['param']}:{a['old']}→{a['new']}" for a in _ag_result["adjustments"]
+                    )
+                    dmesg_log(_log_conn, DMESG_INFO, "sched_autogroup",
+                              f"tuned: {_ag_adj_str}",
+                              session_id=_session_id, project=project)
+            except Exception:
+                pass  # autogroup 失败不影响 SessionStart
 
         # 迭代29 dmesg：SessionStart 加载记录
         damon_summary = ""

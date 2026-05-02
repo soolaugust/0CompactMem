@@ -3313,6 +3313,15 @@ _REGISTRY: dict = {
         "是否启用跨 session 调度统计累积"),
     "schedstat.max_history_sessions": (20, int, 5, 100, None,
         "boot_times_ms 环形缓冲区保留的最近 session 数"),
+
+    # ── iter556: sched_autogroup — Adaptive Scheduler Parameter Tuning ──
+    # OS 类比：Linux sched_autogroup (Mike Galbraith, 2010, kernel 2.6.38)
+    "sched_autogroup.enabled": (True, bool, None, None, None,
+        "是否启用基于 schedstat 历史数据的自动调参"),
+    "sched_autogroup.cooldown_sessions": (3, int, 1, 10, None,
+        "两次自动调整之间的最少间隔 session 数"),
+    "sched_autogroup.min_sessions": (5, int, 3, 20, None,
+        "启动自动调参所需的最少历史 session 数"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

@@ -9056,3 +9056,199 @@ def _schedstat_empty_entry() -> dict:
         "total_runtime_ms": 0.0,
         "did_work_count": 0,
     }
+
+
+# ── iter556: sched_autogroup — Adaptive Scheduler Parameter Tuning ──
+# OS 类比：Linux sched_autogroup (Mike Galbraith, 2010, kernel 2.6.38, sched/autogroup.c)
+# 同一 tty session 的进程自动分组到 task_group，CFS 按 group 公平调度。
+# 管理员无需手动调 nice 值，系统根据进程归属自动分配带宽。
+#
+# 根因：schedstat(iter555) 揭示跨 session 趋势（improving/degrading）和空转率，
+# 但数据不可执行——人需手动解读并调参。timer_slack 的 idle_threshold 是硬编码 3，
+# sched_deadline 的 budget_ms 是固定 20ms，cgroup_budget 的 group_budget_ms 是固定 60ms。
+# 缺乏根据历史统计自动调整这些阈值的闭环控制机制。
+#
+# 策略：
+#   1. 读取 schedstat 累积数据
+#   2. 计算 per-subsystem 空转率和平均耗时
+#   3. 生成调整建议：
+#      - 空转率 > 80% 且连续 5+ sessions → 降低 timer_slack.idle_threshold（更快跳过）
+#      - boot_time trend=degrading → 收紧 sched_deadline.budget_ms（更早节流）
+#      - boot_time trend=improving + work_rate 高 → 放松 budget（给予更多空间）
+#      - group 内所有子系统空转率 > 70% → 降低 cgroup_budget.group_budget_ms
+#   4. 通过 config.set() 写入运行时参数
+
+_AUTOGROUP_FILE = os.path.join(
+    os.path.expanduser("~"), ".claude", "memory-os", ".sched_autogroup.json"
+)
+
+
+def sched_autogroup_load() -> dict:
+    """加载 sched_autogroup 历史调整记录。"""
+    try:
+        with open(_AUTOGROUP_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return {
+        "adjustments": [],        # 历史调整记录 [{param, old, new, reason, session_count}]
+        "last_run_session": 0,    # 上次运行时的 session_count（防止频繁调整）
+        "cooldown_sessions": 3,   # 两次调整之间最少间隔 session 数
+    }
+
+
+def sched_autogroup_save(state: dict) -> None:
+    """持久化 sched_autogroup 状态。"""
+    try:
+        os.makedirs(os.path.dirname(_AUTOGROUP_FILE), exist_ok=True)
+        with open(_AUTOGROUP_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def sched_autogroup(schedstat_state: dict) -> dict:
+    """
+    基于 schedstat 累积数据自动调节调度参数。
+
+    返回 dict:
+      adjusted: bool — 是否做了调整
+      adjustments: list[{param, old, new, reason}] — 具体调整列表
+      skipped_reason: str — 如跳过，原因
+    """
+    from config import get as _cfg, sysctl_set as _cfg_set
+
+    ag_state = sched_autogroup_load()
+    report = schedstat_report(schedstat_state)
+
+    result = {"adjusted": False, "adjustments": [], "skipped_reason": ""}
+
+    # ── 冷却期检查：两次调整间隔至少 N sessions ──
+    session_count = report["session_count"]
+    last_run = ag_state.get("last_run_session", 0)
+    cooldown = ag_state.get("cooldown_sessions", 3)
+    if session_count - last_run < cooldown:
+        result["skipped_reason"] = f"cooldown({session_count - last_run}/{cooldown})"
+        return result
+
+    # ── 数据充分性检查：至少 5 sessions 才有统计意义 ──
+    if session_count < 5:
+        result["skipped_reason"] = f"insufficient_data({session_count}<5)"
+        return result
+
+    adjustments = []
+
+    # ── 规则 1: 高空转子系统 → 降低 timer_slack.idle_threshold ──
+    # 如果 top_idle 中有 skip_rate > 0.80 的子系统超过 3 个，
+    # 说明大量子系统反复空转，应更快进入跳过模式
+    top_idle = report.get("top_idle", [])
+    high_idle_count = sum(1 for s in top_idle if s["skip_rate"] > 0.80)
+    if high_idle_count >= 3:
+        current_threshold = int(_cfg("timer_slack.idle_threshold"))
+        if current_threshold > 1:
+            new_val = max(1, current_threshold - 1)
+            _cfg_set("timer_slack.idle_threshold", new_val)
+            adjustments.append({
+                "param": "timer_slack.idle_threshold",
+                "old": current_threshold,
+                "new": new_val,
+                "reason": f"high_idle_subsystems={high_idle_count}(>3@80%+)",
+            })
+
+    # ── 规则 2: boot_time degrading → 收紧 sched_deadline.budget_ms ──
+    # 性能恶化时，降低单子系统预算，迫使慢子系统更早被节流
+    boot_trend = report.get("boot_time_trend", "stable")
+    if boot_trend == "degrading":
+        current_budget = float(_cfg("sched_deadline.budget_ms"))
+        # 减少 15%，但不低于 5ms
+        new_budget = round(max(5.0, current_budget * 0.85), 1)
+        if new_budget < current_budget:
+            _cfg_set("sched_deadline.budget_ms", new_budget)
+            adjustments.append({
+                "param": "sched_deadline.budget_ms",
+                "old": current_budget,
+                "new": new_budget,
+                "reason": f"boot_trend=degrading avg={report['boot_time_avg_ms']}ms",
+            })
+
+    # ── 规则 3: boot_time improving + work_rate > 60% → 放松 budget ──
+    # 性能改善且有效工作率高，说明系统高效，可给予更多执行空间
+    elif boot_trend == "improving" and report.get("effective_work_rate", 0) > 0.60:
+        current_budget = float(_cfg("sched_deadline.budget_ms"))
+        # 增加 10%，但不超过 50ms（合理上限）
+        new_budget = round(min(50.0, current_budget * 1.10), 1)
+        if new_budget > current_budget:
+            _cfg_set("sched_deadline.budget_ms", new_budget)
+            adjustments.append({
+                "param": "sched_deadline.budget_ms",
+                "old": current_budget,
+                "new": new_budget,
+                "reason": f"boot_trend=improving work_rate={report['effective_work_rate']:.0%}",
+            })
+
+    # ── 规则 4: 全局有效工作率极低 → 收紧 cgroup_budget ──
+    # work_rate < 30% 说明大部分执行是无效空转，组级预算应收紧
+    if report.get("effective_work_rate", 1.0) < 0.30 and session_count >= 8:
+        current_group_budget = float(_cfg("cgroup_budget.group_budget_ms"))
+        new_group_budget = round(max(20.0, current_group_budget * 0.85), 1)
+        if new_group_budget < current_group_budget:
+            _cfg_set("cgroup_budget.group_budget_ms", new_group_budget)
+            adjustments.append({
+                "param": "cgroup_budget.group_budget_ms",
+                "old": current_group_budget,
+                "new": new_group_budget,
+                "reason": f"low_work_rate={report['effective_work_rate']:.0%}(<30%)",
+            })
+
+    # ── 规则 5: 全局有效工作率高 + improving → 放松 cgroup_budget ──
+    elif (report.get("effective_work_rate", 0) > 0.70
+          and boot_trend == "improving"
+          and session_count >= 8):
+        current_group_budget = float(_cfg("cgroup_budget.group_budget_ms"))
+        new_group_budget = round(min(120.0, current_group_budget * 1.10), 1)
+        if new_group_budget > current_group_budget:
+            _cfg_set("cgroup_budget.group_budget_ms", new_group_budget)
+            adjustments.append({
+                "param": "cgroup_budget.group_budget_ms",
+                "old": current_group_budget,
+                "new": new_group_budget,
+                "reason": f"high_work_rate={report['effective_work_rate']:.0%}(>70%)+improving",
+            })
+
+    if adjustments:
+        result["adjusted"] = True
+        result["adjustments"] = adjustments
+        # 记录到 autogroup 历史
+        ag_state["last_run_session"] = session_count
+        for adj in adjustments:
+            ag_state.setdefault("adjustments", []).append({
+                **adj,
+                "session_count": session_count,
+            })
+        # 只保留最近 20 条调整记录
+        ag_state["adjustments"] = ag_state["adjustments"][-20:]
+        sched_autogroup_save(ag_state)
+    else:
+        # 无调整也更新 last_run 避免每次都尝试
+        ag_state["last_run_session"] = session_count
+        sched_autogroup_save(ag_state)
+        result["skipped_reason"] = "no_action_needed"
+
+    return result
+
+
+def sched_autogroup_stats(schedstat_state: dict) -> dict:
+    """返回 autogroup 当前状态摘要（用于 dmesg/诊断）。"""
+    ag_state = sched_autogroup_load()
+    report = schedstat_report(schedstat_state)
+    recent_adj = ag_state.get("adjustments", [])[-5:]
+    return {
+        "total_adjustments": len(ag_state.get("adjustments", [])),
+        "last_run_session": ag_state.get("last_run_session", 0),
+        "current_session": report["session_count"],
+        "boot_trend": report.get("boot_time_trend", "stable"),
+        "work_rate": report.get("effective_work_rate", 0),
+        "recent_adjustments": recent_adj,
+    }
