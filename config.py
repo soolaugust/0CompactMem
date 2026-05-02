@@ -3161,6 +3161,10 @@ _REGISTRY: dict = {
         "SQE 内容密度验证开关（默认 True）。验证 summary 信息密度，低密度降级 importance"),
     "extractor.sqe_low_density_cap": (0.60, float, 0.20, 0.90, None,
         "低密度内容的 importance 上限（默认 0.60）。信号不足的 chunk 不超过此值"),
+
+    # ── iter536: seccomp_filter — Summary Content Sanitizer ──
+    "vfs.seccomp_filter_enabled": (True, bool, None, None, None,
+        "seccomp BPF 过滤器开关（默认 True）。检测并清洗 summary 中的 JSON 残留/截断碎片"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

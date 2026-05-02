@@ -1870,6 +1870,125 @@ def _vfs_write_protect(summary: str) -> bool:
     return False
 
 
+# ── iter536: seccomp_filter — Summary Content Sanitizer at Syscall Boundary ──
+# OS 类比：Linux seccomp(SECCOMP_SET_MODE_FILTER) (Will Drewry, 2012, kernel 3.5)
+#   BPF 过滤器在 syscall entry 拦截畸形系统调用。不是在应用层面检查（too late），
+#   而是在内核 syscall boundary 执行 SECCOMP_RET_ALLOW / RET_KILL_PROCESS。
+#
+# 根因：extractor 从 LLM 输出提取 chunks 时，部分 summary 包含 JSON 结构残留
+#   （"recommended_action":, ction":）—— LLM JSON 输出被截断后残留为 summary。
+#   vfs_write_protect (iter533) 检查物理碎片（管道符/表格行/纯数字），
+#   但不检查语义碎片（JSON key-value 残留、截断英文 token 开头）。
+#   生产 DB 中 5 个 causal_chain chunks 含 JSON 残留，污染 FTS5 索引。
+#
+# 三阶段：sanitize → recheck → reject
+#   Phase 1 (sanitize): 尝试剥离 JSON key 前缀、引号包裹
+#   Phase 2 (recheck): 清洗后 summary 通过 _vfs_write_protect 检查
+#   Phase 3 (reject): 清洗后仍不合格 → 拒绝写入
+import re as _re_seccomp
+
+
+def _seccomp_filter(summary: str) -> tuple:
+    """
+    iter536: seccomp BPF filter — summary 语义碎片清洗。
+
+    返回 (action, cleaned_summary):
+      action="allow"    → summary 合格，原样通过
+      action="sanitize" → 已清洗，返回清洗后的 summary
+      action="reject"   → 清洗后仍不合格，应拒绝写入
+
+    检测模式（5 类 JSON/截断碎片）：
+    1. JSON key 前缀：'"key": "value...' → 剥离 key 部分
+    2. 截断 JSON key 开头：'ction": "...' → 剥离截断残留
+    3. 引号包裹的完整内容：'"actual content"' → 去引号
+    4. JSON 对象/数组包裹：'{"key": "value"}' → 提取 value
+    5. 箭头/推导残留：'→ "recommended_action": ...' → 提取箭头后内容
+    """
+    try:
+        from config import get as _cfg536
+        if not _cfg536("vfs.seccomp_filter_enabled"):
+            return ("allow", summary)
+    except Exception:
+        pass  # config 不可用时默认启用
+
+    if not summary:
+        return ("allow", summary)
+
+    s = summary.strip()
+    original = s
+    sanitized = False
+
+    # ── Pattern 1: JSON key 前缀 '"key": "value...' ──
+    # 匹配: "recommended_action": "实际内容..."
+    m = _re_seccomp.match(
+        r'^"?[\w_]+"?\s*:\s*"(.+)"?\s*$', s, _re_seccomp.DOTALL)
+    if m:
+        s = m.group(1).rstrip('"').strip()
+        sanitized = True
+
+    # ── Pattern 2: 截断 JSON key 开头 'ction": "...' ──
+    # 匹配: ction": "实际内容"  (来自截断的 "recommended_action")
+    if not sanitized:
+        m = _re_seccomp.match(
+            r'^[a-z]{1,10}"\s*:\s*"(.+)"?\s*$', s, _re_seccomp.DOTALL)
+        if m:
+            s = m.group(1).rstrip('"').strip()
+            sanitized = True
+
+    # ── Pattern 3: 箭头/推导后跟 JSON key ──
+    # 匹配: ...内容" → "recommended_action": "剩余内容"
+    if not sanitized:
+        m = _re_seccomp.search(
+            r'["\u201d]\s*→\s*"[\w_]+"\s*:\s*"(.+)"?\s*$', s, _re_seccomp.DOTALL)
+        if m:
+            # 保留箭头前的内容 + 箭头后 value
+            arrow_pos = s.find('→')
+            if arrow_pos > 0:
+                prefix = s[:arrow_pos].rstrip('" \u201d').strip()
+                suffix = m.group(1).rstrip('"').strip()
+                if prefix and suffix:
+                    s = prefix + " → " + suffix
+                    sanitized = True
+
+    # ── Pattern 4: 引号包裹 '"actual content"' ──
+    if not sanitized:
+        m = _re_seccomp.match(r'^"(.{8,})"$', s.strip())
+        if m:
+            s = m.group(1).strip()
+            sanitized = True
+
+    # ── Pattern 5: _action" / _key" 截断前缀 ──
+    # 匹配以 _action": "... 或 _action": ... 开头
+    if not sanitized:
+        m = _re_seccomp.match(
+            r'^_?[\w]*"\s*:\s*"?(.+)$', s, _re_seccomp.DOTALL)
+        if m and len(m.group(1).strip()) >= 15:
+            candidate = m.group(1).rstrip('"').strip()
+            # 确保提取内容不是另一个 JSON 结构
+            if not candidate.startswith('{') and not candidate.startswith('['):
+                s = candidate
+                sanitized = True
+
+    # ── Phase 2: 清洗后 recheck ──
+    if sanitized:
+        s = s.strip()
+        # 清洗后太短 → reject
+        if len(s) < 8:
+            return ("reject", original)
+        # 清洗后仍被 vfs_write_protect 拦截 → reject
+        if _vfs_write_protect(s):
+            return ("reject", original)
+        return ("sanitize", s)
+
+    # ── 额外检测：未触发清洗但含高密度 JSON 特征 → reject ──
+    # summary 中 ": " 出现 >= 3 次 → 可能是完整 JSON 对象残留
+    json_colon_count = s.count('": ')
+    if json_colon_count >= 3:
+        return ("reject", original)
+
+    return ("allow", summary)
+
+
 def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
     """
     插入或替换一条 chunk。
@@ -1891,6 +2010,25 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
         except Exception:
             pass
         return  # 静默拒绝，不抛异常（与 LSM deny 语义一致）
+    # ── iter536: seccomp_filter — 语义碎片清洗 ────────────────────────
+    # OS 类比：seccomp BPF (Will Drewry, 2012) — syscall 入口过滤，
+    # 在 vfs_write_protect 物理检查之后执行语义检查（JSON 残留/截断 token）。
+    # 三种结果：allow（原样）、sanitize（清洗后写入）、reject（拒绝）。
+    _seccomp_action, _seccomp_summary = _seccomp_filter(d.get("summary", ""))
+    if _seccomp_action == "reject":
+        try:
+            dmesg_log(conn, DMESG_WARN, "seccomp",
+                      f"REJECTED: '{d.get('summary', '')[:60]}'")
+        except Exception:
+            pass
+        return
+    if _seccomp_action == "sanitize":
+        try:
+            dmesg_log(conn, DMESG_INFO, "seccomp",
+                      f"SANITIZED: '{d.get('summary', '')[:40]}' → '{_seccomp_summary[:40]}'")
+        except Exception:
+            pass
+        d["summary"] = _seccomp_summary
     tags = json.dumps(d["tags"], ensure_ascii=False) if isinstance(d.get("tags"), list) else d.get("tags", "[]")
     # 如果已存在（REPLACE 路径），先从 FTS5 删除旧记录
     existing_rowid = conn.execute(
