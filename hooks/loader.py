@@ -23,7 +23,7 @@ sys.path.insert(0, str(_ROOT))
 from schema import MemoryChunk
 from utils import resolve_project_id
 from scorer import working_set_score as _unified_ws_score
-from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace
+from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace, overcommit_kill
 from config import get as _sysctl  # 迭代27: sysctl Runtime Tunables
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
@@ -858,6 +858,18 @@ def main():
             if reaper_result.get("triggered"):
                 dmesg_log(_log_conn, DMESG_INFO, "oom_reaper",
                           f"reap: ratio={reaper_result['zero_access_ratio']:.1%} reaped={reaper_result['reaped']} deleted={reaper_result['deleted']} {reaper_result.get('duration_ms', 0):.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
+        # ── iter513：overcommit_kill — Global 层过度承诺知识回收 ──
+        # OS 类比：Linux vm.overcommit_memory=2 (Rik van Riel, 2001) — 严格内存计量
+        # global 层批量导入的知识绕过有机准入，85%+ 零访问需要激进回收
+        try:
+            oc_result = overcommit_kill(_log_conn)
+            if oc_result.get("triggered"):
+                dmesg_log(_log_conn, DMESG_INFO, "overcommit_kill",
+                          f"reap: global={oc_result['global_total']} zero={oc_result['global_zero_access']}({oc_result['zero_access_ratio']:.1%}) reaped={oc_result['reaped']} deleted={oc_result['deleted']} {oc_result.get('duration_ms', 0):.1f}ms",
                           session_id=_session_id, project=project)
         except Exception:
             pass

@@ -3001,6 +3001,18 @@ _REGISTRY: dict = {
     "oom_reaper.protect_types": ("design_constraint,quantitative_evidence", str, None, None, None,
         "iter508: 受保护的 chunk_type（逗号分隔），即使零访问也不回收"),
 
+    # ── iter513: overcommit_kill — Global Layer Aggressive Reclaim ──
+    "overcommit.zero_access_threshold": (0.6, float, 0.3, 0.95, None,
+        "iter513: global 层零访问率超过此比例时触发（默认 0.6 = 60%）"),
+    "overcommit.max_reap_per_scan": (50, int, 10, 200, None,
+        "iter513: 每次扫描最多回收 N 个 global chunks（默认 50）"),
+    "overcommit.importance_decay": (0.3, float, 0.1, 0.8, None,
+        "iter513: importance 激进降级因子（默认 0.3，比 oom_reaper 的 0.5 更狠）"),
+    "overcommit.min_global_chunks": (30, int, 5, 500, None,
+        "iter513: global 层至少 N 个 chunks 后才启用（冷启动保护）"),
+    "overcommit.delete_threshold": (0.35, float, 0.1, 0.8, None,
+        "iter513: 降级后 importance < 此值直接删除（默认 0.35，比 oom_reaper 的 0.2 更积极）"),
+
     # ── iter510: vma_merge — Recall Trace Deduplication ──
     "vma_merge.jaccard_threshold": (0.8, float, 0.5, 1.0, None,
         "iter510: 相邻 traces Jaccard >= 此阈值时触发模糊合并（默认 0.8）"),

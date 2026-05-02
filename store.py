@@ -120,6 +120,7 @@ from store_mm import (  # noqa: F401
     page_idle_clear,
     page_idle_scan,
     gc_namespace,
+    overcommit_kill,
     autotune,
     context_pressure_governor,
     GOV_LOW,

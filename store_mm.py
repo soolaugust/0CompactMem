@@ -4428,6 +4428,145 @@ def gc_namespace(conn: sqlite3.Connection) -> dict:
     return result
 
 
+# ── iter513: overcommit_kill — Global Layer Aggressive Reclaim ──────────────
+
+def overcommit_kill(conn: "sqlite3.Connection") -> dict:
+    """iter513: overcommit_kill — global 层过度承诺知识的强制回收。
+
+    OS 类比：Linux vm.overcommit_memory=2 strict accounting (Rik van Riel, 2001)
+    ——当系统过度承诺虚拟内存（RSS 远超物理内存+swap）时，OOM killer 强制回收。
+
+    解决的问题：
+      - global 层 254 chunks, 85% 零访问率（batch import 绕过有机准入）
+      - oom_reaper 每次 30 个 ×0.5 衰减，高 importance chunks 需 3 轮才被删
+      - 216 零访问 / 30 每轮 × 3 轮 = 21.6 sessions 才能清空
+      - 但 import_knowledge 持续注入，形成"写入-回收竞赛"永远追不上
+
+    策略（与 oom_reaper 的区别）：
+      - 仅针对 project='global'（批量导入的知识堆积区）
+      - 激进衰减 ×0.3（而非 ×0.5）—— 未经实战验证的知识不值得温和对待
+      - 更高删除阈值 < 0.35（而非 < 0.2）—— 加速清除
+      - 更大批量 50/scan（而非 30）—— 追赶写入速度
+      - 仅保护 design_constraint + pinned（不保护 quantitative_evidence）
+
+    调用时机：loader.py SessionStart，在 oom_reaper 之后。
+    """
+    import time as _time
+    _t0 = _time.time()
+
+    result = {
+        "triggered": False,
+        "global_total": 0,
+        "global_zero_access": 0,
+        "zero_access_ratio": 0.0,
+        "reaped": 0,
+        "deleted": 0,
+        "duration_ms": 0.0,
+    }
+
+    try:
+        from config import get as _cfg
+        threshold = float(_cfg("overcommit.zero_access_threshold"))
+        max_reap = int(_cfg("overcommit.max_reap_per_scan"))
+        decay = float(_cfg("overcommit.importance_decay"))
+        min_global = int(_cfg("overcommit.min_global_chunks"))
+        delete_threshold = float(_cfg("overcommit.delete_threshold"))
+    except Exception:
+        threshold = 0.6
+        max_reap = 50
+        decay = 0.3
+        min_global = 30
+        delete_threshold = 0.35
+
+    # 只处理 global 层
+    total = conn.execute(
+        "SELECT COUNT(*) FROM memory_chunks WHERE project = 'global'"
+    ).fetchone()[0]
+    result["global_total"] = total
+
+    if total < min_global:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    zero = conn.execute(
+        "SELECT COUNT(*) FROM memory_chunks WHERE project = 'global' AND COALESCE(access_count, 0) = 0"
+    ).fetchone()[0]
+    result["global_zero_access"] = zero
+    ratio = zero / total if total > 0 else 0.0
+    result["zero_access_ratio"] = round(ratio, 4)
+
+    if ratio < threshold:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    result["triggered"] = True
+
+    # 收集 pinned IDs
+    pinned_ids = set()
+    try:
+        pin_rows = conn.execute(
+            "SELECT chunk_id FROM chunk_pins WHERE pin_type IN ('hard', 'soft')"
+        ).fetchall()
+        pinned_ids = {r[0] for r in pin_rows}
+    except Exception:
+        pass
+
+    # 选择牺牲者：global 层, 零访问, 非 design_constraint, 非 task_state, 非 mlock
+    # 按 importance ASC（先杀低价值）+ lru_gen DESC（先杀最老代）
+    candidates = conn.execute(
+        """SELECT id, importance FROM memory_chunks
+           WHERE project = 'global'
+             AND COALESCE(access_count, 0) = 0
+             AND chunk_type NOT IN ('task_state', 'design_constraint')
+             AND COALESCE(oom_adj, 0) > -500
+           ORDER BY importance ASC, lru_gen DESC
+           LIMIT ?""",
+        (max_reap,)
+    ).fetchall()
+
+    reaped = 0
+    to_delete = []
+
+    for chunk_id, imp in candidates:
+        if chunk_id in pinned_ids:
+            continue
+
+        new_imp = round(imp * decay, 4)
+        if new_imp < delete_threshold:
+            to_delete.append(chunk_id)
+        else:
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ?, "
+                "oom_adj = MIN(COALESCE(oom_adj, 0) + 400, 1000) WHERE id = ?",
+                (new_imp, chunk_id),
+            )
+        reaped += 1
+
+    # 批量删除
+    if to_delete:
+        try:
+            delete_chunks(conn, to_delete)
+            bump_chunk_version(conn)
+        except Exception:
+            # fallback: 逐个删除
+            for cid in to_delete:
+                try:
+                    conn.execute("DELETE FROM memory_chunks WHERE id = ?", (cid,))
+                except Exception:
+                    pass
+
+    result["reaped"] = reaped
+    result["deleted"] = len(to_delete)
+    result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+
+    try:
+        conn.commit()
+    except Exception:
+        pass
+
+    return result
+
+
 def _page_idle_load() -> dict:
     """加载 page_idle bitmap 文件。"""
     try:
