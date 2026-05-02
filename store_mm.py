@@ -6007,3 +6007,141 @@ def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
         "skipped_protected": skipped_protected,
         "duration_ms": round(duration_ms, 2),
     }
+
+
+# ── iter524: mincore — Memory Residency Validation ───────────────────────────
+
+def mincore(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter524: mincore — 内存驻留验证。
+
+    OS 类比：Linux mincore() (Linus Torvalds, 1994)
+      mincore(addr, length, vec) 查询 [addr, addr+length) 范围内每个页面
+      是否驻留在物理内存（page cache）中。返回 vec 位图：1=resident, 0=not resident。
+      用途：让用户空间了解哪些页面是"真实活跃"的，哪些只是"已映射但从未触碰"。
+      与 madvise(MADV_DONTNEED) 的区别：mincore 是只读诊断，不改变页面状态。
+
+    根因：write-time importance 基于语法信号（数字/代码标识符/技术术语），
+      不反映语义价值。结果：imp=0.99 的迭代报告"PostToolUse 阻塞：76ms→43ms"
+      从未被检索命中（0 access），而 imp=0.24 的核心知识被访问 7 次。
+      numa_balancing 的 demote 需要 age > 3d，对新写入的大量高 imp 垃圾无能为力。
+
+    策略：
+      Phase 1 (mincore scan)：查找 importance ≥ high_importance_threshold 且
+        access_count = 0 的 chunks，按 importance DESC 输出诊断报告。
+      Phase 2 (calibrate)：如果零访问率在高 importance 段超过 anomaly_ratio，
+        对这些 chunks 应用 importance × calibration_decay 校准。
+        只校准非保护类型（task_state/design_constraint 豁免）。
+      Phase 3 (report)：返回 resident/non-resident 统计，供 dmesg 审计。
+
+    与 numa_balancing 的互补关系：
+      - numa_balancing：age > 3d 才触发 demote（慢路径，保守）
+      - mincore：不限 age，只要高 imp + 零 access 就标记并校准（快路径，激进）
+      - 不冲突：mincore 校准后的 chunk 如果后来被 access，numa_balancing promote 回来
+
+    参数：
+      conn — DB 连接
+      project — 限定项目（None = 当前 + global）
+
+    返回：
+      total_high — 高 importance chunks 总数
+      resident — 高 imp + access > 0（真实驻留）
+      non_resident — 高 imp + access = 0（虚假驻留）
+      calibrated — 被校准的 chunk 数
+      skipped_protected — 因保护跳过的数量
+      anomaly_detected — 是否触发校准（non_resident / total_high > anomaly_ratio）
+      duration_ms — 执行时间
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {
+            "total_high": 0, "resident": 0, "non_resident": 0,
+            "calibrated": 0, "skipped_protected": 0,
+            "anomaly_detected": False, "duration_ms": 0,
+        }
+
+    # Tunables
+    high_threshold = _cfg("mincore.high_importance_threshold")
+    anomaly_ratio = _cfg("mincore.anomaly_ratio")
+    calibration_decay = _cfg("mincore.calibration_decay")
+    max_calibrate = _cfg("mincore.max_per_scan")
+
+    # ── Phase 1: mincore scan — 诊断高 importance 段的驻留状态 ──
+    where_proj = "AND project = ?" if project else ""
+    params = [high_threshold]
+    if project:
+        params.append(project)
+
+    rows = conn.execute(f"""
+        SELECT id, importance, access_count, oom_adj, chunk_type
+        FROM memory_chunks
+        WHERE importance >= ?
+          {where_proj}
+        ORDER BY importance DESC
+    """, params).fetchall()
+
+    total_high = len(rows)
+    resident = 0       # access > 0: page is in cache
+    non_resident = 0   # access = 0: page mapped but not touched
+    non_resident_ids = []
+
+    for chunk_id, imp, acc, oom_adj, ctype in rows:
+        if (acc or 0) > 0:
+            resident += 1
+        else:
+            non_resident += 1
+            non_resident_ids.append((chunk_id, imp, oom_adj, ctype))
+
+    # ── Phase 2: calibrate if anomaly detected ──
+    anomaly_detected = False
+    calibrated = 0
+    skipped_protected = 0
+
+    if total_high > 0 and (non_resident / total_high) > anomaly_ratio:
+        anomaly_detected = True
+        calibrate_count = 0
+        for chunk_id, imp, oom_adj, ctype in non_resident_ids:
+            if calibrate_count >= max_calibrate:
+                break
+            # Protection checks
+            if (oom_adj or 0) <= -500:  # mlock
+                skipped_protected += 1
+                continue
+            if ctype in ('task_state', 'design_constraint'):
+                skipped_protected += 1
+                continue
+            # Calibrate: decay importance
+            new_imp = round(imp * calibration_decay, 3)
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+                (new_imp, chunk_id)
+            )
+            calibrated += 1
+            calibrate_count += 1
+
+        if calibrated > 0:
+            conn.commit()
+            bump_chunk_version()
+            try:
+                dmesg_log(conn, DMESG_INFO, "mincore",
+                          f"calibrate: total_high={total_high} "
+                          f"resident={resident} non_resident={non_resident} "
+                          f"calibrated={calibrated} decay={calibration_decay}",
+                          project=project or "all")
+            except Exception:
+                pass
+
+    duration_ms = (_t.time() - t0) * 1000
+    return {
+        "total_high": total_high,
+        "resident": resident,
+        "non_resident": non_resident,
+        "calibrated": calibrated,
+        "skipped_protected": skipped_protected,
+        "anomaly_detected": anomaly_detected,
+        "duration_ms": round(duration_ms, 2),
+    }

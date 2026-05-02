@@ -3098,6 +3098,16 @@ _REGISTRY: dict = {
         "Demote 最低存活天数（默认 3：新 chunk 有宽限期）"),
     "numa_balancing.max_per_scan": (30, int, 5, 100, None,
         "每次 SessionStart 最多 rebalance 的 chunk 数（默认 30）"),
+
+    # ── iter524: mincore — Memory Residency Validation ──
+    "mincore.high_importance_threshold": (0.70, float, 0.3, 0.99, None,
+        "高 importance 门槛：只检查 >= 此值的 chunks 驻留状态（默认 0.70）"),
+    "mincore.anomaly_ratio": (0.50, float, 0.2, 0.9, None,
+        "异常比率：高 imp 中零访问占比超过此阈值时触发校准（默认 0.50）"),
+    "mincore.calibration_decay": (0.75, float, 0.3, 0.95, None,
+        "校准衰减因子：非驻留 chunk importance *= decay（默认 0.75）"),
+    "mincore.max_per_scan": (30, int, 5, 100, None,
+        "每次扫描最多校准的 chunk 数（默认 30）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

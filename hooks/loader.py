@@ -965,6 +965,23 @@ def main():
         except Exception:
             pass
 
+        # ── iter524：mincore — Memory Residency Validation ──
+        # OS 类比：Linux mincore() (Linus Torvalds, 1994) — 查询哪些页面真实驻留在物理内存
+        # 诊断高 importance 段的"虚假驻留"并校准 importance
+        try:
+            from store_mm import mincore
+            mc_result = mincore(_log_conn, project)
+            if mc_result["calibrated"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "mincore",
+                          f"calibrate: high={mc_result['total_high']} "
+                          f"resident={mc_result['resident']} "
+                          f"non_resident={mc_result['non_resident']} "
+                          f"calibrated={mc_result['calibrated']} "
+                          f"{mc_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter514：ksm_scan — 同页合并扫描（去除版本化重复） ──
         # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面合并为 COW 共享页
         try:
