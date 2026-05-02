@@ -4316,13 +4316,7 @@ def page_idle_scan(conn: sqlite3.Connection, project: str) -> dict:
             bump_chunk_version()
         except Exception:
             pass
-        try:
-            dmesg_log(conn, DMESG_INFO, "page_idle",
-                      f"scan: demoted={demoted} deleted={deleted} "
-                      f"candidates={len(candidates)} project={project}",
-                      project=project)
-        except Exception:
-            pass
+        # iter538: 移除内部 dmesg_log — loader 调用方已负责记录，避免 ring buffer 双写
 
     max_rounds = max(project_bitmap.values()) if project_bitmap else 0
     return {"scanned": len(project_bitmap), "demoted": demoted,
@@ -6082,12 +6076,7 @@ def kfree_rcu(conn: "sqlite3.Connection") -> dict:
     freed = 0
     if to_delete:
         freed = delete_chunks(conn, to_delete)
-        try:
-            dmesg_log(conn, DMESG_INFO, "kfree_rcu",
-                      f"freed={freed} dead={total_dead} skip_prot={skipped_protected}",
-                      project="global")
-        except Exception:
-            pass
+        # iter538: 移除内部 dmesg_log — loader 调用方已负责记录，避免 ring buffer 双写
 
     duration_ms = (_t.time() - t0) * 1000
     return {
@@ -6248,14 +6237,7 @@ def put_page(conn: "sqlite3.Connection", project: str = None) -> dict:
         conn.commit()
 
     total_actions = ue_killed + oom_max_reaped + oom_demoted + bitmap_stale_removed
-    if total_actions > 0:
-        try:
-            dmesg_log(conn, DMESG_INFO, "put_page",
-                      f"ue_killed={ue_killed} oom_reaped={oom_max_reaped} "
-                      f"oom_demoted={oom_demoted} bitmap_stale={bitmap_stale_removed}",
-                      project=project or "all")
-        except Exception:
-            pass
+    # iter538: 移除内部 dmesg_log — loader 调用方已负责记录，避免 ring buffer 双写
 
     duration_ms = (_t.time() - t0) * 1000
     return {
@@ -6393,13 +6375,7 @@ def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
     if promoted > 0 or demoted > 0:
         conn.commit()
         bump_chunk_version()
-        try:
-            dmesg_log(conn, DMESG_INFO, "numa_balancing",
-                      f"rebalance: promoted={promoted} demoted={demoted} "
-                      f"skip_prot={skipped_protected}",
-                      project=project or "all")
-        except Exception:
-            pass
+        # iter538: 移除内部 dmesg_log — loader 调用方已负责记录，避免 ring buffer 双写
 
     duration_ms = (_t.time() - t0) * 1000
     return {

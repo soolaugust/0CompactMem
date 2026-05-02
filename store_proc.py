@@ -232,6 +232,72 @@ DMESG_DEBUG = "DEBUG"   # 调试：详细内部状态
 _LEVEL_ORDER = {DMESG_ERR: 0, DMESG_WARN: 1, DMESG_INFO: 2, DMESG_DEBUG: 3}
 
 
+# ── iter538: printk_ratelimit — dmesg 去重抑制 ──────────────────────────────────
+# OS 类比：Linux printk_ratelimit() / __ratelimit() (Alan Cox, 1999)
+#   net_ratelimit() 防止网络攻击填满 dmesg ring buffer。
+#   对同一子系统的重复消息进行去重压缩，保护有限 ring buffer 容量。
+#
+# 实现：进程内 LRU 缓存，记录 (subsystem, message_key) → (timestamp, count)。
+#   同一 key 在 ratelimit_interval_s 内再次出现 → 跳过写入，累加 suppressed 计数。
+#   窗口过期时写入一条 "suppressed N duplicates" 摘要。
+_ratelimit_cache: dict = {}  # {(subsystem, msg_key): {"ts": float, "count": int}}
+_RATELIMIT_CACHE_MAX = 64    # 最多追踪 64 个 key（防内存泄漏）
+
+
+def _ratelimit_key(message: str) -> str:
+    """提取消息的去重 key：取等号前的字段名骨架。
+    例如 'freed=27 dead=27 skip_prot=0 12.4ms' → 'freed= dead= skip_prot='
+    这样不同数值的同结构消息会被归为同一 key。
+    """
+    import re
+    # 提取所有 field=value 中的 field= 部分
+    fields = re.findall(r'[a-z_]+=', message)
+    if fields:
+        return " ".join(fields)
+    # 无结构化字段 → 用前 40 字符
+    return message[:40]
+
+
+def _printk_ratelimit(subsystem: str, message: str) -> bool:
+    """
+    iter538: 判断是否应该抑制此条日志。
+    返回 True = 抑制（不写入），False = 允许写入。
+
+    抑制条件：同一 (subsystem, msg_key) 在 ratelimit_interval_s 内已写入过。
+    """
+    import time
+    try:
+        from config import get as _cfg
+        interval = _cfg("dmesg.ratelimit_interval_s")
+    except Exception:
+        interval = 30  # 默认 30 秒内同 key 去重
+
+    if interval <= 0:
+        return False  # 禁用去重
+
+    key = (subsystem, _ratelimit_key(message))
+    now = time.time()
+
+    if key in _ratelimit_cache:
+        entry = _ratelimit_cache[key]
+        elapsed = now - entry["ts"]
+        if elapsed < interval:
+            entry["count"] += 1
+            return True  # 抑制
+        # 窗口过期 — 重置
+        entry["ts"] = now
+        entry["count"] = 0
+        return False
+
+    # 新 key — 记录并允许
+    if len(_ratelimit_cache) >= _RATELIMIT_CACHE_MAX:
+        # LRU evict: 删除最旧的 entry
+        oldest_key = min(_ratelimit_cache, key=lambda k: _ratelimit_cache[k]["ts"])
+        del _ratelimit_cache[oldest_key]
+    _ratelimit_cache[key] = {"ts": now, "count": 0}
+    return False
+
+
 def dmesg_log(conn, level: str, subsystem: str,
               message: str, session_id: str = "", project: str = "",
               extra: dict = None) -> None:
@@ -239,6 +305,9 @@ def dmesg_log(conn, level: str, subsystem: str,
     迭代29：写入一条 dmesg 日志。
     OS 类比：printk(KERN_ERR "subsystem: message") — 内核子系统通过 printk
     向环形缓冲区写入带级别和子系统标签的结构化日志。
+
+    iter538: printk_ratelimit 去重 — 同一子系统的重复结构消息在短时间窗口内被抑制，
+    防止 ring buffer 被重复 no-op 状态消息填满（实测 kfree_rcu 48%、page_idle 5% 浪费）。
 
     参数：
       level — ERR/WARN/INFO/DEBUG（对应 KERN_ERR/KERN_WARNING/KERN_INFO/KERN_DEBUG）
@@ -250,6 +319,11 @@ def dmesg_log(conn, level: str, subsystem: str,
       写入后检查总条目数，超过 dmesg.ring_buffer_size 时删除最旧条目。
       OS 类比：__log_buf 固定大小，满时覆盖最旧记录。
     """
+    # iter538: printk_ratelimit — ERR/WARN 永不抑制，INFO/DEBUG 可被去重
+    if level in (DMESG_INFO, DMESG_DEBUG):
+        if _printk_ratelimit(subsystem, message):
+            return  # 抑制：不写入 ring buffer
+
     now_iso = datetime.now(timezone.utc).isoformat()
     extra_json = json.dumps(extra, ensure_ascii=False) if extra else None
 

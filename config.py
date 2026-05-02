@@ -2011,6 +2011,8 @@ _REGISTRY: dict = {
     # ── dmesg（迭代29）──
     "dmesg.ring_buffer_size": (500, int, 10, 5000, None,
         "dmesg 环形缓冲区最大条目数"),
+    "dmesg.ratelimit_interval_s": (30, int, 0, 300, None,
+        "iter538: printk_ratelimit 去重窗口（秒），0=禁用"),
 
     # ── kswapd watermarks（迭代30）──
     "kswapd.pages_low_pct": (80, int, 50, 95, None,
