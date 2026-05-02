@@ -3340,6 +3340,14 @@ _REGISTRY: dict = {
     "unlink_anon_vmas.prune_half_dangling": (True, bool, None, None, None,
         "是否清理只有一端可达的 half-dangling edges（保守模式=False 只清理两端都断的）"),
 
+    # ── iter576: flush_tlb_one — Entity Map Stale Entry Invalidation ──
+    "flush_tlb_one.enabled": (True, bool, None, None, None,
+        "是否启用 entity_map stale 条目清理（指向 dead/ghost/orphan chunk 的映射）"),
+    "flush_tlb_one.oom_threshold": (300, int, 100, 1000, None,
+        "oom_adj >= 此值的 chunk 对应 entity_map 条目视为 dead（与 kcompactd 共用阈值）"),
+    "flush_tlb_one.max_flush": (200, int, 50, 1000, None,
+        "单次最大 flush entity_map 条目数量"),
+
     # ── iter549: vacuum — Database File Compaction ──
     "vacuum.enabled": (True, bool, None, None, None,
         "是否启用 VACUUM（DB 文件物理收缩）"),

@@ -1802,6 +1802,30 @@ def main():
             except Exception:
                 pass
 
+        # ── iter576：flush_tlb_one — Entity Map Stale Entry Invalidation ──
+        if _ict_enabled: _ict_milestones.append(("flush_tlb_one", _ict_time.time()))
+        # OS 类比：Linux flush_tlb_one() (Andy Lutomirski, 2017) — 物理页面回收后
+        # TLB 中 stale PTE 必须 invalidate，否则 spreading_activate 沿 entity_map
+        # 返回 dead chunk_id（33.8% entity_map 条目指向 oom_adj>=300 dead chunks）
+        _ftlb_result = {"flushed": 0}
+        if not _defer_reclaim and not _ts_skip("flush_tlb_one"):
+            try:
+                from store_mm import flush_tlb_one
+                _ftlb_result = flush_tlb_one(_log_conn, project)
+                if _ftlb_result["flushed"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "flush_tlb_one",
+                              f"flushed={_ftlb_result['flushed']} "
+                              f"ghost={_ftlb_result['ghost']} "
+                              f"dead={_ftlb_result['dead']} "
+                              f"orphan={_ftlb_result['orphan']} "
+                              f"scanned={_ftlb_result['scanned']} "
+                              f"{_ftlb_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                    _log_conn.commit()
+                _ts_report("flush_tlb_one", _ftlb_result.get("flushed", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。

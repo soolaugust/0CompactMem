@@ -8597,7 +8597,7 @@ CGROUP_GROUPS = {
     "reclaim": [
         "shrink_dcache", "oom_reaper", "overcommit_kill", "free_pages_ok",
         "kfree_rcu", "put_page", "munlock_idle", "oom_reaper_onfault", "shrink_slab",
-        "folio_batch_drain", "unlink_anon_vmas",
+        "folio_batch_drain", "unlink_anon_vmas", "flush_tlb_one",
     ],
     "gc": [
         "gc_namespace", "gc_swap",
@@ -11413,6 +11413,192 @@ def unlink_anon_vmas(conn: sqlite3.Connection, project: str = None) -> dict:
         "fully_disconnected": actual_fully,
         "half_dangling": actual_half,
         "stale_mapped": 0,
+        "scanned": scanned,
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
+def flush_tlb_one(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    iter576: flush_tlb_one — Entity Map Stale Entry Invalidation.
+
+    OS 类比：Linux flush_tlb_one() / __flush_tlb_range() (Andy Lutomirski, 2017,
+      arch/x86/mm/tlb.c) — 当物理页面被回收（free_page → buddy allocator）后，
+      TLB 中指向该物理地址的缓存条目仍然存在。如果不 flush，后续的 TLB lookup
+      命中 stale entry，将虚拟地址翻译到已释放的物理帧——轻则读到垃圾数据，
+      重则 use-after-free。flush_tlb_one 逐条 invalidate 单个 TLB 条目。
+
+    根因：entity_map 3223 条中 33.8% (1090 条) 的 chunk_id 指向 oom_adj>=300
+      的 dead chunks。spreading_activate 路径：
+        seed_chunk → entity_map → entity_name → entity_edges → to_entity
+        → entity_map → chunk_id (STALE! points to dead chunk)
+      最后一步 entity_map lookup 返回 dead chunk_id，被后续 importance>0 过滤
+      剔除（浪费 CPU），或者更糟——如果 importance 校验被跳过就注入垃圾结果。
+      unlink_anon_vmas(iter575) 清理了 entity_edges 的死边，但 entity_map 的
+      stale TLB 条目未被 invalidate。
+
+    三级 invalidation 策略：
+      Level 1 (ghost): chunk_id 的 chunk importance=0 → 无条件 flush
+      Level 2 (dead): chunk_id 的 chunk oom_adj >= threshold → flush
+      Level 3 (orphan): chunk_id 完全不存在于 memory_chunks → flush
+
+    参数：
+      conn — DB 连接
+      project — 项目 ID（None 扫描全部）
+
+    返回：
+      dict: flushed, ghost, dead, orphan, scanned, duration_ms
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+        enabled = _cfg("flush_tlb_one.enabled")
+        if not enabled:
+            return {"flushed": 0, "ghost": 0, "dead": 0, "orphan": 0,
+                    "scanned": 0, "duration_ms": 0.0}
+        oom_threshold = int(_cfg("flush_tlb_one.oom_threshold"))
+        max_flush = int(_cfg("flush_tlb_one.max_flush"))
+    except Exception:
+        return {"flushed": 0, "ghost": 0, "dead": 0, "orphan": 0,
+                "scanned": 0, "duration_ms": 0.0}
+
+    # ── Phase 1: 查找所有 stale entity_map 条目 ──
+    # Level 3 (orphan): chunk_id 不存在于 memory_chunks
+    proj_filter = ""
+    params: list = []
+    if project:
+        proj_filter = "AND (em.project = ? OR em.project = 'global')"
+        params = [project, project]
+    else:
+        params = []
+
+    try:
+        # orphan: chunk_id 完全不存在
+        orphan_sql = f"""
+            SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+            WHERE NOT EXISTS (
+                SELECT 1 FROM memory_chunks mc WHERE mc.id = em.chunk_id
+            )
+            {proj_filter.replace('?', '?', 1) if project else ''}
+        """
+        orphan_params = [project, project] if project else []
+        # Simpler: just filter project in entity_map
+        if project:
+            orphan_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM memory_chunks mc WHERE mc.id = em.chunk_id
+                )
+                AND (em.project = ? OR em.project = 'global')
+            """
+            orphan_params = [project]
+        else:
+            orphan_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM memory_chunks mc WHERE mc.id = em.chunk_id
+                )
+            """
+            orphan_params = []
+
+        orphan_rows = conn.execute(orphan_sql, orphan_params).fetchall()
+    except Exception:
+        orphan_rows = []
+
+    try:
+        # ghost: importance = 0
+        if project:
+            ghost_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE em.chunk_id IN (
+                    SELECT id FROM memory_chunks WHERE importance = 0
+                )
+                AND (em.project = ? OR em.project = 'global')
+            """
+            ghost_params = [project]
+        else:
+            ghost_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE em.chunk_id IN (
+                    SELECT id FROM memory_chunks WHERE importance = 0
+                )
+            """
+            ghost_params = []
+
+        ghost_rows = conn.execute(ghost_sql, ghost_params).fetchall()
+    except Exception:
+        ghost_rows = []
+
+    try:
+        # dead: oom_adj >= threshold AND importance > 0 (not ghost)
+        if project:
+            dead_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE em.chunk_id IN (
+                    SELECT id FROM memory_chunks
+                    WHERE oom_adj >= ? AND importance > 0
+                )
+                AND (em.project = ? OR em.project = 'global')
+            """
+            dead_params = [oom_threshold, project]
+        else:
+            dead_sql = """
+                SELECT em.rowid, em.entity_name, em.chunk_id FROM entity_map em
+                WHERE em.chunk_id IN (
+                    SELECT id FROM memory_chunks
+                    WHERE oom_adj >= ? AND importance > 0
+                )
+            """
+            dead_params = [oom_threshold]
+
+        dead_rows = conn.execute(dead_sql, dead_params).fetchall()
+    except Exception:
+        dead_rows = []
+
+    # ── Phase 2: 去重并按优先级排序（orphan > ghost > dead）──
+    orphan_rowids = set(r[0] for r in orphan_rows)
+    ghost_rowids = set(r[0] for r in ghost_rows) - orphan_rowids
+    dead_rowids = set(r[0] for r in dead_rows) - orphan_rowids - ghost_rowids
+
+    # 合并待删除 rowids，按优先级排序
+    flush_rowids = []
+    flush_rowids.extend(sorted(orphan_rowids))
+    flush_rowids.extend(sorted(ghost_rowids))
+    flush_rowids.extend(sorted(dead_rowids))
+
+    scanned = len(orphan_rowids) + len(ghost_rowids) + len(dead_rowids)
+
+    # 应用 max_flush cap
+    if len(flush_rowids) > max_flush:
+        flush_rowids = flush_rowids[:max_flush]
+
+    # 计算实际各类数量
+    actual_orphan = len([r for r in flush_rowids if r in orphan_rowids])
+    actual_ghost = len([r for r in flush_rowids if r in ghost_rowids])
+    actual_dead = len(flush_rowids) - actual_orphan - actual_ghost
+
+    # ── Phase 3: 批量 DELETE ──
+    if flush_rowids:
+        # SQLite rowid 批量删除
+        batch_size = 200
+        for i in range(0, len(flush_rowids), batch_size):
+            batch = flush_rowids[i:i + batch_size]
+            placeholders = ",".join("?" for _ in batch)
+            conn.execute(
+                f"DELETE FROM entity_map WHERE rowid IN ({placeholders})",
+                batch,
+            )
+        conn.commit()
+
+    duration_ms = (_t.time() - t0) * 1000
+
+    return {
+        "flushed": len(flush_rowids),
+        "ghost": actual_ghost,
+        "dead": actual_dead,
+        "orphan": actual_orphan,
         "scanned": scanned,
         "duration_ms": round(duration_ms, 2),
     }
