@@ -994,6 +994,24 @@ def main():
         except Exception:
             pass
 
+        # ── iter530：put_page — Unified Final Release + Bitmap Scrub ──
+        # OS 类比：Linux put_page()/__page_cache_release() — refcount=0 时统一释放路径
+        # 三盲区修复：UE force kill(imp=0+acc>0) + OOM_MAX reap + bitmap stale scrub
+        try:
+            from store_mm import put_page
+            pp_result = put_page(_log_conn, project)
+            total_pp = (pp_result["ue_killed"] + pp_result["oom_max_reaped"]
+                        + pp_result["oom_max_demoted"] + pp_result["bitmap_stale_removed"])
+            if total_pp > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "put_page",
+                          f"ue={pp_result['ue_killed']} oom_reap={pp_result['oom_max_reaped']} "
+                          f"oom_demote={pp_result['oom_max_demoted']} "
+                          f"bitmap_stale={pp_result['bitmap_stale_removed']} "
+                          f"{pp_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter522：numa_balancing — Access-Pattern Importance Rebalancing ──
         # OS 类比：Linux AutoNUMA (Ingo Molnár, 2012) — 观察访问模式动态迁移页面到正确 NUMA node
         # 双向平衡：高访问+低imp → promote，高imp+零访问+超龄 → demote

@@ -5995,6 +5995,175 @@ def kfree_rcu(conn: "sqlite3.Connection") -> dict:
     }
 
 
+# ── iter530: put_page — Unified Final Release + Bitmap Scrub ──────────────────
+
+def put_page(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter530: put_page — 统一最终释放路径 + page_idle bitmap 反向清理。
+
+    OS 类比：Linux put_page() / __page_cache_release() (Linus Torvalds, 1991)
+      当一个 page frame 的 _refcount 通过 put_page() 降至 0 时，不管是哪条
+      路径（munmap、swap out、OOM kill、page_idle scan、truncate）触发了最后
+      一次 put_page()，都会调用 __page_cache_release() 从所有缓存
+      （page cache、swap cache、buffer_head）中移除该页面，并归还到 buddy
+      allocator。关键特性：put_page 不检查 "who" 降了 refcount，只检查
+      "refcount == 0" 这个最终状态。
+
+    三个问题（free_pages_ok / kfree_rcu 的盲区）：
+      1. imp=0 + acc>0 zombies：mem_scrub 标记为 UE (importance=0) 但
+         free_pages_ok 因 access>0 保护 → 永久存活
+      2. oom_adj=OOM_ADJ_MAX(1000) 但 imp>0.2：被所有回收器标记为"最高优先
+         级回收"但无回收器以 oom_adj 为主选择条件 → 永久存活
+      3. page_idle bitmap stale entries：chunk 被其他 project 删除后 bitmap
+         条目未清理 → 下轮 mark 时无法匹配 DB → 不影响正确性但浪费空间
+
+    策略：
+      Phase 1 — UE Force Kill：importance == 0 的 chunk 无条件删除
+        （mem_scrub 已判定为不可修复错误，access 历史不再有参考价值）
+      Phase 2 — OOM_ADJ_MAX Reap：oom_adj >= OOM_ADJ_MAX 的 chunk
+        降级 importance *= 0.4 + 删除 imp < 0.3 的
+        （经过完整回收管线标记后仍未死亡 → 强制收割）
+      Phase 3 — Bitmap Scrub：从 page_idle bitmap 删除不存在于 DB 的
+        stale chunk IDs（反向映射清理）
+
+    调用时机：loader.py SessionStart，在 kfree_rcu 之后运行。
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"ue_killed": 0, "oom_max_reaped": 0, "oom_max_demoted": 0,
+                "bitmap_stale_removed": 0, "duration_ms": 0}
+
+    max_per_scan = int(_cfg("free_pages.max_per_scan"))
+    oom_max_decay = _cfg("put_page.oom_max_decay")
+    oom_max_delete_threshold = _cfg("put_page.oom_max_delete_threshold")
+
+    # ── Phase 1: UE Force Kill (importance == 0, 无论 access_count) ──
+    # mem_scrub 将不可修复数据标记为 importance=0 + oom_adj=900，
+    # 但 free_pages_ok 和 kfree_rcu 均保护 access>0 的 chunk → 遗漏
+    ue_rows = conn.execute(
+        """SELECT id, chunk_type, oom_adj FROM memory_chunks
+           WHERE importance < 0.001
+           ORDER BY oom_adj DESC
+           LIMIT ?""",
+        (max_per_scan,)
+    ).fetchall()
+
+    ue_to_delete = []
+    for chunk_id, chunk_type, oom_adj in ue_rows:
+        # 唯一保护：mlock (显式人工保护)
+        if oom_adj is not None and oom_adj <= -500:
+            continue
+        # task_state 豁免
+        if chunk_type == "task_state":
+            continue
+        ue_to_delete.append(chunk_id)
+
+    ue_killed = 0
+    if ue_to_delete:
+        ue_killed = delete_chunks(conn, ue_to_delete)
+
+    # ── Phase 2: OOM_ADJ_MAX Reap (oom_adj >= 1000, 任何 importance) ──
+    # 多个回收器通过 oom_adj += N 累积到 MAX，但无人执行最终删除
+    oom_max_rows = conn.execute(
+        """SELECT id, importance, access_count, chunk_type, oom_adj
+           FROM memory_chunks
+           WHERE oom_adj >= ?
+           ORDER BY importance ASC
+           LIMIT ?""",
+        (OOM_ADJ_MAX, max_per_scan)
+    ).fetchall()
+
+    oom_to_delete = []
+    oom_demoted = 0
+    for chunk_id, imp, acc, chunk_type, oom_adj in oom_max_rows:
+        # mlock 保护
+        if oom_adj is not None and oom_adj <= -500:
+            continue
+        # task_state 豁免
+        if chunk_type == "task_state":
+            continue
+
+        # imp < threshold → 直接删除（已经足够低）
+        if imp is not None and imp < oom_max_delete_threshold:
+            oom_to_delete.append(chunk_id)
+        else:
+            # 高 imp 但 oom_adj=MAX → 强制降级 importance × decay
+            new_imp = round((imp or 0.5) * oom_max_decay, 4)
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+                (new_imp, chunk_id)
+            )
+            oom_demoted += 1
+
+    oom_max_reaped = 0
+    if oom_to_delete:
+        oom_max_reaped = delete_chunks(conn, oom_to_delete)
+
+    if oom_demoted > 0:
+        try:
+            bump_chunk_version(conn)
+        except Exception:
+            pass
+
+    # ── Phase 3: Bitmap Scrub (page_idle bitmap stale entry removal) ──
+    # 当 chunk 被其他 project/路径删除后，bitmap 条目未被清理
+    bitmap_stale_removed = 0
+    try:
+        bitmap = _page_idle_load()
+        if bitmap:
+            # 获取所有 live chunk IDs (一次查询)
+            live_ids = set(r[0] for r in conn.execute(
+                "SELECT id FROM memory_chunks"
+            ).fetchall())
+
+            modified = False
+            for proj_key in list(bitmap.keys()):
+                proj_bitmap = bitmap[proj_key]
+                if not isinstance(proj_bitmap, dict):
+                    continue
+                stale_keys = [k for k in proj_bitmap if k not in live_ids]
+                for k in stale_keys:
+                    del proj_bitmap[k]
+                    bitmap_stale_removed += 1
+                    modified = True
+                # 清空的 project entry 删除
+                if not proj_bitmap:
+                    del bitmap[proj_key]
+                    modified = True
+
+            if modified:
+                _page_idle_save(bitmap)
+    except Exception:
+        pass
+
+    # ── Commit + Log ──
+    if ue_killed > 0 or oom_max_reaped > 0 or oom_demoted > 0:
+        conn.commit()
+
+    total_actions = ue_killed + oom_max_reaped + oom_demoted + bitmap_stale_removed
+    if total_actions > 0:
+        try:
+            dmesg_log(conn, DMESG_INFO, "put_page",
+                      f"ue_killed={ue_killed} oom_reaped={oom_max_reaped} "
+                      f"oom_demoted={oom_demoted} bitmap_stale={bitmap_stale_removed}",
+                      project=project or "all")
+        except Exception:
+            pass
+
+    duration_ms = (_t.time() - t0) * 1000
+    return {
+        "ue_killed": ue_killed,
+        "oom_max_reaped": oom_max_reaped,
+        "oom_max_demoted": oom_demoted,
+        "bitmap_stale_removed": bitmap_stale_removed,
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
 # ── iter522: numa_balancing — Access-Pattern Importance Rebalancing ──────────
 def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
     """

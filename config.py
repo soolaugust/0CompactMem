@@ -3106,6 +3106,12 @@ _REGISTRY: dict = {
     "free_pages.max_per_scan": (40, int, 5, 200, None,
         "每次 SessionStart 最多释放 N 个 dead chunks（默认 40）"),
 
+    # ── iter530: put_page — Unified Final Release + Bitmap Scrub ──
+    "put_page.oom_max_decay": (0.4, float, 0.1, 0.8, None,
+        "OOM_ADJ_MAX chunks 强制降级因子（默认 0.4：imp × 0.4）"),
+    "put_page.oom_max_delete_threshold": (0.3, float, 0.1, 0.5, None,
+        "OOM_ADJ_MAX chunks imp 低于此值直接删除（默认 0.3）"),
+
     # ── iter522: numa_balancing — Access-Pattern Importance Rebalancing ──
     "numa_balancing.promote_min_access": (3, int, 1, 20, None,
         "Promote 触发的最低 access_count（默认 3：至少被召回 3 次才算实战验证）"),
