@@ -2558,6 +2558,15 @@ def main():
                 _min_thresh = _sysctl("retriever.generic_query_min_threshold")
             else:
                 _min_thresh = _sysctl("retriever.min_score_threshold")
+            # iter578: mremap — hard deadline 路径也应用自适应地板
+            if (final and _sysctl("retriever.adaptive_floor_enabled")
+                    and not _is_generic_knowledge_query(query)):
+                _top1_score = final[0][0]
+                _af_min_top1 = _sysctl("retriever.adaptive_floor_min_top1")
+                if _top1_score >= _af_min_top1:
+                    _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
+                    _adaptive_floor = _top1_score * _af_ratio
+                    _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
             positive = [(s, c) for s, c in final if s >= _min_thresh]
             if _sysctl("retriever.drr_enabled") and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
@@ -2936,6 +2945,20 @@ def main():
             _min_thresh = _sysctl("retriever.generic_query_min_threshold")
         else:
             _min_thresh = _sysctl("retriever.min_score_threshold")
+        # ── iter578: mremap — Adaptive Score Floor ────────────────────────
+        # OS 类比：Linux mremap() (Linus Torvalds, 1995, mm/mremap.c)
+        #   固定 VMA 大小浪费虚拟地址空间或导致 OOM，mremap 动态调整映射大小。
+        #   固定 min_score_threshold=0.3 在 top1=0.99 时过滤 90% 候选（信息损失），
+        #   在 top1=0.2 时放行噪音。自适应地板 = top1 × ratio，随分布动态伸缩。
+        # 效果：top1=0.99 → floor=0.25(允许更多次优结果)；top1=0.3 → floor=0.3(不变)
+        if (final and _sysctl("retriever.adaptive_floor_enabled")
+                and not _is_generic_knowledge_query(query)):
+            _top1_score = final[0][0]
+            _af_min_top1 = _sysctl("retriever.adaptive_floor_min_top1")
+            if _top1_score >= _af_min_top1:
+                _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
+                _adaptive_floor = _top1_score * _af_ratio
+                _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
         positive = [(s, c) for s, c in final if s >= _min_thresh]
 
         # ── 迭代334：IWCSI — Importance-Weighted Cold-Start Injection ───────

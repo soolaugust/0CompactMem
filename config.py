@@ -92,6 +92,12 @@ _REGISTRY: dict = {
         "最低注入分数阈值（迭代86→87：0.15→0.30，A/B评测T4残留干扰BM25 0.29仍通过旧阈值）"),
     "retriever.generic_query_min_threshold": (0.85, float, 0.0, 1.0, None,
         "通用知识 query 的注入阈值（迭代90：0.70→0.85，GIL题评分0.79仍通过0.70）"),
+    "retriever.adaptive_floor_enabled": (True, bool, None, None, None,
+        "启用自适应分数地板（iter578: mremap）"),
+    "retriever.adaptive_floor_ratio": (0.25, float, 0.05, 0.8, None,
+        "自适应地板 = top1_score × ratio（iter578: 当 top1=0.99 时地板=0.25）"),
+    "retriever.adaptive_floor_min_top1": (0.5, float, 0.1, 1.0, None,
+        "Top-1 score 低于此值时不启用自适应地板（防止低质量结果泛滥）"),
 
     # ── writer ──
     "writer.debounce_secs": (300, int, 0, 3600, None,
