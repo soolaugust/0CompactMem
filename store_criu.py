@@ -337,8 +337,16 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
                         window: int = 30,
                         session_id: str = "") -> dict:
     """
-    统计每个 chunk 在最近 window 条 injected traces 中被召回的次数。
+    统计每个 chunk 在最近 window 条 traces 中被选入 top_k 的次数。
     迭代312：新增 session_id 参数（保留兼容旧接口）。
+    迭代580：madvise_cold — 统计范围从 injected=1 扩展到所有 trace。
+      skipped_same_hash 的 trace 同样有 top_k_json，反映该 chunk 的垄断地位。
+      只统计 injected=1 会系统性低估高频垄断 chunk 的 recall_count：
+        - 真实出现率 81%（21/26 全部 trace）
+        - 旧统计只看 injected=1：8/13=62%，window=30 时 8/30=27% < bw_max_pct=30%
+        - 新统计看全部 trace：21/30=70% > bw_max_pct=30% → throttle 生效
+      OS 类比：madvise(MADV_COLD) (Minchan Kim, 2019, kernel 5.4, mm/madvise.c) —
+        统计"冷热"不能只看成功的 page access，还要算被 TLB cached 拦截的访问。
 
     Args:
         conn: 数据库连接
@@ -352,7 +360,7 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
     try:
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
-            "WHERE project=? AND injected=1 "
+            "WHERE project=? AND top_k_json IS NOT NULL "
             "ORDER BY rowid DESC LIMIT ?",
             (project, window)
         )
@@ -408,9 +416,10 @@ def chunk_recall_counts_memcg(conn: 'sqlite3.Connection', project: str,
     """
     try:
         # 查询所有项目的最近 traces（排除当前项目，当前项目已由 chunk_recall_counts 覆盖）
+        # 迭代580：与 chunk_recall_counts 一致，统计所有 trace（含 skipped_same_hash）
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
-            "WHERE project != ? AND injected=1 "
+            "WHERE project != ? AND top_k_json IS NOT NULL "
             "ORDER BY rowid DESC LIMIT ?",
             (project, window)
         )
@@ -448,9 +457,10 @@ def chunk_session_recall_counts(conn: 'sqlite3.Connection', project: str,
     if not session_id:
         return {}
     try:
+        # 迭代580：与 chunk_recall_counts 一致，统计所有 trace（含 skipped_same_hash）
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
-            "WHERE project=? AND session_id=? AND injected=1 "
+            "WHERE project=? AND session_id=? AND top_k_json IS NOT NULL "
             "ORDER BY rowid DESC LIMIT ?",
             (project, session_id, window)
         )
