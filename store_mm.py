@@ -10528,3 +10528,178 @@ def shrink_dcache_sb(conn: sqlite3.Connection, project: str = None) -> dict:
         "scanned": scanned,
         "duration_ms": round((_time.time() - t0) * 1000, 2),
     }
+
+
+# ── iter569: anon_vma_prepare — Entity Map Backfill for Orphan Import Chunks ──
+
+# 停用词列表（从 compact_zone _extract_entities 精简）
+_ANON_VMA_STOPWORDS = frozenset({
+    "the", "and", "for", "that", "this", "with", "from", "are", "was",
+    "not", "but", "have", "has", "had", "will", "can", "all", "its",
+    "been", "would", "could", "should", "may", "might", "also", "than",
+    "each", "when", "where", "which", "what", "how", "who", "some",
+    "about", "into", "over", "after", "before", "between", "under",
+    "through", "during", "only", "just", "more", "most", "other",
+    "sec1", "sec2", "sec3", "sec4", "sec5", "sec6", "sec7", "sec8",
+})
+
+
+def _anon_vma_extract_entities(text: str) -> set:
+    """
+    从 summary+content 提取实体关键词（entity_map 填充用）。
+
+    策略（与 compact_zone._extract_entities 类似但更宽松）：
+      - 反引号内容（技术标识符）
+      - 英文技术词（≥3字符，含字母+数字/下划线）
+      - 中文双字词
+      - 方括号内的 topic 标签（如 [capabilities]→capabilities）
+      - ">" 分隔的层级路径叶子节点
+    """
+    entities = set()
+    if not text:
+        return entities
+
+    # 反引号内容
+    for m in re.finditer(r'`([^`]{2,30})`', text):
+        entities.add(m.group(1).lower())
+
+    # 方括号 topic（导入 chunk 的分类标签）
+    for m in re.finditer(r'\[([^\]]{2,30})\]', text):
+        tag = m.group(1).strip().lower()
+        if tag and tag not in _ANON_VMA_STOPWORDS:
+            entities.add(tag)
+
+    # ">" 分隔层级的叶子节点
+    if '>' in text:
+        parts = text.split('>')
+        leaf = parts[-1].strip()
+        # 提取叶子节点中的关键词
+        for m in re.finditer(r'\b([a-zA-Z][a-zA-Z0-9_]{2,25})\b', leaf):
+            word = m.group(1).lower()
+            if word not in _ANON_VMA_STOPWORDS:
+                entities.add(word)
+
+    # 英文技术词（≥3字符）
+    for m in re.finditer(r'\b([a-zA-Z][a-zA-Z0-9_]{2,25})\b', text):
+        word = m.group(1).lower()
+        if word not in _ANON_VMA_STOPWORDS:
+            entities.add(word)
+
+    # 中文双字词
+    cn = re.sub(r'[^\u4e00-\u9fff]', '', text)
+    for i in range(len(cn) - 1):
+        entities.add(cn[i:i + 2])
+
+    return entities
+
+
+def anon_vma_prepare(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    iter569: Entity Map Backfill for Orphan Import Chunks.
+
+    OS 类比：Linux anon_vma_prepare() (Andrea Arcangeli, 2004, mm/rmap.c)
+      当一个匿名页面被迁移到新 VMA 时，内核需要确保该页面有 anon_vma
+      反向映射结构（rmap）。没有 anon_vma 的页面对 page reclaim scanner
+      和 KSM（内核同页合并）不可见——无法被扫描、无法被引用、无法参与
+      任何内存管理操作。anon_vma_prepare() 在迁移前为页面建立 rmap 基础设施。
+
+    根因：62 个 import 前缀 chunk 的 entity_map 条目为 0。
+      spreading_activate()（retriever 的 "rmap walker"）沿 entity_edges
+      扩散激活时无法触达这些 chunk，导致 57.1% dark page rate。
+      即使 FTS5 偶尔命中邻居 chunk，激活扩散永远绕过无 rmap 的孤儿 chunk。
+
+    实现：
+      1. 扫描 entity_map 中无条目的 chunk（orphan detection）
+      2. 从 summary + content[:200] 提取实体关键词
+      3. 写入 entity_map（建立 rmap 基础设施）
+      4. 单次最多处理 max_backfill 个 chunk（防止 boot 延迟过长）
+
+    保护机制：
+      - 幂等：已有 entity_map 的 chunk 不重复处理
+      - max_backfill 限制单次处理量
+      - 只处理 importance > 0 的活跃 chunk（跳过 ghost）
+      - min_entities: 提取少于此数量实体的 chunk 跳过（内容太少无法建立有效连接）
+
+    参数：
+      conn — 数据库连接
+      project — 项目 ID（None 时扫描全库）
+
+    返回 dict:
+      backfilled: int — 成功建立 entity_map 的 chunk 数
+      entities_created: int — 新创建的 entity_map 条目总数
+      orphans_found: int — 发现的孤儿 chunk 数
+      skipped_low_entity: int — 因实体过少跳过的 chunk 数
+      duration_ms: float
+    """
+    from config import get as _cfg
+    t0 = _time.time()
+
+    enabled = _cfg("anon_vma_prepare.enabled")
+    if not enabled:
+        return {"backfilled": 0, "entities_created": 0, "orphans_found": 0,
+                "skipped_low_entity": 0, "duration_ms": 0.0}
+
+    max_backfill = int(_cfg("anon_vma_prepare.max_backfill"))
+    min_entities = int(_cfg("anon_vma_prepare.min_entities"))
+
+    # Phase 1: 找出没有 entity_map 条目的 chunk（orphan detection）
+    where_proj = "AND mc.project IN (?, 'global')" if project else ""
+    params = [project] if project else []
+
+    orphan_rows = conn.execute(f"""
+        SELECT mc.id, mc.summary, mc.content, mc.project
+        FROM memory_chunks mc
+        LEFT JOIN entity_map em ON em.chunk_id = mc.id
+        WHERE em.chunk_id IS NULL
+          AND mc.importance > 0
+          {where_proj}
+        ORDER BY mc.importance DESC
+        LIMIT ?
+    """, params + [max_backfill * 2]).fetchall()  # 2x buffer for skip filtering
+
+    orphans_found = len(orphan_rows)
+    backfilled = 0
+    entities_created = 0
+    skipped_low_entity = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for chunk_id, summary, content, chunk_project in orphan_rows:
+        if backfilled >= max_backfill:
+            break
+
+        # 提取实体：summary 全文 + content 前 200 字符
+        text = (summary or "") + " " + ((content or "")[:200])
+        entities = _anon_vma_extract_entities(text)
+
+        if len(entities) < min_entities:
+            skipped_low_entity += 1
+            continue
+
+        # 写入 entity_map — 建立 rmap 基础设施
+        for entity_name in entities:
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO entity_map
+                       (entity_name, chunk_id, project, updated_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (entity_name, chunk_id, chunk_project or "global", now_iso)
+                )
+                entities_created += 1
+            except Exception:
+                pass
+
+        backfilled += 1
+
+    if backfilled > 0:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    return {
+        "backfilled": backfilled,
+        "entities_created": entities_created,
+        "orphans_found": orphans_found,
+        "skipped_low_entity": skipped_low_entity,
+        "duration_ms": round((_time.time() - t0) * 1000, 2),
+    }

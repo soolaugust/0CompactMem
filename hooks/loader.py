@@ -1697,6 +1697,25 @@ def main():
             except Exception:
                 pass
 
+        # ── iter569：anon_vma_prepare — Entity Map Backfill ──
+        if _ict_enabled: _ict_milestones.append(("anon_vma_prepare", _ict_time.time()))
+        # OS 类比：Linux anon_vma_prepare() — 为迁移页面建立 rmap 基础设施
+        # 无 entity_map 的 chunk 对 spreading_activate 不可见（57% dark page rate）
+        if not _defer_reclaim and not _ts_skip("anon_vma_prepare"):
+            try:
+                from store_mm import anon_vma_prepare
+                _avp_result = anon_vma_prepare(_log_conn, project)
+                if _avp_result["backfilled"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "anon_vma_prepare",
+                              f"backfilled={_avp_result['backfilled']} "
+                              f"entities={_avp_result['entities_created']} "
+                              f"orphans={_avp_result['orphans_found']} "
+                              f"{_avp_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("anon_vma_prepare", _avp_result.get("backfilled", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。

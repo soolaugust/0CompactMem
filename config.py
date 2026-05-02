@@ -3278,6 +3278,14 @@ _REGISTRY: dict = {
     "shrink_dcache_sb.max_delete": (20, int, 1, 100, None,
         "单次 shrink_dcache_sb 最大删除数量（防止误删过多）"),
 
+    # ── iter569: anon_vma_prepare — Entity Map Backfill ──
+    "anon_vma_prepare.enabled": (True, bool, None, None, None,
+        "是否启用 entity_map 回填（为无 rmap 基础设施的孤儿 chunk 建立 entity 连接）"),
+    "anon_vma_prepare.max_backfill": (30, int, 5, 100, None,
+        "单次最多处理的孤儿 chunk 数量（防止 boot 延迟过长）"),
+    "anon_vma_prepare.min_entities": (3, int, 1, 10, None,
+        "chunk 提取实体数低于此值时跳过（内容太少无法建立有效连接）"),
+
     # ── iter549: vacuum — Database File Compaction ──
     "vacuum.enabled": (True, bool, None, None, None,
         "是否启用 VACUUM（DB 文件物理收缩）"),
