@@ -3166,6 +3166,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _drr_enabled   = sysctl("retriever.drr_enabled")
         _min_score_thr = sysctl("retriever.min_score_threshold")
         _gen_query_thr = sysctl("retriever.generic_query_min_threshold")
+        # iter560: cfs_bandwidth — per-chunk retrieval frequency throttle
+        # OS 类比：CFS Bandwidth Control (Paul Turner, 2011) — quota/period 超额 throttle
+        _bw_enabled    = sysctl("cfs_bandwidth.enabled")
+        _bw_quota      = sysctl("cfs_bandwidth.quota") or 8
+        _bw_factor     = sysctl("cfs_bandwidth.throttle_factor") or 0.50
+        _bw_decay      = sysctl("cfs_bandwidth.overflow_decay") or 0.85
         # iter212: removed 3 redundant in-function imports (0.139+0.160+0.260=0.56us/request):
         #   import math as _math → use module-level _math (same object, no overhead)
         #   import hashlib as _hashlib → use already-unpacked hashlib from mods
@@ -3408,6 +3414,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
+            # iter560: cfs_bandwidth — multiplicative throttle for over-quota chunks
+            # OS 类比：CFS bandwidth throttle_cfs_rq() — 超额 cgroup 任务移出 runqueue
+            # saturation_penalty 是加法上限 0.25，无法压制 base>0.8 的垄断 chunk；
+            # cfs_bandwidth 用乘法 score *= factor * decay^overflow 实现渐进强压制。
+            if _bw_enabled and _rc > _bw_quota:
+                score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3457,6 +3469,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
+            # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
+            if _bw_enabled and _rc > _bw_quota:
+                score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
             return score
 
         def _gc_dict_to_ci(c):

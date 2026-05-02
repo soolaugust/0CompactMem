@@ -3360,6 +3360,19 @@ _REGISTRY: dict = {
     "fair_clock.max_per_scan": (20, int, 3, 50, None,
         "每次扫描最多校准的 chunk 数"),
 
+    # ── iter560: cfs_bandwidth — Per-Chunk Retrieval Frequency Throttle ──
+    # OS 类比：Linux CFS Bandwidth Control (Paul Turner, Google, 2011, kernel 3.2, sched/fair.c)
+    # 每个 cgroup 分配 quota/period 带宽上限；超额 task 被 throttled（移出 runqueue）。
+    # 类比：recall_count > quota 的 chunk 在评分时被乘法降权，防止单 chunk 垄断 Top-K。
+    "cfs_bandwidth.enabled": (True, bool, None, None, None,
+        "是否启用 per-chunk 检索频次带宽限制"),
+    "cfs_bandwidth.quota": (8, int, 3, 30, None,
+        "每个 chunk 在 window 内的最大检索次数配额（超额触发 throttle）"),
+    "cfs_bandwidth.throttle_factor": (0.50, float, 0.10, 0.90, None,
+        "超额时的乘法降权因子（score *= factor），越小惩罚越重"),
+    "cfs_bandwidth.overflow_decay": (0.85, float, 0.50, 0.99, None,
+        "超额越多 throttle 越重：factor *= decay^(rc - quota)，渐进压制"),
+
     "bdi_writeback.enabled": (True, bool, None, None, None,
         "是否启用 boot-time 内容质量审计"),
     "bdi_writeback.max_per_scan": (30, int, 5, 100, None,

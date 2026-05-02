@@ -244,6 +244,39 @@ def bandwidth_throttle(recall_count: int, window: int = 0) -> float:
     return _BW_THROTTLE
 
 
+def cfs_bandwidth_throttle(recall_count: int,
+                           quota: int = 8,
+                           throttle_factor: float = 0.50,
+                           overflow_decay: float = 0.85) -> float:
+    """
+    iter560: cfs_bandwidth — Per-Chunk Retrieval Frequency Throttle.
+
+    OS 类比：Linux CFS Bandwidth Control (Paul Turner, Google, 2011, kernel 3.2,
+    kernel/sched/fair.c, cfs_bandwidth.c)
+      每个 cgroup 分配 quota μs / period μs 的 CPU 带宽。task 运行时消耗 quota；
+      当 quota 耗尽，throttle_cfs_rq() 将整个 cgroup 的 runqueue dequeue，
+      所有 task 停止调度直到下一个 period 的 do_sched_cfs_period_timer() refill。
+      超额越多（burst），下一个 period 的 refill 被 clamp，惩罚递进。
+
+    与 saturation_penalty / bandwidth_throttle 的区别：
+      saturation_penalty (iter62):  加法 cap=0.25，log2 增长，无法压制 base>0.8
+      bandwidth_throttle (iter527): 二值硬 throttle（1.0 或 0.15），无渐进过渡
+      cfs_bandwidth (iter560):      乘法渐进 — score *= factor * decay^(rc-quota)
+        rc=quota+1: 0.50 * 0.85^1 = 0.425  (57.5% 削减)
+        rc=quota+5: 0.50 * 0.85^5 = 0.222  (77.8% 削减)
+        rc=quota+10: 0.50 * 0.85^10 = 0.099 (90.1% 削减)
+      渐进压制避免二值跳变，同时比 log2 加法强得多。
+
+    返回值：
+      1.0 — recall_count <= quota（未超额，正常评分）
+      (0, 1) — 超额后的乘法因子，越超越小
+    """
+    if recall_count <= quota:
+        return 1.0
+    overflow = recall_count - quota
+    return throttle_factor * (overflow_decay ** overflow)
+
+
 def tmv_saturation_discount(access_count: int) -> float:
     """
     迭代333：Temporal Marginal Value (TMV) — 乘法饱和折扣。
@@ -552,8 +585,12 @@ def retrieval_score(relevance: float, importance: float,
     cm = context_match_score(query_context, encoding_context)
     score = relevance * (base + ab + fb) + eb + sb - sp + vb - vp + lgb - ndp + cm
     # iter527: cgroup_cpu_max — 硬性带宽限制（超额时乘法削减）
+    # iter560: cfs_bandwidth — 渐进式频次 throttle（超 quota 后 score *= factor * decay^overflow）
+    # cfs_bandwidth 是 bandwidth_throttle 的渐进替代：bandwidth_throttle 是二值（1.0 或 0.15），
+    # cfs_bandwidth 是连续衰减（factor * decay^overflow）。两者取更强者（min），避免冗余堆叠。
     bw = bandwidth_throttle(recall_count)
-    return score * bw
+    cbw = cfs_bandwidth_throttle(recall_count)
+    return score * min(bw, cbw)
 
 
 def working_set_score(importance: float, last_accessed: str) -> float:
