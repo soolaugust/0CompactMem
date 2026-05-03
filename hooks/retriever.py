@@ -2021,12 +2021,13 @@ def main():
                 _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
                 if _r7d_ee >= 5:
                     return 0.0
-                # iter621: saturation_absolute_suppress — 累积注入过饱和永久 suppress
-                # 根因：24h/7d burst suppress 有时间窗口，超高 access chunk 在窗口滑过后复活。
-                #   3192147e(ac=89) 和 b50e0b54(ac=46) 已被充分内化，边际信息≈0。
-                # 修复：access_count >= 50 → early exit 直接返回 0（不依赖时间窗口）。
+                # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
+                # 根因：24h/7d burst suppress 依赖 recall_traces 查询，WAL 可见性问题导致
+                #   _recent_24h_counts 为空 → suppress 失效。access_count 是 chunk 表自身字段，
+                #   直接读取无 WAL 依赖。ac>=30 已被看过足够多次，边际信息≈0。
+                # iter622: 阈值 50→30，移除 relevance 条件（ac=46 feishu CLI 逃逸根因）。
                 _acc_ee = chunk.get("access_count", 0) or 0
-                if _acc_ee >= 50:
+                if _acc_ee >= 30:
                     return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
@@ -2089,12 +2090,13 @@ def main():
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
-            # ── iter621: saturation_absolute_suppress — 累积过饱和 suppress ──
-            # 根因：24h/7d burst suppress 有时间窗口限制，一旦旧注入记录滑出窗口，
-            #   垄断 chunk 复活。access_count >= 50 且 relevance < 0.30 → 永久 suppress。
-            #   仅 relevance >= 0.30（真正高相关）时允许再次注入，防误杀。
+            # ── iter622: saturation_absolute_suppress — 累积过饱和 suppress ──
+            # 根因：iter621 的 ac>=50 AND relevance<0.30 条件让 ac=89 的 memory_verify
+            #   (relevance>=0.30) 逃逸。24h/7d suppress 依赖 recall_traces WAL 查询，
+            #   WAL 可见性问题导致 _recent_24h_counts 为空 → 全部 suppress 失效。
+            # 修复：阈值 50→30，移除 relevance 条件。ac>=30 已被充分内化（仅 2 chunk 受影响）。
             _acc = chunk.get("access_count", 0) or 0
-            if _acc >= 50 and relevance < 0.30:
+            if _acc >= 30:
                 score = 0.0
                 _hard_suppressed = True
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
@@ -3365,9 +3367,10 @@ def main():
             _session_constraint_cap = 2
             def _ac_gated(c):
                 _cid = c.get("id", "")
-                # iter621: access_count >= 50 永久 suppress（constraint 通道同步）
+                # iter622: access_count >= 30 永久 suppress（constraint 通道同步）
+                # 阈值 50→30，与主路径同步（仅 ac=89/46 两个垄断 chunk 受影响）
                 _ac_abs = c.get("access_count", 0) or 0
-                if _ac_abs >= 50:
+                if _ac_abs >= 30:
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
