@@ -3776,15 +3776,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _thrash_max_pct = sysctl("retriever.constraint_thrash_max_pct")
             _bw_window = sysctl("scorer.bw_window") or 30
             _pre_gate = len(_extra_constraints)
-            # iter595+596: access_count monopoly gate + inject_hard_cap
+            # iter595+596+598: access_count monopoly gate + inject_hard_cap + zero_relevance
             _inject_hard_cap = sysctl("retriever.constraint_inject_hard_cap")
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
                 _rc = _recall_counts.get(_cid, 0)
-                # iter596: hard cap — 注入频率超 50% 无条件 suppress
+                # iter596: hard cap — 注入频率超阈值无条件 suppress
                 if _rc / max(_effective_bw_window, 1) > _inject_hard_cap:
                     return False
                 _rel = _constraint_relevance(c)
+                # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
+                if _rel == 0:
+                    return False
                 _ac = c[_CI_AC] or 0
                 _ac_penalty = max(0, (_ac - 20)) / 30.0 * 0.05
                 if _rel < _constraint_min_rel + _ac_penalty:

@@ -3196,17 +3196,24 @@ def main():
             _pre_gate_count = len(_extra_constraints)
             # iter595: access_count monopoly gate — 高频访问 chunk 提高 relevance 门槛
             # iter596: inject_hard_cap — 注入频率硬上限
-            # 根因：高 relevance constraint（如 Jaccard > 0.3）绕过 ac_penalty 和 thrash gate，
-            #   同一 chunk 24h 内注入 12/15=80%，挤占其他知识的注入位。
-            # 修复：recall_count/effective_window > hard_cap(0.50) 时无条件 suppress。
+            # iter598: zero_relevance_gate — Jaccard=0 绝对拦截 + hard_cap 0.50→0.30
+            # 根因（数据驱动，2026-05-03）：b50e0b54 (feishu CLI) 在 memory-os 项目中
+            #   Jaccard=0.02（仅 "cli"/"禁止" 偶然重叠），但 26/30=87% trace 中被注入。
+            #   iter543 min_relevance=0.05 应拦截但特定 session 的 query 词集不同导致漏网。
+            # 修复：
+            #   1. Jaccard 严格为 0 → 无条件拦截（不依赖 min_relevance 阈值配置）
+            #   2. hard_cap 从 0.50 降至 0.30，与 thrash_max_pct(0.20) 更紧密对齐
             _inject_hard_cap = _sysctl("retriever.constraint_inject_hard_cap")
             def _ac_gated(c):
                 _cid = c.get("id", "")
                 _rc = _recall_counts.get(_cid, 0)
-                # hard cap: 注入频率超 50% 直接 suppress，不论 relevance
+                # hard cap: 注入频率超阈值直接 suppress，不论 relevance
                 if _rc / max(_effective_bw_window, 1) > _inject_hard_cap:
                     return False
                 _rel = _constraint_relevance(c)
+                # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
+                if _rel == 0:
+                    return False
                 _ac = c.get("access_count", 0) or 0
                 _ac_penalty = max(0, (_ac - 20)) / 30.0 * 0.05
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
