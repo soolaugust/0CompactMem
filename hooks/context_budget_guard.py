@@ -232,6 +232,36 @@ def _db_vacuum(db_path: Path):
         except Exception:
             pass
 
+        # iter635: stale_noise_gc — 清理存量迭代器噪声 chunk
+        # 根因：iter607 在 _write_chunk 加了 _is_quality_chunk 门控，但门控部署前
+        #   已写入的噪声 chunk 仍留在 store 中（实测 14 条，占零访问 chunk 的 37%）。
+        # 清理条件：access_count=0（从未被用户召回）AND 匹配迭代器自引用特征。
+        # 安全性：只删零访问 chunk，不影响任何已被用户使用的知识。
+        try:
+            _noise_deleted = conn.execute("""
+                DELETE FROM memory_chunks WHERE access_count = 0 AND (
+                    chunk_type = 'prompt_context'
+                    OR (summary LIKE '%inject%suppress%' OR summary LIKE '%suppress%inject%')
+                    OR (summary LIKE '%zero_access%' OR summary LIKE '%零访问率%')
+                    OR summary LIKE '%迭代器自评噪声%'
+                    OR summary LIKE '%Hook 触发次数%'
+                    OR summary LIKE '%bandwidth%penalty%'
+                    OR summary LIKE '%hard_cap%'
+                    OR summary LIKE '%session_density%'
+                    OR summary LIKE '%6 层内存模型%'
+                    OR summary LIKE '%注入去垄断%'
+                    OR summary LIKE '%注入精准度%'
+                    OR summary LIKE '%锁竞争%immutable%'
+                    OR summary LIKE '%compaction 信息丢失%'
+                    OR summary LIKE '%PSI 永久 FULL%'
+                    OR summary LIKE '%系统膨胀%Hook 合并%'
+                    OR summary LIKE '%extractor_pool._write_chunks%'
+                )
+            """).rowcount
+            freed_total += _noise_deleted
+        except Exception:
+            pass
+
         # B15: FTS orphan cleanup + rowid 对齐检查
         # 问题：FTS5 里存在 rowid_ref 指向已删除 memory_chunks 行的孤立记录（实测 7 条），
         #   导致 FTS JOIN 返回 NULL 行、search 结果异常。
@@ -251,34 +281,12 @@ def _db_vacuum(db_path: Path):
             """).fetchone()[0]
 
             if orphan_cnt > 0:
-                # FTS5 content table 不支持直接 DELETE WHERE，需用 merge/rebuild
-                # 策略：用 FTS5 delete 命令逐行删除孤立条目（通过 rowid）
-                orphan_rowids = conn.execute("""
-                    SELECT fts.rowid FROM memory_chunks_fts fts
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM memory_chunks mc
-                        WHERE CAST(fts.rowid_ref AS INTEGER) = mc.rowid
-                    )
-                    LIMIT 50
-                """).fetchall()
-                for (fts_rowid,) in orphan_rowids:
-                    try:
-                        conn.execute(
-                            "INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid) VALUES('delete', ?)",
-                            (fts_rowid,)
-                        )
-                    except Exception:
-                        pass
-                freed_total += len(orphan_rowids)
-
-            # 验证 JOIN 正常（数据一致性检查）
-            joined = conn.execute(
-                "SELECT mc.id FROM memory_chunks_fts fts "
-                "JOIN memory_chunks mc ON CAST(fts.rowid_ref AS INTEGER) = mc.rowid LIMIT 1"
-            ).fetchone()
-            if not joined:
-                # 仍无法 JOIN → 彻底重建（代价大，但必须）
-                conn.execute("INSERT INTO memory_chunks_fts(memory_chunks_fts) VALUES('rebuild')")
+                # iter635: 直接 DELETE + re-INSERT 重建 FTS（逐行 delete 对
+                # external content table 无效，实测 orphan 仍残留）
+                conn.execute("DELETE FROM memory_chunks_fts")
+                conn.execute("""INSERT INTO memory_chunks_fts (rowid, summary, content)
+                    SELECT rowid, summary, COALESCE(content, '') FROM memory_chunks""")
+                freed_total += orphan_cnt
         except Exception:
             pass
 
