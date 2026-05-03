@@ -3005,7 +3005,7 @@ def main():
                             placeholders = ",".join("?" * len(prefetch_ids))
                             ra_chunks = conn.execute(
                                 f"SELECT id, summary, content, chunk_type, importance, last_accessed, access_count, created_at "
-                                f"FROM memory_chunks WHERE id IN ({placeholders}) AND project=?",
+                                f"FROM memory_chunks WHERE id IN ({placeholders}) AND project=? AND COALESCE(access_count,0) < 30",
                                 prefetch_ids + [project]
                             ).fetchall()
                             for row in ra_chunks:
@@ -4364,6 +4364,7 @@ def _intent_prefetch(conn, project: str, prompt: str, top_k: int = 3) -> list:
                 FROM memory_chunks
                 WHERE project IN ({_ip_proj_ph})
                   AND chunk_type IN ({type_placeholders})
+                  AND COALESCE(access_count, 0) < 30
                 ORDER BY importance DESC, access_count DESC
                 LIMIT ?""",
             [*_ip_projects, *preferred_types, top_k * 2]

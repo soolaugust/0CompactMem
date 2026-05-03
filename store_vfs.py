@@ -1676,6 +1676,7 @@ def fts_search(conn: sqlite3.Connection, query: str, project: str,
             WHERE memory_chunks_fts MATCH ?
               AND mc.summary != ''
               AND mc.importance > 0.0
+              AND COALESCE(mc.access_count, 0) < 30
         """
         # ── 迭代335：Ghost Filter (Layer 2) — FTS5 查询内过滤 importance=0 的 ghost chunk ──
         # OS 类比：Linux page allocator MIGRATE_TYPES 过滤 — 分配器跳过 MIGRATE_RESERVE 类型页
