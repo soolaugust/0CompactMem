@@ -3737,7 +3737,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
             # iter193: use pre-read locals; iter194: reuse _is_generic_q (computed once above)
             _min_thresh = (_gen_query_thr if _is_generic_q else _min_score_thr)
-            positive = [(s, c) for s, c in final if s >= _min_thresh]
+            # iter620: zero_score_absolute_gate — hard_suppressed chunk 绝对不入选
+            positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
             if _drr_enabled and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
             else:
@@ -3827,7 +3828,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
         # iter193: use pre-read locals; iter194: reuse _is_generic_q (computed once in classify)
         _min_thresh = (_gen_query_thr if _is_generic_q else _min_score_thr)
-        positive = [(s, c) for s, c in final if s >= _min_thresh]
+        # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
+        positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
 
         if _drr_enabled and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)
