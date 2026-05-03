@@ -76,6 +76,15 @@ def make_chunk(chunk_type, summary, content, importance=None, tags=None, source_
 # iter650: import_quality_gate — 碎片子章节过滤
 # 根因：wiki 按 ## 切分后，索引性子章节无独立检索价值
 # 三类碎片：(1) 标题含索引关键词 (2) 内容以 URL/文件列表为主 (3) 纯 TODO/待深入
+# iter651: meta_noise_gate — 知识管理系统自身的流程/协议描述对 LLM 无检索价值
+# 根因：10 个零访问 chunk 中 9 个是"知识固化协议"/"推理原则"等 meta 内容，
+#   这些已在 CLAUDE.md 中体现，import 为 chunk 只增加噪声不增加可检索知识。
+_META_NOISE_KEYWORDS = re.compile(
+    r'知识固化|固化协议|固化机制|推理与问题解决原则|'
+    r'锁/并发分析协议|迁移到新项目时需确认|执行顺序（组合使用）|'
+    r'wiki\s*固化|knowledge.consolidation',
+    re.IGNORECASE
+)
 _INDEX_TITLE_KEYWORDS = re.compile(
     r'参考链接|相关文件|影响范围|附录|changelog|目录|索引|待深入|'
     r'references?$|related\s+files?|appendix',
@@ -83,8 +92,11 @@ _INDEX_TITLE_KEYWORDS = re.compile(
 )
 
 def _is_index_fragment(title: str, body: str) -> bool:
-    """判断子章节是否为索引碎片（无独立检索价值）。"""
+    """判断子章节是否为索引碎片或 meta 噪声（无独立检索价值）。"""
     if _INDEX_TITLE_KEYWORDS.search(title):
+        return True
+    # iter651: meta_noise_gate — 知识管理系统自身的流程描述
+    if _META_NOISE_KEYWORDS.search(title) or _META_NOISE_KEYWORDS.search(body[:200]):
         return True
     # 纯链接/文件路径列表：URL 或路径行占比 > 60%
     lines = [l for l in body.split('\n') if l.strip()]
@@ -137,6 +149,10 @@ def extract_wiki_knowledge():
 
         title_match = re.search(r'^#\s+(.+)', text, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else md_file.stem
+
+        # iter651: file-level meta_noise_gate — 整个文件标题匹配 meta 噪声时跳过
+        if _META_NOISE_KEYWORDS.search(title):
+            continue
 
         # 迭代99：深度分节导入 — 按 ## 切分，每节独立 chunk（3-5x 收益）
         # OS 类比：inode 粒度从整文件降到 block 级别
