@@ -3189,6 +3189,33 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _rc_conn.close()
         except Exception:
             pass
+        # ── iter652: timeline_fallback — counts 为空时从 recall_traces 补充 ──
+        # 根因：timeline 写入在 daemon writeback 静默失败 → suppress 失效。
+        if not _recent_24h_counts and not _recent_7d_counts:
+            try:
+                import sqlite3 as _fb_sql
+                from datetime import timedelta as _td652
+                _fb_conn = _fb_sql.connect(str(STORE_DB))
+                _fb_now = datetime.now(timezone.utc)
+                for _fb_label, _fb_hours, _fb_dict in [
+                    ("24h", 24, _recent_24h_counts),
+                    ("7d", 168, _recent_7d_counts),
+                ]:
+                    _fb_cut = (_fb_now - _td652(hours=_fb_hours)).isoformat()
+                    for (_fb_json,) in _fb_conn.execute(
+                            "SELECT top_k_json FROM recall_traces "
+                            "WHERE injected=1 AND timestamp>?", (_fb_cut,)).fetchall():
+                        try:
+                            _fb_items = json.loads(_fb_json) if isinstance(_fb_json, str) else _fb_json
+                            if isinstance(_fb_items, list):
+                                for _fb_item in _fb_items:
+                                    if isinstance(_fb_item, dict) and "id" in _fb_item:
+                                        _fb_dict[_fb_item["id"]] = _fb_dict.get(_fb_item["id"], 0) + 1
+                        except Exception:
+                            continue
+                _fb_conn.close()
+            except Exception:
+                pass
 
         # Memory zones
         # iter207: fast path — exclude_types is empty in ~100% of real usage

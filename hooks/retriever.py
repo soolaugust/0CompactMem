@@ -1736,6 +1736,42 @@ def main():
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
+        # ── iter652: timeline_fallback — timeline 为空时从 recall_traces 补充 24h/7d 计数 ──
+        # 根因：iter647/648 的 timeline 写入在 daemon writeback 静默失败，
+        #   .injection_timeline.json 几乎为空 → _recent_24h/7d_counts=0 → suppress 失效。
+        if not _recent_24h_counts and not _recent_7d_counts:
+            try:
+                import sqlite3 as _fb_sql
+                from datetime import datetime as _dt652, timezone as _tz652, timedelta as _td652
+                _fb_conn = _fb_sql.connect(str(STORE_DB))
+                _fb_now = _dt652.now(_tz652.utc)
+                _cut_7d = (_fb_now - _td652(days=7)).isoformat()
+                _cut_24h = (_fb_now - _td652(hours=24)).isoformat()
+                for (_tk_json,) in _fb_conn.execute(
+                        "SELECT top_k_json FROM recall_traces WHERE injected=1 AND timestamp>?",
+                        (_cut_7d,)).fetchall():
+                    if not _tk_json: continue
+                    try:
+                        _ids = json.loads(_tk_json)
+                    except Exception: continue
+                    for _it in (_ids if isinstance(_ids, list) else []):
+                        _c = _it.get("id","") if isinstance(_it, dict) else (_it if isinstance(_it, str) else "")
+                        if _c:
+                            _recent_7d_counts[_c] = _recent_7d_counts.get(_c, 0) + 1
+                for (_tk_json,) in _fb_conn.execute(
+                        "SELECT top_k_json FROM recall_traces WHERE injected=1 AND timestamp>?",
+                        (_cut_24h,)).fetchall():
+                    if not _tk_json: continue
+                    try:
+                        _ids = json.loads(_tk_json)
+                    except Exception: continue
+                    for _it in (_ids if isinstance(_ids, list) else []):
+                        _c = _it.get("id","") if isinstance(_it, dict) else (_it if isinstance(_it, str) else "")
+                        if _c:
+                            _recent_24h_counts[_c] = _recent_24h_counts.get(_c, 0) + 1
+                _fb_conn.close()
+            except Exception:
+                pass
         # 迭代312：Session-scoped recall counts
         _session_recall_counts = {}
         try:
