@@ -73,6 +73,34 @@ def make_chunk(chunk_type, summary, content, importance=None, tags=None, source_
     }
 
 
+# iter650: import_quality_gate — 碎片子章节过滤
+# 根因：wiki 按 ## 切分后，索引性子章节无独立检索价值
+# 三类碎片：(1) 标题含索引关键词 (2) 内容以 URL/文件列表为主 (3) 纯 TODO/待深入
+_INDEX_TITLE_KEYWORDS = re.compile(
+    r'参考链接|相关文件|影响范围|附录|changelog|目录|索引|待深入|'
+    r'references?$|related\s+files?|appendix',
+    re.IGNORECASE
+)
+
+def _is_index_fragment(title: str, body: str) -> bool:
+    """判断子章节是否为索引碎片（无独立检索价值）。"""
+    if _INDEX_TITLE_KEYWORDS.search(title):
+        return True
+    # 纯链接/文件路径列表：URL 或路径行占比 > 60%
+    lines = [l for l in body.split('\n') if l.strip()]
+    if lines:
+        link_lines = sum(1 for l in lines
+                         if re.search(r'https?://|\.md[`\s|)]|\.py[`\s|)]|\.json[`\s|)]', l))
+        if link_lines / len(lines) > 0.6:
+            return True
+    # 去掉链接和路径后实质内容 < 30 字符
+    text_only = re.sub(r'https?://\S+', '', body)
+    text_only = re.sub(r'[`|/][\w.-]+\.\w+[`|]?', '', text_only).strip()
+    if len(text_only) < 30:
+        return True
+    return False
+
+
 def extract_wiki_knowledge():
     chunks = []
     wiki_dir = SELF_IMPROVING / "wiki"
@@ -122,6 +150,11 @@ def extract_wiki_knowledge():
                 sec_title = sec_lines[0].strip().rstrip("#").strip()
                 sec_body = "\n".join(sec_lines[1:]).strip()[:400]
                 if len(sec_body) < 20:
+                    continue
+                # iter650: import_quality_gate — 碎片子章节过滤
+                # 根因：wiki 按 ## 切分后，索引性子章节（"参考链接"、"相关文件"）
+                # 无独立检索价值，产出 zero-access chunk 占比 23%。
+                if _is_index_fragment(sec_title, sec_body):
                     continue
                 sec_summary = f"[{rel.parent.name}] {title} > {sec_title}"[:120]
                 tags = [str(rel.parent.name), md_file.stem, f"sec{i}"]
