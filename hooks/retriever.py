@@ -1922,6 +1922,12 @@ def main():
             #   避免执行后面 15 个因子的计算（尤其 source_monitor、retroactive_interference
             #   等需要 DB 查询或 import 的步骤）。
             if relevance < 0.005:
+                # iter601: early exit 也必须检查 bandwidth hard gate，否则垄断 chunk
+                # 绕过后续 throttle 以 importance*0.1 持续进入 top_k（根因：feishu CLI
+                # rc=26/30=87%，score=0.000092 仍入选因为候选池不足）
+                _rc_ee = _recall_counts.get(chunk.get("id", ""), 0)
+                if _rc_ee > 0 and _rc_ee / _effective_bw_window > (_sysctl("retriever.constraint_inject_hard_cap") or 0.30):
+                    return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
@@ -1998,14 +2004,17 @@ def main():
             _sess_inj = _session_injection_counts.get(chunk.get("id", ""), 0)
             if _sess_inj >= _tmv_session_density_gate:
                 score *= 0.70
-            # ── iter600: Effective Bandwidth Throttle ──────────────────────
+            # ── iter600+601: Effective Bandwidth Throttle ──────────────────
             # iter588 原逻辑仅 _effective_bw_window<30 时触发；iter600 移除此限制。
-            # 根因：项目 ≥30 trace 时 throttle 不触发，垄断 chunk 持续注入。
+            # iter601: soft throttle(×0.15) 不足以拦截候选池不足时的垄断 chunk —
+            #   升级为 hard gate：超过 constraint_inject_hard_cap 时 score=0。
             _rc = _recall_counts.get(chunk.get("id", ""), 0)
             if _rc > 0:
                 _eff_util = _rc / _effective_bw_window
-                if _eff_util > (_sysctl("scorer.bw_max_pct") or 0.30):
-                    score *= 0.15  # 与 scorer.bandwidth_throttle 的 _BW_THROTTLE 一致
+                if _eff_util > (_sysctl("retriever.constraint_inject_hard_cap") or 0.30):
+                    score = 0.0  # iter601: hard gate — 与 constraint 路径一致
+                elif _eff_util > (_sysctl("scorer.bw_max_pct") or 0.30):
+                    score *= 0.15
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低

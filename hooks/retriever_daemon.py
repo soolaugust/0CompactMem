@@ -3182,6 +3182,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _bw_factor     = sysctl("cfs_bandwidth.throttle_factor") or 0.50
         _bw_decay      = sysctl("cfs_bandwidth.overflow_decay") or 0.85
         _bw_max_pct    = sysctl("scorer.bw_max_pct") or 0.30  # iter588
+        _inject_hard_cap = sysctl("retriever.constraint_inject_hard_cap") or 0.30  # iter601
         # iter212: removed 3 redundant in-function imports (0.139+0.160+0.260=0.56us/request):
         #   import math as _math → use module-level _math (same object, no overhead)
         #   import hashlib as _hashlib → use already-unpacked hashlib from mods
@@ -3430,12 +3431,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # cfs_bandwidth 用乘法 score *= factor * decay^overflow 实现渐进强压制。
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter600: bandwidth throttle — 移除 _effective_bw_window<30 限制
-            # 根因（数据驱动，2026-05-03）：b50e0b54 rc=26/30=87%，旧代码仅
-            #   _effective_bw_window<30 时触发。项目 ≥30 trace → 条件 False →
-            #   垄断 chunk 持续进入 positive。修复：统一对所有项目应用。
-            if _rc > 0 and _rc / _effective_bw_window > _bw_max_pct:
-                score *= 0.15
+            # iter600+601: bandwidth throttle — hard gate 升级
+            # iter600: 移除 _effective_bw_window<30 限制
+            # iter601: soft throttle(×0.15) 不足以拦截候选池不足时的垄断 chunk，
+            #   超过 hard_cap 时 score=0（与 constraint _ac_gated 路径一致）。
+            if _rc > 0:
+                _eff_util_sc = _rc / _effective_bw_window
+                if _eff_util_sc > _inject_hard_cap:
+                    score = 0.0
+                elif _eff_util_sc > _bw_max_pct:
+                    score *= 0.15
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3488,9 +3493,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter600: bandwidth throttle — 统一对所有项目应用（同 _score_chunk）
-            if _rc > 0 and _rc / _effective_bw_window > _bw_max_pct:
-                score *= 0.15
+            # iter600+601: bandwidth throttle — hard gate 升级（同 _score_chunk）
+            if _rc > 0:
+                _eff_util_sd = _rc / _effective_bw_window
+                if _eff_util_sd > _inject_hard_cap:
+                    score = 0.0
+                elif _eff_util_sd > _bw_max_pct:
+                    score *= 0.15
             return score
 
         def _gc_dict_to_ci(c):
