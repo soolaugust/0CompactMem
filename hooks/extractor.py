@@ -1328,7 +1328,12 @@ def _is_quality_chunk(summary: str) -> bool:
         r'(?:inject[_\s]|suppress|score\s*[×*降=]|bandwidth.penalty|session.density|'
         r'temporal.burst|recall.count|Jaccard|注入门槛|注入量|注入垄断|次注入|'
         r'access.count|chunk.{0,6}注入|min_rel|retriever|extractor.pool|'
-        r'score.{0,3}0|hard.?cap|hard.?gate|oom_adj)',
+        r'score.{0,3}0|hard.?cap|hard.?gate|oom_adj|'
+        # iter624: 扩展 self-ref gate — 拦截迭代器决策记录中的高频漏网模式
+        # 根因：ac>=50/逃逸率/垄断/iter\d+/zero_access 等迭代术语只匹配 0-1 次→漏网
+        r'ac[>=]+\d|iter\d{3}|垄断|逃逸|burst|saturation|'
+        r'zero.access|relevance.{0,3}[<>0]|slot.?位|注入占比|'
+        r'daemon|priming|refault|thrash)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
