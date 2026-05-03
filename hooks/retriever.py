@@ -1070,6 +1070,27 @@ def _write_hash(h: str) -> None:
         pass
 
 
+def _live_access_counts(chunk_ids: list) -> dict:
+    """iter634: 用标准连接获取最新 access_count，绕过 immutable WAL 盲区。
+    主连接 immutable=1 看不到 WAL 中的最新写入，导致 monopoly_post_filter
+    读到过时的 access_count → 垄断 chunk 逃逸。
+    """
+    if not chunk_ids:
+        return {}
+    try:
+        import sqlite3 as _lac_sql
+        _lac_conn = _lac_sql.connect(str(STORE_DB))
+        ph = ",".join("?" * len(chunk_ids))
+        rows = _lac_conn.execute(
+            f"SELECT id, COALESCE(access_count, 0) FROM memory_chunks WHERE id IN ({ph})",
+            chunk_ids
+        ).fetchall()
+        _lac_conn.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception:
+        return {}
+
+
 # ── 迭代57：TLB — Translation Lookaside Buffer 检索快速路径 ──────────────────
 # OS 类比：CPU TLB (1965, IBM System/360 Model 67)
 #   虚拟地址→物理地址的映射缓存在 TLB（通常 64-1024 entries）。
@@ -2833,7 +2854,10 @@ def main():
                 top_k = _mmr_rerank(top_k, effective_top_k,
                                     lambda_mmr=_sysctl("retriever.mmr_lambda"))
             # ── iter630: monopoly_post_filter — hard_deadline 路径最终门禁 ──
-            top_k = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 30]
+            # iter634: 用标准连接获取最新 ac，防止 immutable WAL 盲区导致垄断逃逸
+            _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
+            top_k = [(s, c) for s, c in top_k
+                     if (_mpf_live.get(c["id"], c.get("access_count", 0) or 0)) < 30]
             if top_k:
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
@@ -3725,7 +3749,10 @@ def main():
                 pass  # scan_unevictable 失败不阻塞主流程
 
         # ── iter630: monopoly_post_filter — FULL 路径最终门禁 ──
-        top_k = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 30]
+        # iter634: 用标准连接获取最新 ac，防止 immutable WAL 盲区导致垄断逃逸
+        _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
+        top_k = [(s, c) for s, c in top_k
+                 if (_mpf_live.get(c["id"], c.get("access_count", 0) or 0)) < 30]
         if not top_k:
             return
         top_k_ids = sorted([c["id"] for _, c in top_k])
