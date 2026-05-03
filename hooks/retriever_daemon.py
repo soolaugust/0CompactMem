@@ -4135,6 +4135,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         pass
                 return
 
+        # ── iter670: suppress_fallback — suppress 前快照 ──
+        _pre_suppress_top_k = list(top_k)
         # ── iter630: monopoly_post_filter — 不可绕过的最终门禁 ──────────────
         # 根因：评分阶段的 suppress（24h/7d/AC>=30）可能因查询失败、缓存、
         #   或 forced_constraint 路径逃逸。此 post-filter 直接读 chunk 字段，
@@ -4182,7 +4184,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             except Exception:
                 pass
         if not top_k:
-            return
+            # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
+            if _pre_suppress_top_k:
+                _fb = max(_pre_suppress_top_k, key=lambda x: x[0])
+                top_k = [_fb]
+                _deferred.log(DMESG_WARN, "retriever_daemon",
+                              f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
+                              f"suppressed, fallback to best={_fb[1][_CI_ID][:12]}",
+                              session_id=session_id, project=project)
+            else:
+                return
         top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235
         # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
         current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())

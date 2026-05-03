@@ -2936,6 +2936,8 @@ def main():
             if _sysctl("retriever.mmr_enabled") and len(top_k) > 1:
                 top_k = _mmr_rerank(top_k, effective_top_k,
                                     lambda_mmr=_sysctl("retriever.mmr_lambda"))
+            # ── iter670: suppress_fallback — hard_deadline 路径 suppress 前快照 ──
+            _pre_suppress_top_k_hd = list(top_k)
             # ── iter630: monopoly_post_filter — hard_deadline 路径最终门禁 ──
             # iter634: 用标准连接获取最新 ac，防止 immutable WAL 盲区导致垄断逃逸
             _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
@@ -2952,6 +2954,14 @@ def main():
                 top_k = [(s, c) for s, c in top_k
                          if _recent_24h_counts.get(c["id"], 0) < 2
                          and _recent_7d_counts.get(c["id"], 0) < 3]
+            # ── iter670: suppress_fallback — hard_deadline suppress 全灭降级 ──
+            if not top_k and _pre_suppress_top_k_hd:
+                _fb_hd = max(_pre_suppress_top_k_hd, key=lambda x: x[0])
+                top_k = [_fb_hd]
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"iter670_suppress_fallback_hd: all {len(_pre_suppress_top_k_hd)} "
+                              f"suppressed, fallback to best={_fb_hd[1].get('id','')[:12]}",
+                              session_id=session_id, project=project)
             if top_k:
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
@@ -3871,6 +3881,8 @@ def main():
             except Exception:
                 pass  # scan_unevictable 失败不阻塞主流程
 
+        # ── iter670: suppress_fallback — 记录 suppress 前快照 ──
+        _pre_suppress_top_k = list(top_k)
         # ── iter630: monopoly_post_filter — FULL 路径最终门禁 ──
         # iter634: 用标准连接获取最新 ac，防止 immutable WAL 盲区导致垄断逃逸
         _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
@@ -3918,7 +3930,16 @@ def main():
             except Exception:
                 pass  # 兜底查询失败不阻塞
         if not top_k:
-            return
+            # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
+            if _pre_suppress_top_k:
+                _fb = max(_pre_suppress_top_k, key=lambda x: x[0])
+                top_k = [_fb]
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
+                              f"suppressed, fallback to best={_fb[1].get('id','')[:12]}",
+                              session_id=session_id, project=project)
+            else:
+                return
         top_k_ids = sorted([c["id"] for _, c in top_k])
         current_hash = hashlib.md5("|".join(top_k_ids).encode()).hexdigest()[:8]
 
