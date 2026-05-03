@@ -3128,6 +3128,35 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
             except Exception:
                 pass
+            # ── iter618: 7d_rolling_suppress — 长期垄断检测 ──────────────────
+            # daemon 此前缺少 24h/7d burst suppress（iter614~617 只加在 retriever.py）。
+            # 根因：daemon 是生产主路径，缺失导致垄断 chunk 完全逃逸。
+            # 同时加载 24h 和 7d counts。
+            _recent_24h_counts = {}
+            _recent_7d_counts = {}
+            try:
+                import json as _r_json
+                for _rw_label, _rw_hours, _rw_dict in [
+                    ("24h", 24, _recent_24h_counts),
+                    ("7d", 168, _recent_7d_counts),
+                ]:
+                    _rw_cur = _rc_conn.execute(
+                        "SELECT top_k_json FROM recall_traces "
+                        "WHERE project=? AND injected=1 "
+                        "AND timestamp > datetime('now', ?)",
+                        (project, f'-{_rw_hours} hours')
+                    )
+                    for (_rw_json,) in _rw_cur.fetchall():
+                        try:
+                            _rw_items = _r_json.loads(_rw_json) if isinstance(_rw_json, str) else _rw_json
+                            if isinstance(_rw_items, list):
+                                for _rw_item in _rw_items:
+                                    if isinstance(_rw_item, dict) and "id" in _rw_item:
+                                        _rw_dict[_rw_item["id"]] = _rw_dict.get(_rw_item["id"], 0) + 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
             finally:
                 _rc_conn.close()
         except Exception:
@@ -3479,6 +3508,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _hard_util_sc > _bw_soft_start:
                         _bw_penalty = 1.0 - (_hard_util_sc - _bw_soft_start) / (_inject_hard_cap - _bw_soft_start)
                         score *= _bw_penalty
+            # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
+            if _recent_24h_counts.get(_cid, 0) >= 3:
+                score = 0.0
+            elif _recent_7d_counts.get(_cid, 0) >= 8:
+                score = 0.0
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3541,6 +3575,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _hard_util_sd > _bw_soft_start_d:
                         _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
                         score *= _bw_pen_d
+            # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
+            if _recent_24h_counts.get(_cid, 0) >= 3:
+                score = 0.0
+            elif _recent_7d_counts.get(_cid, 0) >= 8:
+                score = 0.0
             return score
 
         def _gc_dict_to_ci(c):
@@ -3843,6 +3882,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 pass
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
+                # iter618: 24h + 7d burst suppress 在 constraint 通道生效
+                if _recent_24h_counts.get(_cid, 0) >= 3:
+                    return False
+                if _recent_7d_counts.get(_cid, 0) >= 8:
+                    return False
                 # iter608: session-level constraint dedup
                 if _d_session_inj_counts.get(_cid, 0) >= _d_session_cap:
                     return False

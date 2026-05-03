@@ -1704,6 +1704,33 @@ def main():
                         continue
             except Exception:
                 pass
+            # ── iter618: 7d_rolling_suppress — 长期垄断检测 ──────────────────
+            # 根因：24h_burst_suppression (>=3) 只看 24h 窗口。
+            #   如果 chunk 每天注入 2 次持续 7 天（总计 14 次），24h 永远 <3 不触发。
+            #   实测：3192147e 7天注入 15 次（34.9%），b50e0b54 12 次（27.9%），
+            #   两个 chunk 占 7 天总注入的 62.8%，严重挤占其他知识。
+            # 修复：7 天窗口内注入 >=8 次 → suppress。阈值比 24h 宽松（8 vs 3），
+            #   但覆盖"每天少量、长期累积"的慢性垄断模式。
+            _recent_7d_counts = {}
+            try:
+                _r7d_cur = _rc_conn.execute(
+                    "SELECT top_k_json FROM recall_traces "
+                    "WHERE project=? AND injected=1 "
+                    "AND timestamp > datetime('now', '-7 days')",
+                    (project,)
+                )
+                for (_r7d_json,) in _r7d_cur.fetchall():
+                    try:
+                        _r7d_items = json.loads(_r7d_json) if isinstance(_r7d_json, str) else _r7d_json
+                        if isinstance(_r7d_items, list):
+                            for _r7d_item in _r7d_items:
+                                if isinstance(_r7d_item, dict) and "id" in _r7d_item:
+                                    _r7d_id = _r7d_item["id"]
+                                    _recent_7d_counts[_r7d_id] = _recent_7d_counts.get(_r7d_id, 0) + 1
+                    except Exception:
+                        continue
+            except Exception:
+                pass
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
@@ -1987,6 +2014,10 @@ def main():
                 _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
                 if _r24_ee >= 3:
                     return 0.0
+                # iter618: early exit 也检查 7d_rolling_suppress
+                _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
+                if _r7d_ee >= 8:
+                    return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
@@ -2091,6 +2122,12 @@ def main():
             if _r24_cnt >= 3:
                 score = 0.0
                 _hard_suppressed = True  # iter616
+            # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
+            # 同一 chunk 在 7 天内注入 >=8 次 → suppress（score=0）
+            _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
+            if _r7d_cnt >= 8:
+                score = 0.0
+                _hard_suppressed = True
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
@@ -3306,6 +3343,9 @@ def main():
                 _cid = c.get("id", "")
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 if _recent_24h_counts.get(_cid, 0) >= 3:
+                    return False
+                # iter618: 7d rolling suppress 也在 constraint 通道生效
+                if _recent_7d_counts.get(_cid, 0) >= 8:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)
