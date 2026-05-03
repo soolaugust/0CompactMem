@@ -2233,17 +2233,22 @@ def main():
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
             # iter672: relevance_exempt — 高相关性 chunk 放宽阈值，防止 suppress 过杀
             #   数据驱动：60% trace 输出 0 chunks，高分有价值 chunk 被过早 suppress
+            # iter676: revert_relevance_exempt — 统一阈值，不再给高分 chunk 豁免
+            #   根因（数据驱动）：iter672 放宽 24h→3, 7d→5 导致 "Corrections 类规则" chunk
+            #   7d=3 + score>=0.5 → 阈值5 → 完全逃逸，全历史被注入 7 次（垄断榜第一）。
+            #   iter670 suppress_fallback 已解决 suppress 过杀（全灭时降级注入最佳 1 条），
+            #   不再需要放宽阈值来防过杀。
             _r24_cnt = _recent_24h_counts.get(chunk.get("id", ""), 0)
-            _suppress_24h_thresh = 3 if score >= 0.5 else 2  # iter672
+            _suppress_24h_thresh = 2  # iter676: 统一阈值
             if _r24_cnt >= _suppress_24h_thresh:
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
             # 同一 chunk 在 7 天内注入 >=3 次 → suppress（score=0）
             # iter619: 8→5; iter659: 5→4; iter664: 4→3，数据驱动：7d=4 仍有 2 chunk 垄断
-            # iter672: 高分 chunk 阈值 3→5，低分不变
+            # iter676: 统一阈值 3，不再给高分 chunk 豁免
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            _suppress_7d_thresh = 5 if score >= 0.5 else 3  # iter672
+            _suppress_7d_thresh = 3  # iter676: 统一阈值
             if _r7d_cnt >= _suppress_7d_thresh:
                 score = 0.0
                 _hard_suppressed = True
