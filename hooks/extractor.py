@@ -1968,6 +1968,12 @@ def _vma_validate(summary: str) -> bool:
             return False
         if s.endswith('→') or s.endswith('->'):
             return False
+    # iter688: gate_rule_description_filter — 拦截 gate 规则描述被误存为 decision
+    # 根因（数据驱动，2026-05-04）：'<60 chars + 箭头结尾 → 断句碎片，拒绝' 逃逸所有 gate
+    #   因为它是 gate 规则的文本描述，不含已有黑名单术语。
+    # 特征：含 '→' + 末尾是判定动作词（拒绝/通过/reject/pass/skip）
+    if '→' in s and re.search(r'(?:拒绝|通过|reject|pass|skip|suppress|拦截)$', s):
+        return False
     return True
 
 
