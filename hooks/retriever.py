@@ -1736,10 +1736,12 @@ def main():
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
-        # ── iter652: timeline_fallback — timeline 为空时从 recall_traces 补充 24h/7d 计数 ──
-        # 根因：iter647/648 的 timeline 写入在 daemon writeback 静默失败，
-        #   .injection_timeline.json 几乎为空 → _recent_24h/7d_counts=0 → suppress 失效。
-        if not _recent_24h_counts and not _recent_7d_counts:
+        # ── iter653: timeline_fallback — 始终从 recall_traces merge max 补充 24h/7d 计数 ──
+        # 根因：iter652 的 guard "if not both empty" 在 timeline 只有 1 条时不触发 fallback，
+        #   但该 1 条不是垄断 chunk → 垄断 chunk 的 24h/7d=0 → suppress 完全失效。
+        #   实测：feishu CLI 24h 注入 9 次但 suppress 未触发。
+        # 修复：无条件 merge（取 max），确保 suppress 数据源可靠。
+        if True:
             try:
                 import sqlite3 as _fb_sql
                 from datetime import datetime as _dt652, timezone as _tz652, timedelta as _td652
@@ -1747,28 +1749,28 @@ def main():
                 _fb_now = _dt652.now(_tz652.utc)
                 _cut_7d = (_fb_now - _td652(days=7)).isoformat()
                 _cut_24h = (_fb_now - _td652(hours=24)).isoformat()
-                for (_tk_json,) in _fb_conn.execute(
-                        "SELECT top_k_json FROM recall_traces WHERE injected=1 AND timestamp>?",
+                # iter653: 从 recall_traces 独立统计，再 merge max
+                _rt_7d = {}
+                _rt_24h = {}
+                for (_tk_json, _tk_ts) in _fb_conn.execute(
+                        "SELECT top_k_json, timestamp FROM recall_traces WHERE injected=1 AND timestamp>?",
                         (_cut_7d,)).fetchall():
                     if not _tk_json: continue
                     try:
                         _ids = json.loads(_tk_json)
                     except Exception: continue
+                    _is_24h = _tk_ts > _cut_24h if _tk_ts else False
                     for _it in (_ids if isinstance(_ids, list) else []):
                         _c = _it.get("id","") if isinstance(_it, dict) else (_it if isinstance(_it, str) else "")
                         if _c:
-                            _recent_7d_counts[_c] = _recent_7d_counts.get(_c, 0) + 1
-                for (_tk_json,) in _fb_conn.execute(
-                        "SELECT top_k_json FROM recall_traces WHERE injected=1 AND timestamp>?",
-                        (_cut_24h,)).fetchall():
-                    if not _tk_json: continue
-                    try:
-                        _ids = json.loads(_tk_json)
-                    except Exception: continue
-                    for _it in (_ids if isinstance(_ids, list) else []):
-                        _c = _it.get("id","") if isinstance(_it, dict) else (_it if isinstance(_it, str) else "")
-                        if _c:
-                            _recent_24h_counts[_c] = _recent_24h_counts.get(_c, 0) + 1
+                            _rt_7d[_c] = _rt_7d.get(_c, 0) + 1
+                            if _is_24h:
+                                _rt_24h[_c] = _rt_24h.get(_c, 0) + 1
+                # merge max: timeline 和 recall_traces 取大值
+                for _mc, _mv in _rt_7d.items():
+                    _recent_7d_counts[_mc] = max(_recent_7d_counts.get(_mc, 0), _mv)
+                for _mc, _mv in _rt_24h.items():
+                    _recent_24h_counts[_mc] = max(_recent_24h_counts.get(_mc, 0), _mv)
                 _fb_conn.close()
             except Exception:
                 pass

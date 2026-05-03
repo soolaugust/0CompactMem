@@ -3189,30 +3189,38 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _rc_conn.close()
         except Exception:
             pass
-        # ── iter652: timeline_fallback — counts 为空时从 recall_traces 补充 ──
-        # 根因：timeline 写入在 daemon writeback 静默失败 → suppress 失效。
-        if not _recent_24h_counts and not _recent_7d_counts:
+        # ── iter653: timeline_fallback — 始终从 recall_traces merge max 补充 ──
+        # 根因：iter652 guard "if not both empty" 在 timeline 有 1 条残留时不触发，
+        #   垄断 chunk 的 24h/7d=0 → suppress 失效。改为无条件 merge max。
+        if True:
             try:
                 import sqlite3 as _fb_sql
                 from datetime import timedelta as _td652
                 _fb_conn = _fb_sql.connect(str(STORE_DB))
                 _fb_now = datetime.now(timezone.utc)
-                for _fb_label, _fb_hours, _fb_dict in [
-                    ("24h", 24, _recent_24h_counts),
-                    ("7d", 168, _recent_7d_counts),
-                ]:
-                    _fb_cut = (_fb_now - _td652(hours=_fb_hours)).isoformat()
-                    for (_fb_json,) in _fb_conn.execute(
-                            "SELECT top_k_json FROM recall_traces "
-                            "WHERE injected=1 AND timestamp>?", (_fb_cut,)).fetchall():
-                        try:
-                            _fb_items = json.loads(_fb_json) if isinstance(_fb_json, str) else _fb_json
-                            if isinstance(_fb_items, list):
-                                for _fb_item in _fb_items:
-                                    if isinstance(_fb_item, dict) and "id" in _fb_item:
-                                        _fb_dict[_fb_item["id"]] = _fb_dict.get(_fb_item["id"], 0) + 1
-                        except Exception:
-                            continue
+                _cut_7d_fb = (_fb_now - _td652(days=7)).isoformat()
+                _cut_24h_fb = (_fb_now - _td652(hours=24)).isoformat()
+                _rt_7d_d = {}
+                _rt_24h_d = {}
+                for (_fb_json, _fb_ts) in _fb_conn.execute(
+                        "SELECT top_k_json, timestamp FROM recall_traces "
+                        "WHERE injected=1 AND timestamp>?", (_cut_7d_fb,)).fetchall():
+                    try:
+                        _fb_items = json.loads(_fb_json) if isinstance(_fb_json, str) else _fb_json
+                        _is_24h_d = _fb_ts > _cut_24h_fb if _fb_ts else False
+                        if isinstance(_fb_items, list):
+                            for _fb_item in _fb_items:
+                                if isinstance(_fb_item, dict) and "id" in _fb_item:
+                                    _fid = _fb_item["id"]
+                                    _rt_7d_d[_fid] = _rt_7d_d.get(_fid, 0) + 1
+                                    if _is_24h_d:
+                                        _rt_24h_d[_fid] = _rt_24h_d.get(_fid, 0) + 1
+                    except Exception:
+                        continue
+                for _mc, _mv in _rt_7d_d.items():
+                    _recent_7d_counts[_mc] = max(_recent_7d_counts.get(_mc, 0), _mv)
+                for _mc, _mv in _rt_24h_d.items():
+                    _recent_24h_counts[_mc] = max(_recent_24h_counts.get(_mc, 0), _mv)
                 _fb_conn.close()
             except Exception:
                 pass
