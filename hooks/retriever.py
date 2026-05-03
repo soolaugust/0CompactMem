@@ -1624,6 +1624,7 @@ def main():
         #   immutable=1 等价于缺失 read barrier 的 RCU reader。
         # 修复：用独立的标准 WAL 连接加载 recall_counts，确保看到最新 traces。
         _recall_counts = {}
+        _recent_24h_counts = {}  # iter614: temporal_burst_suppression
         _local_bw_window = 30  # iter610: fallback if outer try fails
         try:
             import sqlite3 as _rc_sql
@@ -1676,6 +1677,33 @@ def main():
                                                        min(60, max(1, _xp_atc)))
                         except Exception:
                             pass
+            # ── iter614: temporal_burst_suppression — 24h 时间窗口注入频率 cap ──
+            # 根因：跨 session 短期高频注入逃逸现有机制。
+            #   session_density_gate 按 session 重置 → 每个短 session 内 chunk 只注入 1 次不触发。
+            #   bandwidth_penalty 基于 trace 数量窗口 → 少 trace 时 rc/window 尚低于阈值。
+            #   实际数据：b50e0b54 在 3.5h 内跨 8 个 session 注入 8 次，score=0.99 不受抑制。
+            # 修复：基于绝对时间（24h）统计每个 chunk 注入次数，>=3 次 → suppress。
+            #   时间窗口不受 trace 数量稀释，对突发垄断反应灵敏。
+            _recent_24h_counts = {}
+            try:
+                _r24_cur = _rc_conn.execute(
+                    "SELECT top_k_json FROM recall_traces "
+                    "WHERE project=? AND injected=1 "
+                    "AND timestamp > datetime('now', '-24 hours')",
+                    (project,)
+                )
+                for (_r24_json,) in _r24_cur.fetchall():
+                    try:
+                        _r24_items = json.loads(_r24_json) if isinstance(_r24_json, str) else _r24_json
+                        if isinstance(_r24_items, list):
+                            for _r24_item in _r24_items:
+                                if isinstance(_r24_item, dict) and "id" in _r24_item:
+                                    _r24_id = _r24_item["id"]
+                                    _recent_24h_counts[_r24_id] = _recent_24h_counts.get(_r24_id, 0) + 1
+                    except Exception:
+                        continue
+            except Exception:
+                pass
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
@@ -2049,6 +2077,11 @@ def main():
                         # iter612: linear ramp from 1.0 → 0.0 over [soft_start, hard_cap]
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
+            # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
+            # 同一 chunk 在 24h 内注入 >=3 次 → suppress（score=0）
+            _r24_cnt = _recent_24h_counts.get(chunk.get("id", ""), 0)
+            if _r24_cnt >= 3:
+                score = 0.0
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
