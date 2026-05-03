@@ -2017,6 +2017,31 @@ def main():
         except Exception:
             pass
 
+        # iter642: per-request live ac cache — 绕过 immutable 连接的 WAL 盲区
+        # 根因（数据驱动，2026-05-03）：_score_chunk 内 iter622 的 ac>=30 suppress
+        #   用 chunk.get("access_count")，来自 immutable=1 连接，看不到 WAL 中的
+        #   最新 ac。b50e0b54 在 5/2 连续 9 次逃逸（score=0.99）就是这个原因。
+        #   iter641 只修了 constraint 通道；主路径 _score_chunk 仍用 stale ac。
+        # 修复：lazy dict，首次查询时用标准连接批量获取所有 ac>=15 的 chunk live ac。
+        _live_ac_cache = {}
+        _live_ac_loaded = [False]
+
+        def _get_live_ac(chunk_id):
+            if not _live_ac_loaded[0]:
+                _live_ac_loaded[0] = True
+                try:
+                    import sqlite3 as _lac2_sql
+                    _lac2_conn = _lac2_sql.connect(str(STORE_DB))
+                    for row in _lac2_conn.execute(
+                        "SELECT id, COALESCE(access_count,0) FROM memory_chunks "
+                        "WHERE COALESCE(access_count,0) >= 15"
+                    ).fetchall():
+                        _live_ac_cache[row[0]] = row[1]
+                    _lac2_conn.close()
+                except Exception:
+                    pass
+            return _live_ac_cache.get(chunk_id, None)
+
         def _score_chunk(chunk, relevance):
             _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
@@ -2045,11 +2070,10 @@ def main():
                 if _r7d_ee >= 5:
                     return 0.0
                 # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
-                # 根因：24h/7d burst suppress 依赖 recall_traces 查询，WAL 可见性问题导致
-                #   _recent_24h_counts 为空 → suppress 失效。access_count 是 chunk 表自身字段，
-                #   直接读取无 WAL 依赖。ac>=30 已被看过足够多次，边际信息≈0。
-                # iter622: 阈值 50→30，移除 relevance 条件（ac=46 feishu CLI 逃逸根因）。
-                _acc_ee = chunk.get("access_count", 0) or 0
+                # iter642: 用 live ac 替代 immutable 连接的 stale ac
+                _acc_ee = _get_live_ac(chunk.get("id", ""))
+                if _acc_ee is None:
+                    _acc_ee = chunk.get("access_count", 0) or 0
                 if _acc_ee >= 30:
                     return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
@@ -2114,11 +2138,10 @@ def main():
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
             # ── iter622: saturation_absolute_suppress — 累积过饱和 suppress ──
-            # 根因：iter621 的 ac>=50 AND relevance<0.30 条件让 ac=89 的 memory_verify
-            #   (relevance>=0.30) 逃逸。24h/7d suppress 依赖 recall_traces WAL 查询，
-            #   WAL 可见性问题导致 _recent_24h_counts 为空 → 全部 suppress 失效。
-            # 修复：阈值 50→30，移除 relevance 条件。ac>=30 已被充分内化（仅 2 chunk 受影响）。
-            _acc = chunk.get("access_count", 0) or 0
+            # iter642: 用 live ac 替代 immutable 连接的 stale ac，防止 WAL 盲区逃逸
+            _acc = _get_live_ac(chunk.get("id", ""))
+            if _acc is None:
+                _acc = chunk.get("access_count", 0) or 0
             if _acc >= 30:
                 score = 0.0
                 _hard_suppressed = True
