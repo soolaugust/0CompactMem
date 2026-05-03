@@ -1810,6 +1810,12 @@ def _vma_validate(summary: str) -> bool:
         'effective_bw_window', 'recall_count', 'soft throttle',
         'refault_distance', 'constraint_min_relevance',
         'feedback_loop_break', 'rc_cap', 'rc=',
+        # iter626: iteration_metrics_gate — 拦截迭代器自身的量化验证/度量输出
+        # 根因：5 个漏网噪声 chunk 各含 1 个 _SELF_REF_TERMS（阈值 >=2 漏网），
+        #   但它们同时含 iteration metrics 语言（PA N/10, 信噪比, 注入槽位, zero_access_rate）。
+        #   这些术语是迭代器自评的独有标志，单次匹配即可判定为自引用。
+        'zero_access_rate', '量化改善', '信噪比', '注入槽位',
+        'PA 9/', 'PA 10/', 'sts pass',
     )
     if any(m in s for m in _MEMORYOS_META):
         return False
