@@ -136,6 +136,13 @@ def _seal_check_reject(text: str) -> bool:
     _tl = text.lower()
     if any(ci in _tl for ci in _code_idents):
         return True
+    # iter594: operational_noise — 操作确认和迭代器自我分析
+    if _re.search(r'已(?:追加|更新|删除|记录|写入).*iter\d+', _tl):
+        return True
+    if '迭代器' in text:
+        return True
+    if len(text.strip()) <= 30 and not _re.search(r'[A-Za-z0-9/_.→:：]', text):
+        return True
     return False
 
 

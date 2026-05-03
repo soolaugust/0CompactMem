@@ -1767,6 +1767,17 @@ def _vma_validate(summary: str) -> bool:
     _sl = s.lower()
     if any(ci in _sl for ci in _code_idents):
         return False
+    # V6 iter594: operational_noise — 操作确认和迭代器自我分析不是用户知识
+    # 根因（数据驱动）：38 个零访问 chunk 中 6 个是迭代器对话噪声：
+    #   - "已追加 iterN 条目"（操作确认）
+    #   - "诊断：87% chunk 是迭代器自身实现细节"（自我分析）
+    #   - 短纯中文通用句子（无技术锚点）
+    if re.search(r'已(?:追加|更新|删除|记录|写入).*iter\d+', _sl):
+        return False
+    if '迭代器' in s:
+        return False
+    if len(s) <= 30 and not re.search(r'[A-Za-z0-9/_.→:：]', s):
+        return False
     return True
 
 
