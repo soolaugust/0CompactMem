@@ -3847,7 +3847,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
 
         # ── design_constraint 强制注入 ──
         # iter219: chunk_type [] not .get() — schema guarantees field exists (TEXT nullable)
-        all_constraints = [c for s, c in final if c[_CI_CT] == "design_constraint"]  # iter235
+        # iter632: ac>=30 过滤 — 堵住 spreading_activate/shmem/schema 路径绕过
+        all_constraints = [c for s, c in final if c[_CI_CT] == "design_constraint"
+                          and (c[_CI_AC] or 0) < 30]  # iter235
         forced_constraints = []
         # iter224: pre-compute id list once, build set from it (setcomp ~0.433us → set(list) ~0.288us)
         # _pre_top_k_ids reused by top_k_ids_set; top_k_ids recomputed after constraint insertion

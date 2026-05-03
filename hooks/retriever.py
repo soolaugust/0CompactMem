@@ -3128,7 +3128,9 @@ def main():
         # OS 类比：Linux mlock(2) — 标记的内存不可淘汰，总是驻留在 RAM
         # 检查 final 中是否有 design_constraint；若有，强制保留在 top_k 中
         # 并在注入文本中附加 ⚠️ 约束警告
-        all_constraints = [c for s, c in final if c.get("chunk_type") == "design_constraint"]
+        # iter632: constraint 提取时过滤 ac>=30 — 堵住 spreading_activate/shmem/schema 路径绕过
+        all_constraints = [c for s, c in final if c.get("chunk_type") == "design_constraint"
+                          and (c.get("access_count", 0) or 0) < 30]
         forced_constraints = []  # 记录强制注入的约束（不在自然 top_k 内的）
 
         # ── 迭代50：DRR Fair Queuing — 类型多样性保障 ──
