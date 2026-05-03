@@ -1271,7 +1271,7 @@ def _is_quality_chunk(summary: str) -> bool:
     #   A. 内部度量变化格式：X率/X比/X数 + 百分比/数字 + → + 百分比/数字
     #   B. 操作动词 + memory-os 内部对象（chunk/trace/FTS/噪声）
     _ITER_METRIC_CHANGE = re.compile(
-        r'(?:访问率|零访问|噪声比|命中率|skip.rate|注入率)\s*[：:]\s*[\d.]+%?\s*→',
+        r'(?:访问率|零访问|噪声比|命中率|skip.rate|注入率)\s*[：:]\s*[\d.]+%?[\s()\/\d]*→',
         re.I
     )
     _ITER_OPS_REPORT = re.compile(
@@ -1409,7 +1409,10 @@ def _is_quality_chunk(summary: str) -> bool:
         r'zero.access|relevance.{0,3}[<>0]|slot.?位|注入占比|'
         # iter661: ghost_gc/幽灵/孤岛化 — daemon 清理逻辑的常见漏网词
         r'ghost.?gc|幽灵条目|幽灵.*chunk|孤岛化|'
-        r'daemon|priming|refault|thrash)',
+        r'daemon|priming|refault|thrash|'
+        # iter665: meta_reflection — 迭代器元反思语言
+        r'HOT.Tier|MEMORY\.md|memory\.md|Skill.Listing|'
+        r'规则.*有效|复盘|迭代器.*元|元思考|self-improving)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
@@ -1913,6 +1916,13 @@ def _vma_validate(summary: str) -> bool:
         #   这些术语是迭代器自评的独有标志，单次匹配即可判定为自引用。
         'zero_access_rate', '量化改善', '信噪比', '注入槽位',
         'PA 9/', 'PA 10/', 'sts pass',
+        # iter665: meta_reflection_gate — 拦截迭代器"元反思"语言
+        # 根因：12 条逃逸噪声用的不是底层术语而是高层元语言
+        #   如 "HOT Tier 检查""规则看起来是有效的""Query Expansion 语义改进"
+        'HOT Tier', 'memory.md', 'MEMORY.md',
+        'Skill Listing Budget', 'Adaptive Complexity',
+        'Query Expansion 语义', '规则看起来是',
+        '触发条件：(a)', '决策值得复盘',
     )
     if any(m in s for m in _MEMORYOS_META):
         return False

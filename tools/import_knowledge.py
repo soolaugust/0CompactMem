@@ -82,7 +82,12 @@ def make_chunk(chunk_type, summary, content, importance=None, tags=None, source_
 _META_NOISE_KEYWORDS = re.compile(
     r'知识固化|固化协议|固化机制|推理与问题解决原则|'
     r'锁/并发分析协议|迁移到新项目时需确认|执行顺序（组合使用）|'
-    r'wiki\s*固化|knowledge.consolidation',
+    r'wiki\s*固化|knowledge.consolidation|'
+    # iter665: aios_self_mgmt — AIOS/claude-code 自身资源管理决策
+    # 根因：decisions/ 下 adaptive-complexity/skill-listing-budget 等文件是
+    #   工具自身的配置策略，非用户领域知识，100% 零访问。
+    r'Adaptive.Complexity|Skill.Listing.Budget|token.budget|'
+    r'char.budget|context.window.管理|compaction.策略',
     re.IGNORECASE
 )
 _INDEX_TITLE_KEYWORDS = re.compile(
