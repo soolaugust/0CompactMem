@@ -92,7 +92,7 @@ def test_content_override_stored_correctly(conn):
 
 def test_content_richer_than_summary(conn):
     """content 长度显著大于 summary（聚合后 token 密度提升）。"""
-    summary = "触发了性能退化"
+    summary = "内存分配导致延迟增加"
     neighbors = ["原因是 FTS5 token 不足", summary, "最终 acc 从 1.3 提升到 15.0"]
     content = "[causal_chain] " + " → ".join(neighbors)
     chunk = _make_cc_chunk("c2", summary=summary, content=content)

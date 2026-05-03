@@ -143,6 +143,12 @@ def _seal_check_reject(text: str) -> bool:
         return True
     if len(text.strip()) <= 30 and not _re.search(r'[A-Za-z0-9/_.→:：]', text):
         return True
+    # iter607: memoryos_meta — 中文内部概念关键词拦截
+    # 根因：_code_idents 拦截英文标识符，但中文描述的内部概念（"注入垄断"、"零访问"）漏网。
+    _META_CN = ('注入垄断', '零访问', '写入门控', '噪声写入', '去垄断',
+                '垄断现象', '垄断 chunk')
+    if any(m in text for m in _META_CN):
+        return True
     return False
 
 

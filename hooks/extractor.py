@@ -1821,6 +1821,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary"}
     if chunk_type in _EPHEMERAL_TYPES:
         return
+    # iter607: _write_chunk 内置 quality gate — 最终防线
+    # 根因（数据驱动，2026-05-03）：causal_chain/decision 绕过调用方的 _is_quality_chunk
+    # 检查直接写入 store（6 个零访问迭代器噪声 chunk 在 gate 部署前写入）。
+    # 修复：在 _write_chunk 内部统一检查，任何路径都无法绕过。
+    if not _is_quality_chunk(summary):
+        return
     importance_map = {
         "decision": 0.85,
         "reasoning_chain": 0.80,
