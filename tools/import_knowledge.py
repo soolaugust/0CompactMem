@@ -189,6 +189,9 @@ def extract_wiki_knowledge():
 
 
 def extract_corrections():
+    # iter657: 纠正记录已在 corrections.md 文件中，session 启动时按需加载
+    # 重复导入与 rules 同理 — 零信息增益，占用注入 slot
+    return []
     chunks = []
     corr_file = SELF_IMPROVING / "corrections.md"
     if not corr_file.exists():
@@ -267,6 +270,9 @@ def extract_project_decisions():
 
 
 def extract_memory_rules():
+    # iter657: 规则已在 CLAUDE.md / system prompt 中，重复导入浪费 token 预算
+    # 数据：10 个 rule chunk 占 33% 注入但 0% 信息增益（内容与 system prompt 100% 重叠）
+    return []
     chunks = []
     mem_file = SELF_IMPROVING / "memory.md"
     if not mem_file.exists():
