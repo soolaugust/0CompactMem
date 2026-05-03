@@ -3216,6 +3216,50 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             except Exception:
                 pass
 
+        # ── iter660: timeline_ghost_gc (daemon sync) ────────────────────
+        # 根因：retriever.py iter659 已有 ghost_gc，daemon 完全缺失。
+        #   实测 timeline 51 个 ID 中 26 个是幽灵（已删除 chunk），
+        #   7d suppress 计数中幽灵贡献 62 条 vs 存活 36 条（63%）。
+        #   幽灵条目虽不会被 FTS 检索到，但污染 suppress 计数统计，
+        #   导致 suppress 对低频但真正垄断的存活 chunk 阈值判断失真。
+        # 修复：合并 24h/7d counts 后、评分前，批量查 memory_chunks 过滤幽灵。
+        #   同时回写清理后的 timeline 文件。
+        try:
+            _all_suppress_ids = set(_recent_24h_counts.keys()) | set(_recent_7d_counts.keys())
+            if _all_suppress_ids:
+                import sqlite3 as _gc_sql
+                _gc_conn = _gc_sql.connect(str(STORE_DB))
+                _gc_alive = set()
+                _gc_ids = list(_all_suppress_ids)
+                for _gc_i in range(0, len(_gc_ids), 50):
+                    _gc_batch = _gc_ids[_gc_i:_gc_i+50]
+                    _gc_ph = ",".join("?" for _ in _gc_batch)
+                    _gc_alive.update(
+                        r[0] for r in _gc_conn.execute(
+                            f"SELECT id FROM memory_chunks WHERE id IN ({_gc_ph})", _gc_batch
+                        ).fetchall()
+                    )
+                _gc_conn.close()
+                _gc_ghosts = _all_suppress_ids - _gc_alive
+                if _gc_ghosts:
+                    _recent_24h_counts = {k: v for k, v in _recent_24h_counts.items() if k not in _gc_ghosts}
+                    _recent_7d_counts = {k: v for k, v in _recent_7d_counts.items() if k not in _gc_ghosts}
+                    # 回写 timeline 文件清理幽灵条目
+                    try:
+                        _INJECTION_TIMELINE_FILE_GC = os.path.join(MEMORY_OS_DIR, ".injection_timeline.json")
+                        if os.path.exists(_INJECTION_TIMELINE_FILE_GC):
+                            import json as _gc_json
+                            with open(_INJECTION_TIMELINE_FILE_GC, encoding="utf-8") as _gc_f:
+                                _gc_tl = _gc_json.loads(_gc_f.read())
+                            _gc_tl_clean = {k: v for k, v in _gc_tl.items() if k not in _gc_ghosts}
+                            if len(_gc_tl_clean) < len(_gc_tl):
+                                with open(_INJECTION_TIMELINE_FILE_GC, "w", encoding="utf-8") as _gc_fw:
+                                    _gc_fw.write(_gc_json.dumps(_gc_tl_clean))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         # Memory zones
         # iter207: fast path — exclude_types is empty in ~100% of real usage
         # direct reference to module-level constant (0.17us vs 1.59us for tuple rebuild)
