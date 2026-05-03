@@ -3250,7 +3250,12 @@ def main():
                 if _rel == 0:
                     return False
                 _ac = c.get("access_count", 0) or 0
-                _ac_penalty = max(0, (_ac - 20)) / 30.0 * 0.05
+                # iter609: progressive_relevance_gate — 高 access_count 需更高 relevance
+                # 根因：iter595 线性 penalty 太弱（ac=46 → penalty=0.043），单词重叠
+                # 就通过门控。改用对数递增：ac=20→0.10, ac=46→0.15, ac=89→0.18。
+                # 效果：已被注入 46 次的 chunk 需 Jaccard>0.20 才能再次注入。
+                import math as _m609
+                _ac_penalty = min(0.20, _m609.log1p(max(0, _ac - 10)) * 0.04) if _ac > 10 else 0.0
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
                 if _rel < _eff_min_rel:
                     return False

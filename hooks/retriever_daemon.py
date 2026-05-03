@@ -3846,7 +3846,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _rel == 0:
                     return False
                 _ac = c[_CI_AC] or 0
-                _ac_penalty = max(0, (_ac - 20)) / 30.0 * 0.05
+                # iter609: progressive_relevance_gate — 对数递增 penalty（与 retriever.py 对齐）
+                import math as _m609
+                _ac_penalty = min(0.20, _m609.log1p(max(0, _ac - 10)) * 0.04) if _ac > 10 else 0.0
                 if _rel < _constraint_min_rel + _ac_penalty:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct
