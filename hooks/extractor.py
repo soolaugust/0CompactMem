@@ -1260,7 +1260,10 @@ def _is_quality_chunk(summary: str) -> bool:
         # iter661: 补充逃逸模式 — daemon 指标行/幽灵 chunk/项目孤岛化
         r'injected=\d|candidates=\d|幽灵\s*chunk|幽灵条目|项目孤岛化|'
         # iter662: 中文形式 memory-os 指标术语 — 迭代器用中文描述内部状态
-        r'Timeline\s*条目|知识完全不可见|存量噪声|迭代器.*噪声|noise.gate)',
+        r'Timeline\s*条目|知识完全不可见|存量噪声|迭代器.*噪声|noise.gate|'
+        # iter679: retriever 内部逻辑术语 — 迭代器描述自身算法修改
+        r'FTS5\s*scor|min_thresh|positive=\[\]|constraint_fallback|'
+        r'空率|_score_chunk|fallback.*inject|suppress.*全[灭空])',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):
