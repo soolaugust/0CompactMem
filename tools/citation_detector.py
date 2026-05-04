@@ -85,6 +85,16 @@ SKIP_CITATION_TYPES = frozenset({
     "session_summary", "goal",
 })
 
+# iter763: behavioral_citation_exempt — 行为约束类 chunk 跳过 uncited 惩罚
+# 根因（数据驱动，2026-05-04）：citation rate = 0%（46 次注入 0 次引用），
+#   但注入的 design_constraint 实际被模型遵守（如"回复用简体中文"）。
+#   trigram overlap 无法检测"遵守约束"这种隐性引用，导致所有 constraint
+#   被持续 uncited 惩罚 → importance/stability 逐渐衰减 → 最终被淘汰。
+# 修复：这些类型体现价值的方式是"被遵守"而非"被复述"，跳过 uncited 惩罚。
+BEHAVIORAL_CITATION_EXEMPT = frozenset({
+    "design_constraint",
+})
+
 
 def _trigrams(s: str) -> set:
     """生成 trigram 集合（与 semantic_consolidator 保持一致）。"""
@@ -389,10 +399,11 @@ def _check_and_apply_fast_stale_with_ids(conn: sqlite3.Connection,
         # 跳过非知识类 chunk（系统记录不应被遗忘机制惩罚）
         if _ctype in SKIP_CITATION_TYPES:
             continue
+        # iter763: behavioral types 完全跳过 fast stale（trigram 无法检测遵守行为）
+        if _ctype in BEHAVIORAL_CITATION_EXEMPT:
+            continue
         # 决定该 chunk_type 的阈值
-        _stale_threshold = (STALE_CONSEC_THRESHOLD * 2
-                            if _ctype == "design_constraint"
-                            else STALE_CONSEC_THRESHOLD)
+        _stale_threshold = STALE_CONSEC_THRESHOLD
         if consec_count >= _stale_threshold:
             # 连续 N 次出现在检索结果但未被引用 → 快速降级
             old_imp = row[0]
@@ -610,6 +621,11 @@ def run_citation_detection(reply_text: str, project: str,
 
         _uncited_sm2_ids = []  # 收集需要 SM-2 quality=2 的 uncited IDs
         for cid in uncited_ids:
+            # iter763: behavioral_citation_exempt — 行为约束类 chunk 跳过 uncited 惩罚
+            ctype = chunk_types.get(cid, "")
+            if ctype in BEHAVIORAL_CITATION_EXEMPT:
+                stats["uncited"] += 1  # 计入统计但不惩罚
+                continue
             # 跳过已被 fast stale 处理的 chunk（避免双重惩罚）
             if cid in stale_degraded_ids:
                 p = chunk_projects.get(cid, project)
