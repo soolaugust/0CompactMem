@@ -1834,6 +1834,13 @@ STORE_DB = _db_env if _db_env else os.path.join(MEMORY_OS_DIR, "store.db")
 HASH_FILE = os.path.join(MEMORY_OS_DIR, ".last_injection_hash")
 TLB_FILE = os.path.join(MEMORY_OS_DIR, ".last_tlb.json")
 CHUNK_VERSION_FILE = os.path.join(MEMORY_OS_DIR, ".chunk_version")
+# iter804: session_first_inject_guard — 跨 session hash/TLB 缓存导致新 session 零注入
+# 数据驱动（2026-05-05）：23/86 trace 为 skipped_same_hash，23/23 的 session 从未有过注入。
+# 根因：HASH_FILE/TLB 是全局共享的，新 session 启动时读到前一 session 写入的 hash/TLB，
+#   current_hash == last_hash → skip，但新 session 从未执行过注入 → 用户零记忆上下文。
+# 修复：进程内 set 跟踪已注入 session，未注入的 session 不走 hash/TLB 缓存快捷路径。
+# 内存安全：session UUID 36B × 1000 sessions ≈ 36KB，daemon 重启自然清空。
+_sessions_with_injection: set = set()
 PAGE_FAULT_LOG = os.path.join(MEMORY_OS_DIR, "page_fault_log.json")
 SHADOW_TRACE_FILE = os.path.join(MEMORY_OS_DIR, ".shadow_trace.json")
 MADVISE_FILE_PATH = os.path.join(MEMORY_OS_DIR, "madvise.json")
@@ -2951,7 +2958,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         tlb_ver = tlb.get("chunk_version", -1)
         slots = tlb.get("slots", {})
         last_hash = _read_hash()  # iter201: read once here, reused at L_same_hash + L_reason_base
-        if chunk_ver == tlb_ver:
+        # iter804: session_first_inject_guard — 新 session 首次请求必须走完整检索
+        _sid_has_inj = session_id in _sessions_with_injection
+        if chunk_ver == tlb_ver and _sid_has_inj:
             # iter780: empty_result_tlb — 空结果缓存避免重复检索空转
             if prompt_hash in slots and slots[prompt_hash].get("injection_hash") == "__empty__":
                 return
@@ -4034,6 +4043,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter228: ensure_ascii=True saves ~0.977us (C encoder skips UTF-8 path, outputs \uXXXX)
                     # Output is valid JSON regardless; Claude Code parses \uXXXX → correct Unicode str.
                     sys.stdout.write(_OUTPUT_HEADER + json.dumps(context_text, ensure_ascii=True) + "}}\n")
+                    _sessions_with_injection.add(session_id)  # iter804
                     # iter173: persistent conn — do NOT close
                     try:
                         wconn = open_db()
@@ -4443,7 +4453,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
         current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
 
-        if current_hash == last_hash:  # iter201: reuse pre-read last_hash (saves 1× _read_hash ~3.1us)
+        if current_hash == last_hash and session_id in _sessions_with_injection:  # iter201+804
             _tlb_write(prompt_hash, current_hash, _get_db_mtime())
             # iter173: persistent conn — do NOT close
             # iter164: async write-back for skipped_same_hash trace
@@ -4582,6 +4592,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter226: write() ~0.407us vs print() ~0.679us (saves ~0.271us on inject path)
         # iter228: ensure_ascii=True saves ~0.977us (C encoder skips UTF-8 path, outputs \uXXXX)
         sys.stdout.write(_OUTPUT_HEADER + json.dumps(context_text, ensure_ascii=True) + "}}\n")
+        _sessions_with_injection.add(session_id)  # iter804
         # iter219: removed sys.stdout.flush() — no-op on StringIO (captured in _handle_connection)
         # iter173: persistent conn — do NOT close here; writeback will invalidate after write
 
