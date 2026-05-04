@@ -2006,6 +2006,12 @@ def _vma_validate(summary: str) -> bool:
         # iter685: chunk_ops_gate — 拦截迭代器 chunk 数量管理报告
         # 根因：'chunk 数量精简 5%（42→40）' (ac=0) 逃逸，因不含任何已有术语
         'chunk 数量', 'chunk数量', '精简 ', '清理 chunk',
+        # iter791: iter_selfeval_gate — 拦截迭代器自评/验证指标语言
+        # 根因（数据驱动，2026-05-04）：7 个 ac=1 噪声 chunk 含迭代器评估术语：
+        #   "空召回率 49%""useful rate""保留率""store_vfs""验证稳定""高质量迭代"
+        '空召回率', 'useful rate', '保留率', 'store_vfs',
+        '验证稳定', '高质量迭代', '影响面大',
+        'sub-threshold', 'noise_rate',
     )
     if any(m in s for m in _MEMORYOS_META):
         return False
