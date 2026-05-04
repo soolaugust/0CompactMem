@@ -1937,7 +1937,10 @@ def _vfs_write_protect(summary: str) -> bool:
     except Exception:
         pass  # config 不可用时默认启用保护
 
-    if not summary or len(summary.strip()) < 8:
+    # iter814: min_len 8→15 — 与 extractor iter701 对齐，拦截 direct/MCP 短碎片
+    # 数据驱动：7337e9fd "验证：PA 9/10（已"(12字) 经 MCP 写入绕过 extractor gate，
+    #   最短合法 chunk summary=33 字（import wiki），15 字阈值安全余量充足。
+    if not summary or len(summary.strip()) < 15:
         return True
     s = summary.strip()
     # 以截断符号开头
@@ -1960,6 +1963,11 @@ def _vfs_write_protect(summary: str) -> bool:
         return True
     # 纯数字/符号行
     if _re_vfs.match(r'^[\d\s.,:;/×\-+=%]+$', s):
+        return True
+    # iter814: pa_score_gate — 迭代器验证报告碎片拦截
+    # 数据驱动：7337e9fd "验证：PA 9/10（已" 经 MCP 写入，extractor noise_kw 未覆盖。
+    # "PA N/N" 和 "验证：" 开头 + 数字分数 = 迭代器自评报告，对用户零价值。
+    if _re_vfs.search(r'PA\s+\d+/\d+', s):
         return True
     # iter629+754: self-referential noise gate (VFS 层同步)
     # iter754: 上限 80→120 — "空召回率 68%→25%" 等 summary 长 50-100B 漏网。
