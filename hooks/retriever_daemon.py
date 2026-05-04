@@ -4439,12 +4439,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _effective_top_k = _top_k_data
                 if (not _effective_top_k or len(_effective_top_k) != _top_k_len) and _accessed_ids:
                     _effective_top_k = [{"id": cid} for cid in _accessed_ids]
+                # iter693: empty_trace_guard — 空 top_k 不写 injected=1（防污染 suppress 统计）
+                # 根因（数据驱动，2026-05-04）：64% trace 为 injected=1 + top_k=[]，
+                #   dmesg 确认 daemon 成功注入了 chunk，但闭包捕获的 _top_k_data 偶发为空。
+                #   根因：默认参数绑定 list 被 GC 或后续 fast-path 覆盖（未完全确定）。
+                #   修复：空时不写 injected=1，避免 recall_counts 统计被无 chunk-id 的 trace 污染。
+                _effective_injected = 1 if _effective_top_k else 0
                 store_insert_trace(_wconn, {
                     "id": str(uuid_mod.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "session_id": _session_id, "project": _project,
                     "prompt_hash": _prompt_hash, "candidates_count": _candidates_count,
-                    "top_k_json": _effective_top_k, "injected": 1, "reason": _reason,
+                    "top_k_json": _effective_top_k, "injected": _effective_injected,
+                    "reason": _reason,
                     "duration_ms": _duration_ms,
                 })
                 for level, subsystem, message, sid, proj, extra in _deferred_buf:
