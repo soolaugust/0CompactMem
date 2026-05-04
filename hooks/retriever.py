@@ -2277,14 +2277,19 @@ def main():
             # 修复：<30 极小库保持宽松；30-100 中小库收紧
             _tiny_db = candidates_count < 30
             _small_db = candidates_count < 100
-            _suppress_24h_thresh = (6 if score >= 0.5 else 5) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
+            # iter777: tiny_db_suppress_relax — 极小库(<30 cands) 24h 阈值 6/5→10/8
+            #   根因（数据驱动，2026-05-04）：6 chunk 项目日均 10-15 session，
+            #   每 session 首次检索命中同类 chunk → 24h 达 5 次即 suppress → 66% 空召回。
+            #   阈值应匹配用户实际使用频率，而非一刀切。
+            _suppress_24h_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
             if _r24_cnt >= _suppress_24h_thresh:
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
             # iter767: tiered_small_db — 同步分级
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            _suppress_7d_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
+            # iter777: tiny_db 7d 阈值 10/8→20/15
+            _suppress_7d_thresh = (20 if score >= 0.5 else 15) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
             if _r7d_cnt >= _suppress_7d_thresh:
                 score = 0.0
                 _hard_suppressed = True
@@ -3049,9 +3054,10 @@ def main():
                 # iter767: tiered_small_db — 分级小库阈值
                 _hd_tiny_db = candidates_count < 30
                 _hd_small_db = candidates_count < 100
+                # iter777: tiny_db 24h 10/8, 7d 20/15
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_24h_counts.get(c["id"], 0) < ((6 if s >= 0.5 else 5) if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (3 if s >= 0.5 else 2))
-                         and _recent_7d_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (7 if s >= 0.5 else 5) if _hd_small_db else (5 if s >= 0.5 else 3))]
+                         if _recent_24h_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (3 if s >= 0.5 else 2))
+                         and _recent_7d_counts.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _hd_tiny_db else (7 if s >= 0.5 else 5) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # ── iter670: suppress_fallback — hard_deadline suppress 全灭降级 ──
             if not top_k and _pre_suppress_top_k_hd:
                 _fb_hd = max(_pre_suppress_top_k_hd, key=lambda x: x[0])
@@ -4165,9 +4171,10 @@ def main():
                 # iter764: sync_small_db_relax — 同步 daemon iter704 小库放宽
                 _sf663_tiny_db = candidates_count < 30
                 _sf663_small_db = candidates_count < 100
+                # iter777: tiny_db 24h 10/8, 7d 20/15
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < ((6 if s >= 0.5 else 5) if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663_7d.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _sf663_tiny_db else (7 if s >= 0.5 else 5) if _sf663_small_db else (5 if s >= 0.5 else 3))]
+                         if _rt663_24h.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663_7d.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _sf663_tiny_db else (7 if s >= 0.5 else 5) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4252,9 +4259,10 @@ def main():
                 # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
                 _sf758_tiny_db = candidates_count < 30
                 _sf758_small_db = candidates_count < 100
+                # iter777: tiny_db 24h 10/8, 7d 20/15
                 top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < ((6 if s >= 0.5 else 5) if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (3 if s >= 0.5 else 2))
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < ((10 if s >= 0.5 else 8) if _sf758_tiny_db else (7 if s >= 0.5 else 5) if _sf758_small_db else (5 if s >= 0.5 else 3))]
+                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < ((10 if s >= 0.5 else 8) if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < ((20 if s >= 0.5 else 15) if _sf758_tiny_db else (7 if s >= 0.5 else 5) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
