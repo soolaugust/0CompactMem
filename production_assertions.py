@@ -254,7 +254,17 @@ def assert_fts5_covers_all_chunks(conn: sqlite3.Connection, fix: bool = False) -
     t0 = time.time()
 
     try:
-        chunk_count = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
+        # iter808: 只比较 ACTIVE chunks — SWAPPED 不在 FTS5 中
+        # 兼容测试 DB（无 chunk_state 列）：fallback 到全表 COUNT
+        _has_state = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('memory_chunks') WHERE name='chunk_state'"
+        ).fetchone()[0]
+        if _has_state:
+            chunk_count = conn.execute(
+                "SELECT COUNT(*) FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''"
+            ).fetchone()[0]
+        else:
+            chunk_count = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
         fts_count = conn.execute("SELECT COUNT(*) FROM memory_chunks_fts").fetchone()[0]
 
         if chunk_count == fts_count:

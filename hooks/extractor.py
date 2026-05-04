@@ -1499,7 +1499,10 @@ def _is_quality_chunk(summary: str) -> bool:
         # iter802: trace_metric_gate — 迭代器运维指标/DB字段名逃逸
         # 根因：'空 trace 率 37%→0%'、'recall_counts 统计基础'、'top_k_json=[]' 等逃逸
         #   原 pattern 缺少 memory-os 内部度量语言（空召回、trace 率、DB 列名）
-        r'空召回|空.?trace|top_k|injected[=]|_accessed_ids|闭包捕获|self.ref|candidates.count)',
+        r'空召回|空.?trace|top_k|injected[=]|_accessed_ids|闭包捕获|self.ref|candidates.count|'
+        # iter808: guard_gate_terms — 迭代器内部 guard/writeback 术语
+        # 根因：'session_first_inject_guard' (1 match=inject_) 逃逸，TLB/hash/guard 是 retriever 内部术语
+        r'inject.guard|final.gate|writeback|TLB.{0,4}cache|prompt.hash|零注入)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
