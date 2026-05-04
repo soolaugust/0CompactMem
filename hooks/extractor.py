@@ -1194,7 +1194,9 @@ def _is_quality_chunk(summary: str) -> bool:
     # 数据驱动：659be6cd "eshold 注入 0% useful rate" — "threshold" 被截断只剩 "eshold"
     # 特征：以小写拉丁词开头 + 空格 + 中文字符 = 英文单词尾部截断后拼接中文
     # 正常英文开头的知识 chunk 不会紧跟中文（如 "BPF 程序" 以大写开头）
-    if re.match(r'^[a-z]{2,}\s+[\u4e00-\u9fff]', s):
+    # iter792: 长度豁免 — 合法知识如 "memory 引用前必须用..." (60字) 误杀。
+    #   截断碎片通常 <40 字（截取自长句中间），合法知识有完整句子结构。
+    if len(s) < 40 and re.match(r'^[a-z]{2,}\s+[\u4e00-\u9fff]', s):
         return False
     # ── iter B12：JSON 键值对碎片过滤 ──────────────────────────────────
     # 以双引号开头 = JSON 字符串值（"recommended_action": "..."、"if_wrong": "..."）
@@ -1645,6 +1647,14 @@ def _is_tool_insight_noise(text: str) -> bool:
     # 特征：以 "数字. [" 开头（memory_lookup 编号格式）
     if re.match(r'^\d+\.\s*\[', text):
         return True
+    # iter792: chunk_metadata_echo_gate — 拦截 chunk metadata 行回写
+    # 根因（数据驱动，2026-05-04）：retriever 注入的 chunk 在对话中显示
+    #   "imp=0.95 stab=365.00 age=0.0d type=quantitative_evidence | ..."
+    #   被 _TOOL_INSIGHT_PATTERN 匹配后作为新 tool_insight 写入，
+    #   产生与原 chunk 内容重复的回声（实测 3 条 ac=0）。
+    # 特征：以 "imp=" 开头（chunk metadata 前缀格式）
+    if re.match(r'^imp=[\d.]+\s+stab=', text):
+        return True
     return False
 
 
@@ -1988,19 +1998,19 @@ def _vma_validate(summary: str) -> bool:
         # 根因：5 个漏网噪声 chunk 各含 1 个 _SELF_REF_TERMS（阈值 >=2 漏网），
         #   但它们同时含 iteration metrics 语言（PA N/10, 信噪比, 注入槽位, zero_access_rate）。
         #   这些术语是迭代器自评的独有标志，单次匹配即可判定为自引用。
-        'zero_access_rate', '量化改善', '信噪比', '注入槽位',
+        'zero_access_rate', '量化改善', '注入槽位',
         'PA 9/', 'PA 10/', 'sts pass',
         # iter665: meta_reflection_gate — 拦截迭代器"元反思"语言
         # 根因：12 条逃逸噪声用的不是底层术语而是高层元语言
         #   如 "HOT Tier 检查""规则看起来是有效的""Query Expansion 语义改进"
-        'HOT Tier', 'memory.md', 'MEMORY.md',
+        'HOT Tier',
         'Skill Listing Budget', 'Adaptive Complexity',
         'Query Expansion 语义', '规则看起来是',
         '触发条件：(a)', '决策值得复盘',
         # iter683: content_leak_gate — 补充 3 类逃逸的迭代器内部术语
         # 根因：f53fb4fa("extractor 写入质量加强")、c77ba0d2("suppress/阈值")
         #   逃过 V5(_code_idents 要求 'extractor.' 带点) 和 V7(无 suppress/阈值)。
-        'suppress', '阈值同步', 'extractor 写入', 'suppress_fallback',
+        '阈值同步', 'extractor 写入', 'suppress_fallback',
         '写入质量', '写入拦截', 'final_gate', 'suppress_final',
         '被成功检索并注入', 'score=0.', 'threshold 0.',
         # iter685: chunk_ops_gate — 拦截迭代器 chunk 数量管理报告
@@ -2014,6 +2024,22 @@ def _vma_validate(summary: str) -> bool:
         'sub-threshold', 'noise_rate',
     )
     if any(m in s for m in _MEMORYOS_META):
+        return False
+    # iter792: soft_match_gate — 在非 memory-os 语境中合理出现的关键词需组合判定
+    # 根因（数据驱动，2026-05-04）：3 个有价值 chunk 被单关键词误杀：
+    #   - 95038a88(ac=2): "Kernel Patch 证据完整性...信噪比" — 命中 '信噪比'
+    #   - 9a1c5b4f(ac=11): "Corrections/Patterns 规则...MEMORY.md" — 命中 'MEMORY.md'
+    #   - 93cbc985(ac=3): "memory 路径验证规则...MEMORY.md" — 命中 'MEMORY.md'
+    # 修复：这些词在用户知识中合法出现，改为 soft match（≥2 命中才拦截）。
+    _SOFT_META = ('信噪比', 'memory.md', 'MEMORY.md', 'suppress')
+    _soft_hits = sum(1 for m in _SOFT_META if m in s)
+    if _soft_hits >= 2:
+        return False
+    # iter794: code_var_cn_mix_gate — 拦截混合代码变量+中文说明的内部注释碎片
+    # 根因（数据驱动，2026-05-04）：728d3c55 "ac>=30），score 设为 imp  0.01 确保不干扰"
+    #   逃逸所有 gate：不含 'score=0.' (是 'score 设为')，不含 _code_idents 完整匹配。
+    #   特征：同时含代码变量模式(ac>=N/score/imp*N)和中文动词——只有内部代码注释如此。
+    if re.search(r'(?:ac[>=<]+\d|score\s*[设=]|imp\s*[*×\d])', s):
         return False
     # iter685: chunk_ops_report_gate — 拦截 "N→M" 格式的数量变化报告
     # 根因：迭代器产出 "42→40" 类量化操作日志，不含已有术语但有明确格式特征

@@ -263,9 +263,11 @@ def assert_fts5_covers_all_chunks(conn: sqlite3.Connection, fix: bool = False) -
         elif fix:
             # 自修复：重建 FTS5
             conn.execute("DELETE FROM memory_chunks_fts")
+            # iter797: 修复 FTS5 重建路径 — 必须用 rowid_ref 列，过滤 chunk_state
             conn.execute(
-                """INSERT INTO memory_chunks_fts (rowid, summary, content)
-                   SELECT rowid, summary, COALESCE(content, '') FROM memory_chunks"""
+                """INSERT INTO memory_chunks_fts (rowid_ref, summary, content)
+                   SELECT CAST(rowid AS TEXT), summary, COALESCE(content, '')
+                   FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''"""
             )
             conn.commit()
             new_fts = conn.execute("SELECT COUNT(*) FROM memory_chunks_fts").fetchone()[0]
@@ -576,9 +578,11 @@ def check_test_pollution(conn: sqlite3.Connection, fix: bool = False) -> Asserti
             # 重建 FTS5 以确保一致
             if deleted_chunks > 0:
                 conn.execute("DELETE FROM memory_chunks_fts")
+                # iter797: 修复 FTS5 重建路径
                 conn.execute(
-                    """INSERT INTO memory_chunks_fts (rowid, summary, content)
-                       SELECT rowid, summary, COALESCE(content, '') FROM memory_chunks"""
+                    """INSERT INTO memory_chunks_fts (rowid_ref, summary, content)
+                       SELECT CAST(rowid AS TEXT), summary, COALESCE(content, '')
+                       FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''"""
                 )
                 conn.commit()
             r.passed = True

@@ -327,8 +327,10 @@ def _db_vacuum(db_path: Path):
                 # iter635: 直接 DELETE + re-INSERT 重建 FTS（逐行 delete 对
                 # external content table 无效，实测 orphan 仍残留）
                 conn.execute("DELETE FROM memory_chunks_fts")
-                conn.execute("""INSERT INTO memory_chunks_fts (rowid, summary, content)
-                    SELECT rowid, summary, COALESCE(content, '') FROM memory_chunks""")
+                # iter797: 修复 FTS5 重建路径 — 必须用 rowid_ref 列，过滤 chunk_state
+                conn.execute("""INSERT INTO memory_chunks_fts (rowid_ref, summary, content)
+                    SELECT CAST(rowid AS TEXT), summary, COALESCE(content, '')
+                    FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''""")
                 freed_total += orphan_cnt
         except Exception:
             pass

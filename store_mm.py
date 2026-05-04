@@ -6477,9 +6477,18 @@ def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
         new_imp = min(0.95, promote_floor + 0.05 * math.log2(max(1, acc)))
         if new_imp <= imp:
             continue  # 已经足够高
+        # iter796: 同步校准 confidence_score — 高访问是间接验证
+        # 根因：默认 confidence=0.70 的 chunk 即使 acc=12 也不会自动提升，
+        # 导致 Confidence Threshold Filter（retriever iter482）在临界值附近误伤。
+        # 校准公式：min(0.99, 0.70 + 0.03 * log2(acc))，acc=8→0.79, acc=12→0.81
+        _cur_conf = conn.execute(
+            "SELECT confidence_score FROM memory_chunks WHERE id=?", (chunk_id,)
+        ).fetchone()
+        _cur_conf_val = float(_cur_conf[0]) if _cur_conf and _cur_conf[0] else 0.70
+        _new_conf = min(0.99, 0.70 + 0.03 * math.log2(max(1, acc)))
         conn.execute(
-            "UPDATE memory_chunks SET importance = ? WHERE id = ?",
-            (round(new_imp, 3), chunk_id)
+            "UPDATE memory_chunks SET importance = ?, confidence_score = ? WHERE id = ?",
+            (round(new_imp, 3), round(max(_cur_conf_val, _new_conf), 3), chunk_id)
         )
         promoted += 1
 
