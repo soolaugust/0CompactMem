@@ -3645,9 +3645,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter767: tiered_small_db — 分级小库阈值
             _s672_tiny = candidates_count < 30
             _s672_small = candidates_count < 100
-            # iter777: tiny_db 24h 10/8, 7d 20/15
-            _s672_24h_t = (10 if score >= 0.5 else 8) if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (3 if score >= 0.5 else 2)
-            _s672_7d_t = (20 if score >= 0.5 else 15) if _s672_tiny else (7 if score >= 0.5 else 5) if _s672_small else (5 if score >= 0.5 else 3)
+            # iter781: tiny_db_suppress_tighten — 收紧 tiny_db 24h 5/4, 7d 10/8
+            _s672_24h_t = (5 if score >= 0.5 else 4) if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (3 if score >= 0.5 else 2)
+            _s672_7d_t = (10 if score >= 0.5 else 8) if _s672_tiny else (7 if score >= 0.5 else 5) if _s672_small else (5 if score >= 0.5 else 3)
             if _recent_24h_counts.get(_cid, 0) >= _s672_24h_t:
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= _s672_7d_t:
@@ -3723,9 +3723,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter767: tiered_small_db — 分级小库阈值（同 _score_chunk）
             _s672d_tiny = candidates_count < 30
             _s672d_small = candidates_count < 100
-            # iter777: tiny_db 24h 10/8, 7d 20/15
-            _s672d_24h_t = (10 if score >= 0.5 else 8) if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (3 if score >= 0.5 else 2)
-            _s672d_7d_t = (20 if score >= 0.5 else 15) if _s672d_tiny else (7 if score >= 0.5 else 5) if _s672d_small else (5 if score >= 0.5 else 3)
+            # iter781: tiny_db_suppress_tighten — 收紧 tiny_db 24h 5/4, 7d 10/8
+            _s672d_24h_t = (5 if score >= 0.5 else 4) if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (3 if score >= 0.5 else 2)
+            _s672d_7d_t = (10 if score >= 0.5 else 8) if _s672d_tiny else (7 if score >= 0.5 else 5) if _s672d_small else (5 if score >= 0.5 else 3)
             if _recent_24h_counts.get(_cid, 0) >= _s672d_24h_t:
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= _s672d_7d_t:

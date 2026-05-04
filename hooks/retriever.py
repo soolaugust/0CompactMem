@@ -2280,19 +2280,20 @@ def main():
             # 修复：<30 极小库保持宽松；30-100 中小库收紧
             _tiny_db = candidates_count < 30
             _small_db = candidates_count < 100
-            # iter777: tiny_db_suppress_relax — 极小库(<30 cands) 24h 阈值 6/5→10/8
-            #   根因（数据驱动，2026-05-04）：6 chunk 项目日均 10-15 session，
-            #   每 session 首次检索命中同类 chunk → 24h 达 5 次即 suppress → 66% 空召回。
-            #   阈值应匹配用户实际使用频率，而非一刀切。
-            _suppress_24h_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
+            # iter781: tiny_db_suppress_tighten — 收紧 tiny_db suppress 阈值
+            #   数据驱动（2026-05-04）：100% injected traces 的 candidates_count<30（全部 tiny_db）
+            #   iter777 的 10/8 阈值导致 24h 内同一 chunk 被 5+ session 注入仍不 suppress
+            #   （import-90139 在 21 分钟内被 3 个不同 session 注入）。
+            #   iter776 suppress_zero_fallback 已解决空召回兜底，可安全收紧。
+            _suppress_24h_thresh = (5 if score >= 0.5 else 4) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
             if _r24_cnt >= _suppress_24h_thresh:
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
             # iter767: tiered_small_db — 同步分级
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            # iter777: tiny_db 7d 阈值 10/8→20/15
-            _suppress_7d_thresh = (20 if score >= 0.5 else 15) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
+            # iter781: tiny_db 7d 阈值 20/15→10/8（同步收紧）
+            _suppress_7d_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
             if _r7d_cnt >= _suppress_7d_thresh:
                 score = 0.0
                 _hard_suppressed = True
