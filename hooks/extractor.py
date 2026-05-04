@@ -1267,7 +1267,13 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 数据驱动：13 个 ac=1 噪声 chunk 含 top_k=1/af_ratio/adaptive_floor/
                 #   cands→top_k/min_score_threshold 等内部参数调整描述
                 "af_ratio", "adaptive_floor", "cands→top_k", "top_k=1",
-                "min_score_threshold", "_db_chunk_count"]
+                "min_score_threshold", "_db_chunk_count",
+                # iter828: iterator_mechanism_noise — 迭代器内部机制/度量/自评
+                # 数据驱动：9 条 ac=1 噪声含 pair_inject/single-chunk/suppress 分母/
+                #   FTS/BM25 权重提升/闭包捕获/检索稀疏性 — 系统自引用无用户价值
+                "pair_inject", "single-chunk", "suppress 分母",
+                "检索稀疏性", "闭包捕获", "importance_pair",
+                "注入为单条", "组合上下文", "预期量化"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
