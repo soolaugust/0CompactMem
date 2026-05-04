@@ -1177,6 +1177,11 @@ def _is_quality_chunk(summary: str) -> bool:
     # iter753: 移除 '向' — "向 maintainer 报告" 是完整句（动词用法），非截断碎片
     if re.match(r'^[了的地得把被让从以在对和与或]', s):
         return False
+    # iter755: 单字母开头截断碎片拦截
+    # 数据驱动：2b704212 "k 时会提升 importance" — "look" 被截断只剩 "k"
+    # 特征：单个拉丁小写字母 + 空格 + 中文/标点 = 句子中间截断
+    if re.match(r'^[a-z]\s', s):
+        return False
     # ── iter B12：JSON 键值对碎片过滤 ──────────────────────────────────
     # 以双引号开头 = JSON 字符串值（"recommended_action": "..."、"if_wrong": "..."）
     # 这些是从包含 JSON 格式输出的 assistant 回复中误提取的片段，无法被自然语言检索命中
@@ -1224,7 +1229,10 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter752: 迭代器度量/内部机制通用拦截
                 # 数据驱动：7 个 ac=0 噪声 chunk 含 suppress/全库锁死/误标率/注入率/轮迭代
                 "全库锁死", "饥饿螺旋", "误标率", "注入率",
-                "轮迭代", "连续空召回", "allzero_fallback"]
+                "轮迭代", "连续空召回", "allzero_fallback",
+                # iter755: memory-os 内部参数/路径描述
+                # 数据驱动：bdbcdc29 "daemon 是主检索路径"、2b704212 "importance（0.44→0.75）"
+                "主检索路径", "检索路径没有", "imp 0."]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
@@ -1306,6 +1314,11 @@ def _is_quality_chunk(summary: str) -> bool:
         r'^(?:删除|清理|移除|GC)\s*\d+\s*(?:个|条)?\s*\S{0,6}(?:噪声|chunk|trace|碎片)',
         re.I
     )
+    # iter755: 列表项+度量变化 — "2. 数据：5 个 AC≥7 的 chunk imp 0.44 → 0.71"
+    _ITER_LISTITEM_METRIC = re.compile(
+        r'^\d+[.、]\s*(?:数据|结果|效果|改善)[：:].{0,30}→',
+        re.I
+    )
     # iter643: iterator_confirm_gate — 迭代器操作确认消息拦截
     # 根因（数据驱动）："memory-os.md：✅ 已追加 iter552 条目" (ac=0,inject=2)
     #   通过了 self-ref gate（只含 1 个 iter\d+ 匹配），但本质是迭代器操作日志。
@@ -1316,7 +1329,8 @@ def _is_quality_chunk(summary: str) -> bool:
         r'iter\d{2,}\s*(?:条目|记录|完成|已)',
         re.I
     )
-    if _ITER_METRIC_CHANGE.search(s) or _ITER_OPS_REPORT.search(s) or _ITER_CONFIRM.search(s):
+    if (_ITER_METRIC_CHANGE.search(s) or _ITER_OPS_REPORT.search(s)
+            or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)):
         return False
     # ── iter638: wiki_section_heading_fragment — 碎片式 wiki 标题拦截 ──
     # 根因（数据驱动）：/migrate-memory 批量导入切分 wiki 时产出纯索引碎片，
