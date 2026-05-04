@@ -4615,6 +4615,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   top_k_json 为空时 recall_counts 无法按 chunk_id 统计——但 injected=1
                 #   至少保证总注入次数(window denominator)正确，suppress 比例计算不失真。
                 _effective_injected = 1 if _top_k_len > 0 else 0
+                # iter800: skip_empty_trace — 闭包捕获失败时不写空 trace
+                # 根因（数据驱动）：_top_k_data/_accessed_ids 偶发同时为空，写入
+                #   injected=1,top_k_json=[] 的空 trace 污染 recall_counts 统计。
+                # 修复：跳过 trace 写入（保留 dmesg 可观测性）。
+                if _effective_injected == 1 and not _effective_top_k:
+                    for level, subsystem, message, sid, proj, extra in _deferred_buf:
+                        try:
+                            dmesg_log(_wconn, level, subsystem, message,
+                                      session_id=sid, project=proj, extra=extra)
+                        except Exception:
+                            pass
+                    dmesg_log(_wconn, DMESG_WARN, "retriever",
+                              f"iter800_skip_empty_trace: _top_k_len={_top_k_len} "
+                              f"accessed_ids_empty={not _accessed_ids}",
+                              session_id=_session_id, project=_project)
+                    _wconn.commit()
+                    _wconn.close()
+                    return
                 store_insert_trace(_wconn, {
                     "id": str(uuid_mod.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
