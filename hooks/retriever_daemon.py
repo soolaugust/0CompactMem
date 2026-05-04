@@ -3905,10 +3905,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 根因（用户可感知）：normalize 是相对排名（max=1.0），当 DB 中无真正相关 chunk 时，
             # 噪声匹配（中文通用 bigram 重叠）被放大到 1.0 超过阈值 → 注入不相关内容。
             # 实测：真正相关时 raw max > 10（飞书=21, Android=28），噪声时 raw max < 5（睾酮=3.9, 继续迭代=2.3）。
-            # iter701→712: 降低门槛 6.0→1.0 — 实测小库 BM25 raw max 同样偏低
-            #   scoring+suppress 已足够过滤无关内容，gate 应只拦截零匹配
+            # iter761: 校准 raw gate 到 4.0 — 在 44 chunk DB 中精确分割相关/无关
+            #   相关 query raw >= 5.5（kernel=5.7, 团队=5.5, AIOS=9.5, 飞书=18）
+            #   无关 query raw <= 3.1（Python排序=3.1, 睾酮=2.3, 天气=0）
+            #   阈值 4.0 完美分割，消除 false positive 同时保留所有 true positive
             _raw_max = max(raw_scores) if raw_scores else 0
-            if _raw_max < 1.0:
+            if _raw_max < 4.0:
                 # 无真正相关内容，退出（不写 trace 污染统计）
                 return
             relevance_scores = normalize(raw_scores)
