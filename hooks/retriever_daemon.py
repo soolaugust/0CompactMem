@@ -1539,10 +1539,11 @@ def _load_all_modules():
         r'|thanks?|ye[sp]|no[pe]?|got\s*it|sure|lgtm)$',
         re.IGNORECASE
     )
+    # iter722: 扩充 _TECH_SIGNAL — 覆盖 DB 实际内容域的技术词
     _modules['_TECH_SIGNAL'] = re.compile(
         r'(?:`[^`]+`|[\w./]+\.(?:py|js|ts|md|json|db|sql|yaml|toml|rs|go|java|cpp|h)\b'
-        r'|(?:函数|类|模块|接口|方法|变量|配置|部署|迁移)'
-        r'|\b(?:error|bug|fix|crash)\b|\b(?:def|class|import|function|const)\b)'
+        r'|(?:函数|类|模块|接口|方法|变量|配置|部署|迁移|内核|调度|补丁|性能|分析|诊断|优化|约束|架构|线程|进程|延迟|飞书|文档|规则|策略|决策)'
+        r'|\b(?:error|bug|fix|crash|kernel|patch|sched|perf|trace|commit|config|thread|task|memory|cache|proxy|migration|cgroup)\b|\b(?:def|class|import|function|const)\b)'
     )
     _modules['_ACRONYM_SIGNAL'] = re.compile(r'\b[A-Z][A-Z0-9_]{2,}\b')
 
@@ -2396,8 +2397,13 @@ _VDSO_SKIP_EXACT = frozenset([
 ])
 _VDSO_TECH_EXTS = frozenset(['.py', '.js', '.ts', '.md', '.json', '.db', '.sql',
     '.yaml', '.toml', '.rs', '.go', '.java', '.cpp', '.h'])
-_VDSO_TECH_CJK = frozenset(['函数', '类', '模块', '接口', '方法', '变量', '配置', '部署', '迁移'])
-_VDSO_TECH_EN = frozenset(['error', 'bug', 'fix', 'crash', 'def', 'class', 'import', 'function', 'const'])
+# iter722: 扩充 CJK/EN 技术信号词 — 覆盖 DB 实际内容领域
+_VDSO_TECH_CJK = frozenset(['函数', '类', '模块', '接口', '方法', '变量', '配置', '部署', '迁移',
+    '内核', '调度', '补丁', '性能', '分析', '诊断', '优化', '约束', '架构', '线程',
+    '进程', '延迟', '飞书', '文档', '规则', '策略', '决策'])
+_VDSO_TECH_EN = frozenset(['error', 'bug', 'fix', 'crash', 'def', 'class', 'import', 'function', 'const',
+    'kernel', 'patch', 'sched', 'perf', 'trace', 'commit', 'config', 'thread', 'task',
+    'memory', 'cache', 'queue', 'proxy', 'migration', 'cgroup'])
 _VDSO_SKIP_FILLER = frozenset('嗯恩哦噢')
 _TECH_SIGNAL_EXCLUDE = {"LGTM", "ASAP", "RSVP", "TBD", "FYI", "IMO", "IMHO", "BTW", "WIP", "TIL", "AFAIK"}
 # iter210: _vdso_is_skip length guard — longest skip phrase is "got it"(6) / "lgtm"(4) / "谢谢"(2 chars)
@@ -2691,11 +2697,15 @@ _GENERIC_RE = __import__('re').compile(
     r'(?:是什么|怎么回事|如何实现|有什么区别|的区别|的原理)[？?！!。.]?\s*$|'
     r'^(?:how\s+(?:to|do|does|is)|what\s+is|explain|describe|define)\s'
 )
+# iter723: 扩充 project marker — 匹配 DB 中实际存在的领域词，防止被 generic 分类
 _PROJECT_MARKER_RE = __import__('re').compile(
     r'memory[\. ]os|store\.py|retriever|extractor|loader|scorer|writer|config\.py|bm25\.py|'
     r'kswapd|mglru|damon|checkpoint|swap_fault|swap_in|swap_out|\btlb\b|\bvdso\b|\bpsi\b|'
     r'迭代|iteration|\bhook\b|feishu|飞书|knowledge_vfs|knowledge_router|sched_ext|'
-    r'\bchunk\b|store\.db|memory_chunks|\bdrr\b|dmesg'
+    r'\bchunk\b|store\.db|memory_chunks|\bdrr\b|dmesg|'
+    r'kernel|patch|uclamp|cgroup|proxy.exec|EEVDF|migration|Binder|'
+    r'schedqos|directed.yield|task_rq|LKMM|commit|Signed-off|'
+    r'内核|调度器|补丁|性能诊断|约束|决策'
 )
 
 # iter194: fast-path pre-check for _extract_key_entities

@@ -1534,6 +1534,20 @@ _SYNONYM_RULES = [
       "how.*check", "how.*monitor", "how.*debug", "how.*diagnos"],
      ["dmesg", "log", "stats", "trace", "recall_traces", "psi",
       "日志", "监控", "调试", "statistics", "debug"]),
+
+    # ─── iter721: 类别 M：内核开发工作流 ───
+    (["发.*patch", "提交.*patch", "send.*patch", "投递.*补丁", "邮件列表"],
+     ["git", "send-email", "commit", "格式", "检查", "Signed-off-by"]),
+    (["commit.*message", "提交信息", "commit.*格式"],
+     ["Signed-off-by", "patch", "格式规范", "标签"]),
+    (["飞书", "feishu", "文档.*访问", "知识库"],
+     ["CLI", "认证", "fetch", "禁止"]),
+    (["性能.*分析", "性能.*诊断", "perf.*analys", "性能.*优化"],
+     ["Running", "Runnable", "simpleperf", "thermal", "uclamp", "调度"]),
+    (["调度.*延迟", "调度.*优化", "scheduler", "进程.*调度"],
+     ["EEVDF", "sched_ext", "migration", "RT", "uclamp", "cgroup"]),
+    (["Proxy.*Execution", "PE.*分析", "proxy.*exec"],
+     ["find_proxy_task", "directed_yield", "scx", "task_rq_lock"]),
 ]
 
 # ── 迭代153/154：Synonym Patterns — 懒编译（first-call JIT）策略 ─────────────
