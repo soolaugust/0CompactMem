@@ -1536,7 +1536,7 @@ _SYNONYM_RULES = [
       "日志", "监控", "调试", "statistics", "debug"]),
 
     # ─── iter721: 类别 M：内核开发工作流 ───
-    (["发.*patch", "提交.*patch", "send.*patch", "投递.*补丁", "邮件列表"],
+    (["发.*patch", "patch.*发", "patch.*送", "提交.*patch", "send.*patch", "投递.*补丁", "邮件列表"],
      ["git", "send-email", "commit", "格式", "检查", "Signed-off-by"]),
     (["commit.*message", "提交信息", "commit.*格式"],
      ["Signed-off-by", "patch", "格式规范", "标签"]),
