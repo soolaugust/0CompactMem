@@ -4395,10 +4395,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter767: tiered_small_db — 分级小库阈值（同 _score_chunk）
                 _sf663d_tiny_db = candidates_count < 30
                 _sf663d_small_db = candidates_count < 100
-                # iter777: tiny_db 24h 10/8, 7d 20/15
+                # iter783: sync_final_gate_thresholds — 与 _score_chunk iter781 对齐
+                # 根因同 retriever.py：final_gate 宽松阈值(10/8, 20/15)导致 _score_chunk
+                #   suppress 因 cached counts 失效时兜底无效。
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663d_24h.get(c[_CI_ID], 0) < ((10 if s >= 0.5 else 8) if _sf663d_tiny_db else (4 if s >= 0.5 else 3) if _sf663d_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663d_7d.get(c[_CI_ID], 0) < ((20 if s >= 0.5 else 15) if _sf663d_tiny_db else (7 if s >= 0.5 else 5) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
+                         if _rt663d_24h.get(c[_CI_ID], 0) < ((5 if s >= 0.5 else 4) if _sf663d_tiny_db else (4 if s >= 0.5 else 3) if _sf663d_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663d_7d.get(c[_CI_ID], 0) < ((10 if s >= 0.5 else 8) if _sf663d_tiny_db else (7 if s >= 0.5 else 5) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "

@@ -4174,10 +4174,13 @@ def main():
                 # iter764: sync_small_db_relax — 同步 daemon iter704 小库放宽
                 _sf663_tiny_db = candidates_count < 30
                 _sf663_small_db = candidates_count < 100
-                # iter777: tiny_db 24h 10/8, 7d 20/15
+                # iter783: sync_final_gate_thresholds — 与 _score_chunk iter781 对齐
+                # 根因：iter781 收紧 _score_chunk 24h=5/4, 7d=10/8，但 final_gate 仍是 10/8, 20/15
+                #   导致 _score_chunk suppress 因 cached counts 失效时，final_gate 兜底完全无效。
+                #   实测：import-90139 24h 注入 3 次（>=5 应 suppress），final_gate 10/8 未拦截。
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663_7d.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _sf663_tiny_db else (7 if s >= 0.5 else 5) if _sf663_small_db else (5 if s >= 0.5 else 3))]
+                         if _rt663_24h.get(c["id"], 0) < ((5 if s >= 0.5 else 4) if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663_7d.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _sf663_tiny_db else (7 if s >= 0.5 else 5) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4262,10 +4265,10 @@ def main():
                 # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
                 _sf758_tiny_db = candidates_count < 30
                 _sf758_small_db = candidates_count < 100
-                # iter777: tiny_db 24h 10/8, 7d 20/15
+                # iter783: sync_final_gate_thresholds — 与 _score_chunk iter781 对齐
                 top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < ((10 if s >= 0.5 else 8) if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (3 if s >= 0.5 else 2))
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < ((20 if s >= 0.5 else 15) if _sf758_tiny_db else (7 if s >= 0.5 else 5) if _sf758_small_db else (5 if s >= 0.5 else 3))]
+                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < ((5 if s >= 0.5 else 4) if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < ((10 if s >= 0.5 else 8) if _sf758_tiny_db else (7 if s >= 0.5 else 5) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
