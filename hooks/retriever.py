@@ -3080,6 +3080,12 @@ def main():
                 _min_thresh = _sysctl("retriever.generic_query_min_threshold")
             else:
                 _min_thresh = _sysctl("retriever.min_score_threshold")
+            # iter819: tiny_db_threshold_relax — 小库 BM25 分数天然偏低，0.30 阈值
+            #   导致 70% 检索只返回 1 条（top_k=1 比例 70%，多知识组合缺失）。
+            #   根因：36 chunk 库 FTS5 词汇覆盖不足，score 普遍在 0.15-0.25。
+            #   修复：tiny_db 非 generic query 时 threshold 降至 0.18。
+            if _db_chunk_count < 40 and not _is_generic_knowledge_query(query):
+                _min_thresh = min(_min_thresh, 0.18)
             # iter578: mremap — hard deadline 路径也应用自适应地板
             if (final and _sysctl("retriever.adaptive_floor_enabled")
                     and not _is_generic_knowledge_query(query)):
@@ -3633,6 +3639,9 @@ def main():
             _min_thresh = _sysctl("retriever.generic_query_min_threshold")
         else:
             _min_thresh = _sysctl("retriever.min_score_threshold")
+        # iter819: tiny_db_threshold_relax (FULL path) — 同 hard_deadline 路径
+        if _db_chunk_count < 40 and not _is_generic_knowledge_query(query):
+            _min_thresh = min(_min_thresh, 0.18)
         # ── iter578: mremap — Adaptive Score Floor ────────────────────────
         # OS 类比：Linux mremap() (Linus Torvalds, 1995, mm/mremap.c)
         #   固定 VMA 大小浪费虚拟地址空间或导致 OOM，mremap 动态调整映射大小。
