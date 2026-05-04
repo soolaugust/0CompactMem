@@ -3890,6 +3890,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"iter689_score_empty_fallback_hd: fallback "
                                   f"best={_sef_hd[1][_CI_ID][:12]} s={_sef_hd[0]:.4f}",
                                   session_id=session_id, project=project)
+                else:
+                    # iter694: suppress_pierce_fallback (hard_deadline path)
+                    _spf_hd = [(c[_CI_IMP] or 0.5, c) for _, c in final
+                               if (c[_CI_AC] or 0) < 30]
+                    if _spf_hd:
+                        _spf_hd_best = max(_spf_hd, key=lambda x: x[0])
+                        top_k = [(_spf_hd_best[0], _spf_hd_best[1])]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter694_suppress_pierce_fallback_hd: "
+                                      f"pierce best={_spf_hd_best[1][_CI_ID][:12]} imp={_spf_hd_best[0]:.2f}",
+                                      session_id=session_id, project=project)
             if top_k:
                 top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235: positional
                 # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
@@ -4188,6 +4199,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _deferred.log(DMESG_WARN, "retriever_daemon",
                                       f"iter689_score_empty_fallback: all scored out, "
                                       f"fallback best={_sef_best[1][_CI_ID][:12]} s={_sef_best[0]:.4f}",
+                                      session_id=session_id, project=project)
+                if not top_k:
+                    # ── iter694: suppress_pierce_fallback — suppress 全灭时按 importance 降级 ──
+                    # 根因（数据驱动）：42 次 hash_changed 未注入中 100% 有候选(3-21个)，
+                    #   但 24h/7d suppress 将所有 score 设为 0 → iter689 的 >0 检查失败 → 空手而归。
+                    #   用户视角：有知识但系统拒绝给出 = 质量损失。
+                    # 修复：绕过 suppress score，按 chunk importance 选最佳 1 条（跳过 AC>=30 硬约束）。
+                    # 安全性：仍受 iter630 monopoly_post_filter + iter663 suppress_final_gate 保护。
+                    _spf_candidates = [(c[_CI_IMP] or 0.5, c) for _, c in final
+                                       if (c[_CI_AC] or 0) < 30]
+                    if _spf_candidates:
+                        _spf_best = max(_spf_candidates, key=lambda x: x[0])
+                        top_k = [(_spf_best[0], _spf_best[1])]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter694_suppress_pierce_fallback: all suppressed, "
+                                      f"pierce best={_spf_best[1][_CI_ID][:12]} imp={_spf_best[0]:.2f}",
                                       session_id=session_id, project=project)
                 if not top_k:
                     # iter173: persistent conn — do NOT close
