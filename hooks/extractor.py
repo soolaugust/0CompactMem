@@ -1167,11 +1167,15 @@ def _is_quality_chunk(summary: str) -> bool:
     s = summary.strip()
     if len(s) < 10:
         return False
+    # iter753: 豁免 [topic] 格式（wiki import summary），只拦截裸 [ ] - | 开头的碎片
     if re.match(r'^[\[\]\-|]', s):
-        return False
+        # [word] 后跟中日韩/拉丁内容 = wiki topic tag，不是碎片
+        if not re.match(r'^\[[^\[\]]{1,30}\]\s*\S', s):
+            return False
     if re.match(r'^[-=*`#>]{2,}$', s):
         return False
-    if re.match(r'^[了的地得把被让向从以在对和与或]', s):
+    # iter753: 移除 '向' — "向 maintainer 报告" 是完整句（动词用法），非截断碎片
+    if re.match(r'^[了的地得把被让从以在对和与或]', s):
         return False
     # ── iter B12：JSON 键值对碎片过滤 ──────────────────────────────────
     # 以双引号开头 = JSON 字符串值（"recommended_action": "..."、"if_wrong": "..."）
@@ -1253,7 +1257,8 @@ def _is_quality_chunk(summary: str) -> bool:
     # V5 模糊方向声明（"X — Y" 格式，且无具体技术锚点）
     # 如 "精简重构 — Less is More" — 是战略口号，不是可执行决策
     # 具体技术锚点：文件路径、函数名、数字度量、具体工具/库名
-    if re.search(r'^.{3,20}\s*[—–]\s*.{3,}$', s):
+    # iter753: 豁免 [topic] 格式 wiki summary（"[schedqos] X — Y > Z"）
+    if re.search(r'^.{3,20}\s*[—–]\s*.{3,}$', s) and not re.match(r'^\[', s):
         has_anchor = bool(
             re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml)\b', s)  # 文件路径
             or re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个)', s)      # 数字度量
