@@ -2257,16 +2257,19 @@ def main():
             #   iter670 suppress_fallback 已解决 suppress 过杀（全灭时降级注入最佳 1 条），
             #   不再需要放宽阈值来防过杀。
             _r24_cnt = _recent_24h_counts.get(chunk.get("id", ""), 0)
-            _suppress_24h_thresh = 2  # iter676: 统一阈值
+            # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
+            # 根因（数据驱动，2026-05-04）：retriever.py FULL 路径 68% 空注入（39/57），
+            #   daemon 已有 iter703 小库放宽（24h:5/6, 7d:8/10）但 retriever.py 仍用 2/3。
+            #   44 chunk 库中 24h>=2 即 suppress → 活跃 session 全部候选被封锁。
+            _small_db = candidates_count < 100
+            _suppress_24h_thresh = (6 if score >= 0.5 else 5) if _small_db else (3 if score >= 0.5 else 2)
             if _r24_cnt >= _suppress_24h_thresh:
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
-            # 同一 chunk 在 7 天内注入 >=3 次 → suppress（score=0）
-            # iter619: 8→5; iter659: 5→4; iter664: 4→3，数据驱动：7d=4 仍有 2 chunk 垄断
-            # iter676: 统一阈值 3，不再给高分 chunk 豁免
+            # iter764: 同步 daemon iter703 小库放宽
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            _suppress_7d_thresh = 3  # iter676: 统一阈值
+            _suppress_7d_thresh = (10 if score >= 0.5 else 8) if _small_db else (5 if score >= 0.5 else 3)
             if _r7d_cnt >= _suppress_7d_thresh:
                 score = 0.0
                 _hard_suppressed = True
@@ -3000,10 +3003,11 @@ def main():
             #   实测：import-6cc32f2ff 24h 注入 4 次（应在第 3 次被拦截）。
             # 修复：hard_deadline 路径用闭包变量做零成本兜底。
             if top_k:
-                # iter676: 统一阈值，不再给高分 chunk 豁免（iter672 relevance_exempt 已 revert）
+                # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
+                _hd_small_db = candidates_count < 100
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_24h_counts.get(c["id"], 0) < 2
-                         and _recent_7d_counts.get(c["id"], 0) < 3]
+                         if _recent_24h_counts.get(c["id"], 0) < ((6 if s >= 0.5 else 5) if _hd_small_db else (3 if s >= 0.5 else 2))
+                         and _recent_7d_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # ── iter670: suppress_fallback — hard_deadline suppress 全灭降级 ──
             if not top_k and _pre_suppress_top_k_hd:
                 _fb_hd = max(_pre_suppress_top_k_hd, key=lambda x: x[0])
@@ -3659,11 +3663,12 @@ def main():
                 if _ac_abs >= 15:
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
-                # iter619: 阈值收紧 24h:3→2, 7d:8→5; iter659: 7d 5→4
-                if _recent_24h_counts.get(_cid, 0) >= 2:
+                # iter764: sync_small_db_relax — 同步 daemon iter703
+                _cst_small_db = candidates_count < 100
+                if _recent_24h_counts.get(_cid, 0) >= (5 if _cst_small_db else 2):
                     return False
                 # iter618: 7d rolling suppress 也在 constraint 通道生效
-                if _recent_7d_counts.get(_cid, 0) >= 3:
+                if _recent_7d_counts.get(_cid, 0) >= (8 if _cst_small_db else 3):
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)
@@ -4097,10 +4102,11 @@ def main():
                         continue
                 _sf663_conn.close()
                 _pre663 = len(top_k)
-                # iter676: 统一阈值，不再给高分 chunk 豁免（iter672 relevance_exempt 已 revert）
+                # iter764: sync_small_db_relax — 同步 daemon iter704 小库放宽
+                _sf663_small_db = candidates_count < 100
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < 2
-                         and _rt663_7d.get(c["id"], 0) < 3]
+                         if _rt663_24h.get(c["id"], 0) < ((6 if s >= 0.5 else 5) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663_7d.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4182,9 +4188,11 @@ def main():
                 _cut758_24h = (_now758 - _td758(hours=24)).isoformat()
                 _cut758_7d = (_now758 - _td758(days=7)).isoformat()
                 _pre758 = len(top_k)
+                # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
+                _sf758_small_db = candidates_count < 100
                 top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < 2
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < 3]
+                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < ((6 if s >= 0.5 else 5) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < ((10 if s >= 0.5 else 8) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
