@@ -4172,6 +4172,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"pierce best={_spf_hd_best[1][_CI_ID][:12]} imp={_spf_hd_best[0]:.2f}",
                                       session_id=session_id, project=project)
             if top_k:
+                # iter919: score_floor_gate_hd — hard_deadline 路径 score_floor 保护（同步 retriever.py）
+                _sf_hd = 0.12
+                if _db_chunk_count > 5:
+                    _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
+                    if _sf_hd_above:
+                        if len(_sf_hd_above) < len(top_k):
+                            top_k = _sf_hd_above
+                    else:
+                        top_k = [max(top_k, key=lambda x: x[0])]
                 top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235: positional
                 # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
                 current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())

@@ -3360,6 +3360,19 @@ def main():
                                   f"score={_pebf_score_hd:.3f} id={_pebf_id_hd[:12]}",
                                   session_id=session_id, project=project)
             if top_k:
+                # iter919: score_floor_gate_hd — hard_deadline 路径也需 score_floor 保护
+                # 根因（数据驱动，2026-05-06）：12/81 注入 score<0.10 全来自 hard_deadline 路径，
+                #   iter910 的 score_floor_gate 只在 FULL 路径生效，hard_deadline 完全跳过。
+                #   adaptive_floor+gap_bridge 可将 _min_thresh 降到 0.10，fallback/pair 注入无下限。
+                # 修复：复用 FULL 路径逻辑——低于 0.12 的过滤，全灭时保留最佳 1 条。
+                _sf_hd = 0.12
+                if _db_chunk_count > 5:
+                    _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
+                    if _sf_hd_above:
+                        if len(_sf_hd_above) < len(top_k):
+                            top_k = _sf_hd_above
+                    else:
+                        top_k = [max(top_k, key=lambda x: x[0])]
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
                 current_hash = hashlib.md5("|".join(top_k_ids).encode()).hexdigest()[:8]
