@@ -1296,6 +1296,17 @@ def _is_quality_chunk(summary: str) -> bool:
                 "库存：", "chunk 总数", "chunks（"]
     if any(kw in s for kw in noise_kw):
         return False
+    # iter853: internal_var_gate — 含 memory-os 内部变量名/常量名的 summary 拦截
+    # 数据驱动（2026-05-05）：2 条截断碎片（"LLBACK_NOISE_FLOOR 的 tiny_db 边界"、
+    #   "lobal && importance>=0.9 的 constraint 无条件豁免 _rel == 0"）逃逸所有关键词匹配。
+    # 根因：截断导致 FALLBACK→LLBACK、global→lobal 绕过关键词；但 summary 仍含
+    #   memory-os 内部标识符（_NOISE_FLOOR、tiny_db、_rel）。
+    # 修复：检测 Python 私有变量 (_xxx)、全大写常量 (XXX_YYY)、snake_case 标识符 (xxx_yyy)
+    #   出现 ≥2 个 → 拒绝。安全性：用户真实知识至多含 1 个（如 task_rq_lock）。
+    _internal_var_hits = len(re.findall(r'(?:_[a-z]\w+|[A-Z]{2,}_[A-Z]{2,}|\b[a-z]+_[a-z]+\b)', s))
+    if _internal_var_hits >= 2:
+        if not re.search(r'(?:选择|决定|采用|因为|根因|必须|禁止)', s):
+            return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
     if s in placeholders:
         return False
