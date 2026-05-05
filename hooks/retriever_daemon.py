@@ -4314,19 +4314,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     "SELECT id, summary, content, chunk_type, importance, access_count "
                     "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? "
-                    "ORDER BY access_count ASC, importance DESC LIMIT 3",
+                    "ORDER BY access_count ASC, importance DESC LIMIT 8",
                     (project, _top1_id_d)).fetchall()
                 _div_conn_d.close()
+                # iter867: 过滤 session 内已注入的 chunk
+                _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
+                _div_rows_d = [r for r in _div_rows_d if r[0] not in _div_recent_ids]
                 if _div_rows_d:
-                    _div_pick_d = _div_rows_d[0]
+                    # iter867: diversity_rotation — 轮转选择避免总是同一 chunk
+                    _div_idx_d = int(time.strftime("%H")) % len(_div_rows_d)
+                    _div_pick_d = _div_rows_d[_div_idx_d]
                     _div_chunk_d = (_div_pick_d[0], _div_pick_d[1], _div_pick_d[2],
                                    _div_pick_d[4], 0, 0, _div_pick_d[5], None, None, None,
                                    _div_pick_d[3], None)
                     _div_score_d = positive[0][0] * 0.25
                     positive.append((_div_score_d, _div_chunk_d))
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                                  f"iter864_diversity_pair: db_pick {_div_pick_d[0][:12]} "
-                                  f"imp={_div_pick_d[4]:.2f} ac={_div_pick_d[5]}",
+                                  f"iter867_diversity_rotation: db_pick {_div_pick_d[0][:12]} "
+                                  f"imp={_div_pick_d[4]:.2f} ac={_div_pick_d[5]} idx={_div_idx_d}",
                                   session_id=session_id, project=project)
             except Exception:
                 pass

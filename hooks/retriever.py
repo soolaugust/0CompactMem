@@ -3839,7 +3839,7 @@ def main():
                     "SELECT id, summary, content, chunk_type, importance, access_count "
                     "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? "
-                    "ORDER BY access_count ASC, importance DESC LIMIT 5",
+                    "ORDER BY access_count ASC, importance DESC LIMIT 8",
                     (project, _top1_id)).fetchall()
                 _div_conn.close()
                 # 过滤 session 内已注入的 和 24h 已注入 >=3 次的
@@ -3854,7 +3854,12 @@ def main():
                         continue
                     _div_cands.append(_dr)
                 if _div_cands:
-                    _div_pick = _div_cands[0]  # lowest access_count, highest importance
+                    # iter867: diversity_rotation — 轮转选择避免总是同一 chunk
+                    # 根因：_div_cands[0] 永远选同一 chunk → 很快 24h>=3 被排除 → 下一个循环
+                    #   实际效果：6 个候选中只有 2 个有过曝光。
+                    # 修复：用小时数 % len 旋转偏移，每小时选不同候选。
+                    _div_idx = int(_now_ts[11:13]) % len(_div_cands) if len(_now_ts) > 13 else 0
+                    _div_pick = _div_cands[_div_idx]
                     _div_chunk = {"id": _div_pick[0], "summary": _div_pick[1],
                                   "content": _div_pick[2], "chunk_type": _div_pick[3],
                                   "importance": _div_pick[4], "access_count": _div_pick[5]}
