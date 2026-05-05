@@ -3688,9 +3688,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
+            # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sc = _recent_7d_counts.get(_cid, 0)
             if _r7d_sc > 0 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + _r7d_sc * 0.35)
+                _dp_factor = 0.55 if _db_chunk_count < 50 else 0.35
+                score *= 1.0 / (1.0 + _r7d_sc * _dp_factor)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
@@ -3789,9 +3791,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
                         score *= _bw_pen_d
             # iter875/876: soft_diversity_penalty — sync with _score_chunk (factor 0.35)
+            # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
             if _r7d_sd > 0 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + _r7d_sd * 0.35)
+                _dp_factor_d = 0.55 if _db_chunk_count < 50 else 0.35
+                score *= 1.0 / (1.0 + _r7d_sd * _dp_factor_d)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀

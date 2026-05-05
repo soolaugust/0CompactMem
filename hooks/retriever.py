@@ -2365,9 +2365,14 @@ def main():
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
+            # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
+            #   根因（数据驱动，2026-05-05）：38-chunk 库 top6 chunk 各 7d=4-6 次注入，
+            #   0.35 factor 仅衰减到 42-32%，高 FTS base(0.5+) 仍垄断。
+            #   0.55 使 7d=4→31%, 7d=5→27%, 7d=6→23%，有效让位给低频 chunk。
             _r7d_dp = _recent_7d_counts.get(chunk.get("id", ""), 0)
             if _r7d_dp > 0 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + _r7d_dp * 0.35)
+                _dp_factor = 0.55 if _db_chunk_count < 50 else 0.35
+                score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
