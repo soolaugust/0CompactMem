@@ -1873,9 +1873,10 @@ def main():
                 _rt_7d = {}
                 _rt_24h = {}
                 _rt_6h = {}  # iter813
+                # iter835: suppress_final_gate_project_scope — per-project 计数
                 for (_tk_json, _tk_ts) in _fb_conn.execute(
-                        "SELECT top_k_json, timestamp FROM recall_traces WHERE injected=1 AND timestamp>?",
-                        (_cut_7d,)).fetchall():
+                        "SELECT top_k_json, timestamp FROM recall_traces WHERE injected=1 AND project=? AND timestamp>?",
+                        (project, _cut_7d,)).fetchall():
                     if not _tk_json: continue
                     try:
                         _ids = json.loads(_tk_json)
@@ -4391,9 +4392,13 @@ def main():
                 _cut663_7d = (_sf663_now - _td663(days=7)).isoformat()
                 _rt663_24h = {}
                 _rt663_7d = {}
+                # iter835: suppress_final_gate_project_scope — 加 project 过滤
+                # 根因（数据驱动，2026-05-05）：global chunk 跨多项目被注入时计数累加，
+                #   如 a8f13757 在 2 个项目各注入 1-2 次 → 总计 3 次 → 达到 tiny_db 24h 阈值=3。
+                #   同一 global constraint 在不同项目上下文中有独立价值，不应跨项目累加 suppress。
                 for (_tk663, _ts663) in _sf663_conn.execute(
                         "SELECT top_k_json, timestamp FROM recall_traces "
-                        "WHERE injected=1 AND timestamp>?", (_cut663_7d,)).fetchall():
+                        "WHERE injected=1 AND project=? AND timestamp>?", (project, _cut663_7d,)).fetchall():
                     if not _tk663: continue
                     try:
                         for _it663 in json.loads(_tk663):

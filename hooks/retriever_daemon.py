@@ -3251,9 +3251,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _rt_7d_d = {}
                 _rt_24h_d = {}
                 _rt_6h_d = {}  # iter813
+                # iter835: suppress_final_gate_project_scope — 同步 retriever.py
                 for (_fb_json, _fb_ts) in _fb_conn.execute(
                         "SELECT top_k_json, timestamp FROM recall_traces "
-                        "WHERE injected=1 AND timestamp>?", (_cut_7d_fb,)).fetchall():
+                        "WHERE injected=1 AND project=? AND timestamp>?", (project, _cut_7d_fb,)).fetchall():
                     try:
                         _fb_items = json.loads(_fb_json) if isinstance(_fb_json, str) else _fb_json
                         _is_24h_d = _fb_ts > _cut_24h_fb if _fb_ts else False
@@ -4540,9 +4541,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cut663d_7d = (_sf663d_now - _td663d(days=7)).isoformat()
                 _rt663d_24h = {}
                 _rt663d_7d = {}
+                # iter835: suppress_final_gate_project_scope — 同步 retriever.py
                 for (_tk663d, _ts663d) in _sf663d_conn.execute(
                         "SELECT top_k_json, timestamp FROM recall_traces "
-                        "WHERE injected=1 AND timestamp>?", (_cut663d_7d,)).fetchall():
+                        "WHERE injected=1 AND project=? AND timestamp>?", (project, _cut663d_7d,)).fetchall():
                     if not _tk663d: continue
                     try:
                         for _it663d in json.loads(_tk663d):
@@ -4577,10 +4579,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     del _daemon_inject_log[:_gc_idx]
                 # iter813: 也统计 DB 侧的 6h counts
                 _rt663d_6h = {}
+                # iter835: suppress_final_gate_project_scope — 同步
                 for (_tk663d_6h, _ts663d_6h) in _sf663d_conn.execute(
                         "SELECT top_k_json, timestamp FROM recall_traces "
-                        "WHERE injected=1 AND timestamp>?",
-                        ((_sf663d_now - _td663d(hours=6)).isoformat(),)).fetchall():
+                        "WHERE injected=1 AND project=? AND timestamp>?",
+                        (project, (_sf663d_now - _td663d(hours=6)).isoformat(),)).fetchall():
                     if not _tk663d_6h: continue
                     try:
                         for _it663d_6h in json.loads(_tk663d_6h):
