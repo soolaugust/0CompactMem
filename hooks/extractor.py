@@ -1577,7 +1577,12 @@ def _is_quality_chunk(summary: str) -> bool:
         r'inject.guard|final.gate|writeback|TLB.{0,4}cache|prompt.hash|零注入|'
         # iter809: extractor_internal_gate — extractor 内部函数名/指标逃逸
         # 根因：'_is_quality_chunk 误杀 2/34'（0 match）逃逸，内部函数名不在 pattern 中
-        r'false.?positive|_is_quality|_should_block|_dedup|误杀.*chunk|漏网模式)',
+        r'false.?positive|_is_quality|_should_block|_dedup|误杀.*chunk|漏网模式|'
+        # iter862: selfref_gate_name + memory_os — 拦截 memory-os 内部 gate 名称和自引用
+        # 数据驱动（2026-05-05）：bee09746 "incomplete_sentence_gate：拦截..."(ac=1)、
+        #   ce1fc418 "memory-os v2 = 通用版"(ac=1) 逃逸所有现有模式。
+        #   特征：含 _gate 后缀的内部规则名 或 "memory-os" 自引用。
+        r'\w+_gate[：:]|memory.os)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
