@@ -3937,10 +3937,18 @@ def main():
                     (project, _top1_id)).fetchall()
                 _div_conn.close()
                 # 过滤 session 内已注入的 和 24h 已注入 >=3 次的
+                # iter943: diversity_pair_7d_suppress — 对齐 suppress_final_gate 7d 阈值
+                # 根因（数据驱动，2026-05-06）：PE chunk 7d=6 被 suppress_final_gate 拦截，
+                #   但 diversity_pair_from_db 不检查 7d → 经分钟轮转逃逸注入。24h 5x。
+                # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
+                _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
+                _div_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
                     if _session_injection_counts.get(_dr_id, 0) >= _pair_dedup_thresh:
+                        continue
+                    if _div_7d.get(_dr_id, 0) >= _div_7d_ceiling:
                         continue
                     _tl_24h = sum(1 for t in _injection_timeline.get(_dr_id, [])
                                   if t > (_now_ts[:10] if len(_now_ts) > 10 else _now_ts))  # rough 24h

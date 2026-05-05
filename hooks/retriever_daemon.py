@@ -4102,6 +4102,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                           f"imp={_ip_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
                                           session_id=session_id, project=project)
             # iter864: diversity_pair_from_db (hard_deadline path)
+            # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
             if len(positive) == 1 and _db_chunk_count < 50:
                 _top1_id_hd = positive[0][1][_CI_ID]
                 try:
@@ -4114,6 +4115,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
                         (project, _top1_id_hd)).fetchall()
                     _div_conn_hd.close()
+                    _div_7d_ceiling_hd = 3 if _db_chunk_count < 50 else 4
+                    _div_rows_hd = [r for r in _div_rows_hd
+                                    if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd]
                     if _div_rows_hd:
                         # iter872: diversity_counter (hard_deadline path)
                         _div_pick_hd = _div_rows_hd[_diversity_counter[0] % len(_div_rows_hd)]
@@ -4366,6 +4370,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter867: 过滤 session 内已注入的 chunk
                 _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
                 _div_rows_d = [r for r in _div_rows_d if r[0] not in _div_recent_ids]
+                # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
+                _div_7d_ceiling_d = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _div_7d_d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
+                _div_rows_d = [r for r in _div_rows_d if _div_7d_d.get(r[0], 0) < _div_7d_ceiling_d]
                 if _div_rows_d:
                     # iter872: diversity_counter — 自增 round-robin 替代 hour%len
                     _div_idx_d = _diversity_counter[0] % len(_div_rows_d)
