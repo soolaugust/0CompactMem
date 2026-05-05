@@ -2110,6 +2110,11 @@ def _vma_validate(summary: str) -> bool:
     _soft_hits = sum(1 for m in _SOFT_META if m in s)
     if _soft_hits >= 2:
         return False
+    # iter838: suppress_chunk_combo_gate — 拦截 suppress+chunk 组合的迭代器自引用
+    # 根因（数据驱动，2026-05-05）：4 条 ac=0 噪声含 "24h suppress" + "chunk 被注入/触发"，
+    #   逃过 _SOFT_META（'suppress' 单次只算 1 hit）。该组合仅在 memory-os 上下文出现。
+    if 'suppress' in _sl and re.search(r'chunk.{0,20}(?:注入|被|触发|suppress|阈值)', s):
+        return False
     # iter794: code_var_cn_mix_gate — 拦截混合代码变量+中文说明的内部注释碎片
     # 根因（数据驱动，2026-05-04）：728d3c55 "ac>=30），score 设为 imp  0.01 确保不干扰"
     #   逃逸所有 gate：不含 'score=0.' (是 'score 设为')，不含 _code_idents 完整匹配。
