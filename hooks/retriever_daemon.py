@@ -3694,7 +3694,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if not _s672_micro:
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
-                if _recent_6h_counts.get(_cid, 0) >= (3 if _s672_tiny else 2):
+                # iter865: 6h_tighten_tiny — tiny_db 3→2（数据驱动：6h=3 逃逸导致垄断）
+                if _recent_6h_counts.get(_cid, 0) >= 2:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — 小库统一阈值
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672_tiny else (3 if score >= 0.5 else 2) if _s672_small else (3 if score >= 0.5 else 2)):
@@ -3783,7 +3784,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if not _s672d_micro:
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
-                if _recent_6h_counts.get(_cid, 0) >= (3 if _s672d_tiny else 2):
+                # iter865: 6h_tighten_tiny — tiny_db 3→2（统一阈值）
+                if _recent_6h_counts.get(_cid, 0) >= 2:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — sync
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672d_tiny else (3 if score >= 0.5 else 2) if _s672d_small else (3 if score >= 0.5 else 2)):
@@ -4688,7 +4690,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter813+810: short_burst + tiny_db_24h_relax — sync daemon final_gate
                 # iter818: tiny_db_6h_relax — 6h 分级
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663d_6h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else 2)  # iter818: 6h 分级
+                         if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                          and _rt663d_24h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
                          # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
                          and _rt663d_7d.get(c[_CI_ID], 0) < (7 if _sf663d_tiny_db else (5 if s >= 0.5 else 4) if _sf663d_small_db else (5 if s >= 0.5 else 3))]

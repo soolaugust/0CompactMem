@@ -2219,9 +2219,8 @@ def main():
                 # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress
                 if _db_chunk_count > 5:
                     # iter813: 6h burst suppress (early exit path)
-                    # iter818: tiny_db_6h_relax — 6h 分级
-                    _ee_6h_thresh = 3 if _db_chunk_count < 50 else 2  # iter818
-                    if _recent_6h_counts.get(chunk.get("id", ""), 0) >= _ee_6h_thresh:
+                    # iter865: 6h_tighten_tiny — 统一阈值 2（数据驱动：6h=3 逃逸导致垄断）
+                    if _recent_6h_counts.get(chunk.get("id", ""), 0) >= 2:
                         return 0.0
                     _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
                     _ee_24h_thresh = 4 if _db_chunk_count < 50 else 3 if _db_chunk_count < 100 else 2  # iter818: 30→40
@@ -2401,7 +2400,7 @@ def main():
                 #   根因是 6h>=2 无差别 suppress 不区分库大小。
                 #   修复：tiny_db(<40) 6h 阈值 2→3，与 24h 阈值对齐。
                 _r6h_cnt = _recent_6h_counts.get(chunk.get("id", ""), 0)
-                _6h_thresh = 3 if _tiny_db else 2  # iter818
+                _6h_thresh = 2  # iter865: 6h_tighten_tiny — 统一阈值
                 if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3253,7 +3252,7 @@ def main():
                 # iter806: final_gate 24h/7d 阈值同步 small_db_suppress_tighten
                 # tiny_db 保持宽松兜底 (10/8, 20/15)；small_db 4/3→3/2 同步
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_6h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else 2)  # iter818: 6h 分级
+                         if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
                          and _recent_24h_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
                          and _recent_7d_counts.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _hd_tiny_db else (8 if s >= 0.5 else 6) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
@@ -3264,7 +3263,7 @@ def main():
                                    if c.get("id") != _ps842_hd_top1_id
                                    and (c.get("access_count", 0) or 0) < 30
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
-                                   and _recent_6h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 2)
+                                   and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < ((10 if float(c.get("importance",0) or 0) >= 0.5 else 8) if _hd_tiny_db else 3)
                                    and _recent_7d_counts.get(c.get("id", ""), 0) < ((20 if float(c.get("importance",0) or 0) >= 0.5 else 15) if _hd_tiny_db else 5)]
                 if _ps842_hd_cands:
@@ -4071,7 +4070,7 @@ def main():
                 # iter813: 6h burst suppress (constraint path)
                 # iter818: tiny_db_6h_relax — 6h 分级
                 _cst_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50
-                if _recent_6h_counts.get(_cid, 0) >= (3 if _cst_tiny_db else 2):
+                if _recent_6h_counts.get(_cid, 0) >= 2:  # iter865: 6h_tighten_tiny
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter806: sync small_db_suppress_tighten
@@ -4750,7 +4749,7 @@ def main():
                 _cut758_6h = (_now758 - _td758(hours=6)).isoformat()
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < (3 if _sf758_tiny_db else 2)  # iter818: 6h 分级
+                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (4 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (7 if _sf758_tiny_db else (8 if s >= 0.5 else 6) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
