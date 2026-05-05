@@ -4693,6 +4693,35 @@ def main():
                                       f"s={_sh_best_alt[0]:.3f} breaking hash lock",
                                       session_id=session_id, project=project)
             if not _sh_rotated:
+                # iter874: diversity_probe — same_hash + top_k 空时从 DB 选低频高价值 chunk
+                # 根因（数据驱动，2026-05-05）：14/22 same_hash trace 的 top_k=0（全灭空召回），
+                #   空集 hash 恒等 → 后续请求永远 skip → session 零知识注入。
+                # 修复：从项目全库中选 access_count 最低 + importance 最高的 1 条注入。
+                #   不受 suppress 限制（suppress 导致的空召回本身就是问题）。
+                if not top_k:
+                    try:
+                        _dp_row = conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance, access_count "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                            (project,)
+                        ).fetchone()
+                        if _dp_row:
+                            _dp_chunk = {"id": _dp_row[0], "summary": _dp_row[1],
+                                         "content": _dp_row[2], "chunk_type": _dp_row[3] or "",
+                                         "importance": _dp_row[4] or 0.5}
+                            top_k = [(0.01, _dp_chunk)]
+                            top_k_data = [{"id": _dp_chunk["id"], "summary": _dp_chunk["summary"],
+                                           "score": 0.01, "chunk_type": _dp_chunk["chunk_type"]}]
+                            current_hash = hashlib.md5(_dp_chunk["id"].encode()).hexdigest()[:8]
+                            _sh_rotated = True
+                            _deferred.log(DMESG_DEBUG, "retriever",
+                                          f"iter874_diversity_probe: empty top_k, injecting "
+                                          f"{_dp_chunk['id'][:12]} ac={_dp_row[5]} imp={_dp_row[4]:.2f}",
+                                          session_id=session_id, project=project)
+                    except Exception:
+                        pass
+            if not _sh_rotated:
                 _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB 回填
                 _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
                 # 迭代61：PSI Noise Floor — skipped_same_hash 记录 duration_ms=0

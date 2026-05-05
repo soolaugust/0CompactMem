@@ -4782,6 +4782,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
 
         if current_hash == last_hash and session_id in _sessions_with_injection:  # iter201+804
+            # iter874: diversity_probe — same_hash + top_k 空时从 DB 选低频高价值 chunk
+            # 根因（数据驱动，2026-05-05）：14/22 same_hash 的 top_k=0（空集 hash 恒等），
+            #   导致 session 连续零知识注入。
+            # 修复：从全库选 access_count 最低 + importance 最高的 1 条注入。
+            if not top_k:
+                try:
+                    _dp_row = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance, access_count "
+                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                        (project,)
+                    ).fetchone()
+                    if _dp_row:
+                        _dp_chunk = (_dp_row[0], _dp_row[1], _dp_row[2], _dp_row[4],
+                                     None, _dp_row[3] or "", _dp_row[5], None, 0.0, 0)
+                        top_k = [(0.01, _dp_chunk)]
+                        top_k_ids = [_dp_row[0]]
+                        current_hash = '%08x' % zlib.crc32(_dp_row[0].encode())
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter874_diversity_probe: empty top_k, injecting "
+                                      f"{_dp_row[0][:12]} ac={_dp_row[5]} imp={_dp_row[4]:.2f}",
+                                      session_id=session_id, project=project)
+                        # fall through to injection path (don't return)
+                except Exception:
+                    pass
+        if current_hash == last_hash and session_id in _sessions_with_injection:
             _tlb_write(prompt_hash, current_hash, _get_db_mtime())
             # iter173: persistent conn — do NOT close
             # iter164: async write-back for skipped_same_hash trace
