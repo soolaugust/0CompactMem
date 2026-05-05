@@ -4705,6 +4705,46 @@ def main():
                                   f"iter842_pair_from_final: paired {_ps842_best[1].get('id','')[:12]} "
                                   f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
                                   session_id=session_id, project=project)
+        # ── iter895: db_diversity_pair — iter832/842 均失败时从 DB 选低频不同类型 chunk 配对 ──
+        # 根因（数据驱动，2026-05-05）：54% 注入为单条。iter832 要求 _pre_suppress_top_k>=2（常=1），
+        #   iter842 要求 final>=3 + importance>=0.3 + pair_suppress_ok（7d>=5 被过滤）。
+        #   当 suppress 把所有候选干掉只剩 1 条时，两者均无法配对 → 单条逃逸。
+        # 修复：从 DB 直接选 access_count 最低 + importance 最高的非 top1 chunk 作为补充上下文。
+        #   限制：7d 注入 < suppress_final_gate 阈值 +3（比主注入更宽容），且 chunk_type 不同于 top1。
+        if len(top_k) == 1:
+            _dp895_top1 = top_k[0][1]
+            _dp895_top1_id = _dp895_top1.get("id", "")
+            _dp895_top1_type = _dp895_top1.get("chunk_type", "")
+            try:
+                _dp895_exclude = f"'{_dp895_top1_id}'"
+                _dp895_rows = conn.execute(
+                    f"SELECT id, summary, content, chunk_type, importance, access_count "
+                    f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    f"AND id NOT IN ({_dp895_exclude}) "
+                    f"AND chunk_type != ? "
+                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    (project, _dp895_top1_type)
+                ).fetchall()
+                # 过滤 7d 过高的候选
+                _dp895_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
+                _dp895_lim = 8 if _sf663_tiny_db else 10 if '_sf663_small_db' in dir() and _sf663_small_db else 8
+                _dp895_ok = [r for r in _dp895_rows
+                             if _dp895_7d.get(r[0], 0) < _dp895_lim
+                             and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh]
+                if _dp895_ok:
+                    _dp895_pick = _dp895_ok[0]
+                    _dp895_chunk = {"id": _dp895_pick[0], "summary": _dp895_pick[1],
+                                    "content": _dp895_pick[2], "chunk_type": _dp895_pick[3] or "",
+                                    "importance": _dp895_pick[4] or 0.5}
+                    _dp895_score = top_k[0][0] * 0.2  # 配对 score 为主条的 20%
+                    top_k.append((_dp895_score, _dp895_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
+                                  f"type={_dp895_pick[3]} imp={_dp895_pick[4]:.2f} "
+                                  f"ac={_dp895_pick[5]} with top1={_dp895_top1_id[:12]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
         if not top_k:
             # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
             # iter829: fallback_rotation — 避免 fallback 永远选同一 chunk 导致 same_hash 死循环

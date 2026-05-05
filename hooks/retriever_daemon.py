@@ -4820,6 +4820,41 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"iter842_pair_from_final: paired {_ps842_best[1][_CI_ID][:12]} "
                                   f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
                                   session_id=session_id, project=project)
+        # ── iter895: db_diversity_pair — iter832/842 均失败时从 DB 选低频不同类型 chunk 配对 ──
+        # 根因（数据驱动，2026-05-05）：54% 注入为单条。suppress 把候选干掉只剩 1 条时，
+        #   iter832/842 无法配对 → 单条逃逸。从 DB 直接选不同 chunk_type 的高 importance chunk。
+        if len(top_k) == 1:
+            _dp895_top1 = top_k[0][1]
+            _dp895_top1_id = _dp895_top1[_CI_ID]
+            _dp895_top1_type = _dp895_top1[_CI_CT] or ""
+            try:
+                _dp895_exclude = f"'{_dp895_top1_id}'"
+                _dp895_rows = conn.execute(
+                    f"SELECT id, summary, content, chunk_type, importance, access_count "
+                    f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    f"AND id NOT IN ({_dp895_exclude}) "
+                    f"AND chunk_type != ? "
+                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    (project, _dp895_top1_type)
+                ).fetchall()
+                _dp895_lim = 8 if _db_chunk_count < 50 else 10
+                _dp895_ok = [r for r in _dp895_rows
+                             if _recent_7d_counts.get(r[0], 0) < _dp895_lim]
+                if _dp895_ok:
+                    _dp895_pick = _dp895_ok[0]
+                    # tuple: (id, summary, content, importance, last_accessed, chunk_type, access_count, ...)
+                    _dp895_chunk = (_dp895_pick[0], _dp895_pick[1], _dp895_pick[2],
+                                    _dp895_pick[4] or 0.5, None, _dp895_pick[3] or "",
+                                    _dp895_pick[5] or 0) + (None,) * 6
+                    _dp895_score = top_k[0][0] * 0.2
+                    top_k.append((_dp895_score, _dp895_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
+                                  f"type={_dp895_pick[3]} imp={_dp895_pick[4]:.2f} "
+                                  f"ac={_dp895_pick[5]} with top1={_dp895_top1_id[:12]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
         if not top_k:
             # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
             # iter829: fallback_rotation — 排除上次已注入 chunk 避免 same_hash 死循环
