@@ -4699,34 +4699,47 @@ def main():
                                       f"s={_sh_best_alt[0]:.3f} breaking hash lock",
                                       session_id=session_id, project=project)
             if not _sh_rotated:
-                # iter874: diversity_probe — same_hash + top_k 空时从 DB 选低频高价值 chunk
-                # 根因（数据驱动，2026-05-05）：14/22 same_hash trace 的 top_k=0（全灭空召回），
-                #   空集 hash 恒等 → 后续请求永远 skip → session 零知识注入。
-                # 修复：从项目全库中选 access_count 最低 + importance 最高的 1 条注入。
-                #   不受 suppress 限制（suppress 导致的空召回本身就是问题）。
-                if not top_k:
-                    try:
-                        _dp_row = conn.execute(
-                            "SELECT id, summary, content, chunk_type, importance, access_count "
-                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
-                            (project,)
-                        ).fetchone()
-                        if _dp_row:
-                            _dp_chunk = {"id": _dp_row[0], "summary": _dp_row[1],
-                                         "content": _dp_row[2], "chunk_type": _dp_row[3] or "",
-                                         "importance": _dp_row[4] or 0.5}
+                # iter874→879: diversity_probe — same_hash 时从 DB 选低频高价值 chunk 打破 hash 锁定
+                # 根因（数据驱动，2026-05-05）：20/22 same_hash 中 iter859 因 s>0 过滤全空未触发，
+                #   diversity_probe 原先只对空 top_k 生效 → 非空 top_k same_hash 永远跳过。
+                # 修复：扩展到 top_k 非空场景——从 DB 选低频高价值 chunk 替换最低分条目。
+                _sh_top_k_ids = set(c.get("id", "") if isinstance(c, dict) else c["id"]
+                                    for _, c in top_k) if top_k else set()
+                try:
+                    # 排除当前 top_k 已有的 chunk
+                    _dp_exclude = ",".join(f"'{x}'" for x in _sh_top_k_ids) if _sh_top_k_ids else "''"
+                    _dp_row = conn.execute(
+                        f"SELECT id, summary, content, chunk_type, importance, access_count "
+                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        f"AND id NOT IN ({_dp_exclude}) "
+                        f"ORDER BY access_count ASC, importance DESC LIMIT 1",
+                        (project,)
+                    ).fetchone()
+                    if _dp_row:
+                        _dp_chunk = {"id": _dp_row[0], "summary": _dp_row[1],
+                                     "content": _dp_row[2], "chunk_type": _dp_row[3] or "",
+                                     "importance": _dp_row[4] or 0.5}
+                        if top_k:
+                            # 替换最低分条目
+                            _sh_min_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
+                            top_k[_sh_min_idx] = (0.01, _dp_chunk)
+                        else:
                             top_k = [(0.01, _dp_chunk)]
-                            top_k_data = [{"id": _dp_chunk["id"], "summary": _dp_chunk["summary"],
-                                           "score": 0.01, "chunk_type": _dp_chunk["chunk_type"]}]
-                            current_hash = hashlib.md5(_dp_chunk["id"].encode()).hexdigest()[:8]
-                            _sh_rotated = True
-                            _deferred.log(DMESG_DEBUG, "retriever",
-                                          f"iter874_diversity_probe: empty top_k, injecting "
-                                          f"{_dp_chunk['id'][:12]} ac={_dp_row[5]} imp={_dp_row[4]:.2f}",
-                                          session_id=session_id, project=project)
-                    except Exception:
-                        pass
+                        top_k_data = [
+                            {"id": c["id"], "summary": c["summary"], "score": round(s, 4),
+                             "chunk_type": c.get("chunk_type", "")}
+                            for s, c in top_k
+                        ]
+                        _sh_new_ids = sorted([c["id"] for _, c in top_k])
+                        current_hash = hashlib.md5("|".join(_sh_new_ids).encode()).hexdigest()[:8]
+                        _sh_rotated = True
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter879_diversity_probe: injecting "
+                                      f"{_dp_chunk['id'][:12]} ac={_dp_row[5]} imp={_dp_row[4]:.2f} "
+                                      f"replacing={'empty' if not _sh_top_k_ids else 'lowest'}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
             if not _sh_rotated:
                 _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB 回填
                 _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
