@@ -5026,8 +5026,16 @@ def main():
             #   零触发。iter859 因 s>0 过滤排除了所有被 suppress 的候选（score=0），
             #   但这些候选本身有用户价值（只是因 7d/24h 频率被降权），作为 rotation 替代仍有意义。
             if _pre_suppress_top_k and len(_pre_suppress_top_k) > len(top_k):
+                # iter931: rotation_suppress_aware — 排除 7d 高频 chunk（同 iter927 diversity_probe）
+                # 根因（数据驱动，2026-05-06）：11/24 chunk 7d 注入 4 次（ceiling=3 应 suppress），
+                #   suppress_final_gate 拦截后 same_hash → iter859 从 _pre_suppress_top_k 选候选
+                #   不检查 7d → 垄断 chunk 经 rotation 逃逸 suppress。
+                # 修复：候选过滤加 7d >= ceiling 排除（与 iter927 对齐）。
+                _sh_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else {}
+                _sh_7d_ceil = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _sh_alt_cands = [(s, c) for s, c in _pre_suppress_top_k
-                                 if c.get("id", "") not in _sh_top_k_ids_set]
+                                 if c.get("id", "") not in _sh_top_k_ids_set
+                                 and _sh_7d_src.get(c.get("id", ""), 0) < _sh_7d_ceil]
                 if _sh_alt_cands:
                     _sh_best_alt = max(_sh_alt_cands, key=lambda x: x[0])
                     # 替换 top_k 中最低分的条目
