@@ -1439,6 +1439,27 @@ def _is_quality_chunk(summary: str) -> bool:
             or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)
             or _ITER_PREFIX.match(s)):
         return False
+    # ── iter896: iter_table_and_prediction_gate — 迭代器表格行/公式对比/预期效果 ──
+    # 根因（数据驱动，2026-05-05）：10 个噪声 chunk(ac=0-1)逃逸现有 gate：
+    #   A. "| 噪声 chunk 占比 | 19% | 3% |" — markdown 表格格式的迭代指标
+    #   B. "预期效果：单条注入率从 54% 降到 ~30%" — 迭代器预测
+    #   C. "top1 chunk 7d=11x，旧公式残留 17%，新公式残留 5.6%" — 公式对比
+    # 三类均为迭代器自身分析产物，对用户零检索价值。
+    _ITER_TABLE_ROW = re.compile(
+        r'^\|\s*(?:噪声|注入|same.hash|单条|占比|访问|命中|空召回|exp.decay|除数)',
+        re.I
+    )
+    _ITER_PREDICTION = re.compile(
+        r'预期效果[：:]\s*.*(?:率|%|降|升|→)',
+        re.I
+    )
+    _ITER_FORMULA_CMP = re.compile(
+        r'(?:旧公式|新公式).*(?:残留|衰减)|(?:残留|衰减).*(?:旧公式|新公式)',
+        re.I
+    )
+    if (_ITER_TABLE_ROW.match(s) or _ITER_PREDICTION.search(s)
+            or _ITER_FORMULA_CMP.search(s)):
+        return False
     # ── iter638: wiki_section_heading_fragment — 碎片式 wiki 标题拦截 ──
     # 根因（数据驱动）：/migrate-memory 批量导入切分 wiki 时产出纯索引碎片，
     #   如 "[topic] xxx > 参考链接"、"[topic] xxx > 相关文件"、"[topic] xxx > 影响范围"。
