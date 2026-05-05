@@ -4585,6 +4585,24 @@ def main():
                                   session_id=session_id, project=project)
             except Exception:
                 pass  # 兜底查询失败不阻塞
+        # ── iter887: suppress_final_gate_closure_fallback — 闭包快照兜底 ──
+        # 根因（数据驱动，2026-05-05）：suppress_final_gate 实时 DB 查询在 try/except
+        #   中静默失败时，7d count≥3 的垄断 chunk 逃逸（实测 14 个 chunk 应被 suppress）。
+        #   hard_deadline 路径有 _recent_7d_counts 闭包兜底（line 3266），FULL 路径缺失。
+        # 修复：在实时 DB suppress 之后，用启动时闭包快照 _recent_6h/_24h/_7d_counts 二次过滤。
+        if top_k:
+            _pre887 = len(top_k)
+            _fg887_tiny = _db_chunk_count < 50
+            _fg887_small = _db_chunk_count < 100
+            top_k = [(s, c) for s, c in top_k
+                     if _recent_6h_counts.get(c["id"], 0) < 2
+                     and _recent_24h_counts.get(c["id"], 0) < (3 if _fg887_tiny else (3 if s >= 0.5 else 2) if _fg887_small else (3 if s >= 0.5 else 2))
+                     and _recent_7d_counts.get(c["id"], 0) < (3 if _fg887_tiny else (4 if s >= 0.5 else 3) if _fg887_small else (5 if s >= 0.5 else 3))]
+            if len(top_k) < _pre887:
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"iter887_closure_fallback_suppress: filtered "
+                              f"{_pre887 - len(top_k)} chunks (closure 6h/24h/7d)",
+                              session_id=session_id, project=project)
         # ── iter832: post_suppress_pair_inject — suppress 后单条时从快照补配对 ──
         # 根因（数据驱动，2026-05-05）：FULL 路径 44% 输出单条。iter826 pair_inject
         #   在 positive 阶段添加第 2 条，但 suppress_final_gate 事后砍掉 → 最终仍单条。

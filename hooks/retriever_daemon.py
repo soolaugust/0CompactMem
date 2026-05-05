@@ -4731,6 +4731,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
             except Exception:
                 pass
+        # ── iter887: suppress_final_gate_closure_fallback — 闭包快照兜底 ──
+        # 根因（数据驱动，2026-05-05）：suppress_final_gate 实时 DB 查询在 try/except
+        #   中静默失败时，垄断 chunk 逃逸。用启动时闭包快照 _recent_6h/_24h/_7d_counts 兜底。
+        if top_k:
+            _pre887d = len(top_k)
+            _fg887d_tiny = _db_chunk_count < 50
+            _fg887d_small = _db_chunk_count < 100
+            top_k = [(s, c) for s, c in top_k
+                     if _recent_6h_counts.get(c[_CI_ID], 0) < 2
+                     and _recent_24h_counts.get(c[_CI_ID], 0) < (3 if _fg887d_tiny else (3 if s >= 0.5 else 2) if _fg887d_small else (3 if s >= 0.5 else 2))
+                     and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _fg887d_tiny else (4 if s >= 0.5 else 3) if _fg887d_small else (5 if s >= 0.5 else 3))]
+            if len(top_k) < _pre887d:
+                _deferred.log(DMESG_WARN, "retriever_daemon",
+                              f"iter887_closure_fallback_suppress: filtered "
+                              f"{_pre887d - len(top_k)} chunks (closure 6h/24h/7d)",
+                              session_id=session_id, project=project)
         # ── iter832: post_suppress_pair_inject — suppress 后单条时从快照补配对 ──
         # 根因（数据驱动，2026-05-05）：70% 注入为单条。suppress_final_gate 事后砍掉
         #   pair_inject 添加的第 2 条 → 最终仍单条。
