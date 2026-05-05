@@ -1321,7 +1321,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter929: quantitative_effect_noise — 迭代器量化效果/候选池分析逃逸
                 # 数据驱动（2026-05-06）：1 条 ac=1 噪声 "量化效果：候选池从含 14 个高频 chunk"
                 #   逃逸原因："量化效果" ≠ "预期量化效果"；"候选池" 是内部算法概念。
-                "量化效果", "候选池", "高频 chunk"]
+                "量化效果", "候选池", "高频 chunk",
+                # iter935: quantitative_expectation_noise — "量化预期" 词序逃逸
+                # 数据驱动（2026-05-06）：2 条 ac=0 噪声 "量化预期：空召回 16→0 条/7d"
+                #   逃逸原因："预期量化效果"已拦截但 "量化预期" 词序不同漏网。
+                "量化预期"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter853: internal_var_gate — 含 memory-os 内部变量名/常量名的 summary 拦截
