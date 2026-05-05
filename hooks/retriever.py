@@ -4942,6 +4942,10 @@ def main():
                     # 根因（数据驱动，2026-05-06）：23-chunk 活跃库 12 个 7d>=3，
                     #   ceiling=3 排除 52% → ultimate_fallback 空 → 空召回 16 条/7d。
                     # 修复：ceiling+3 重试，选 7d 较高但非极端垄断的 chunk。
+                    # iter934: escalation_diversity_order — access_count ASC 优先
+                    #   根因（数据驱动，2026-05-06）：escalation 用 importance DESC 排序，
+                    #   高 imp 垄断 chunk（pe_analysis 7d=7）反复被选中。
+                    #   改为低访问优先：用户看得少的知识优先注入，打破垄断轮换。
                     _esc_ceiling = _ult_ceiling + 3
                     _esc_exclude = [cid for cid, cnt in _fb_7d_ult.items() if cnt >= _esc_ceiling]
                     _esc_ph = ','.join(['?'] * len(_esc_exclude)) if _esc_exclude else ''
@@ -4950,7 +4954,7 @@ def main():
                         _esc_row = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance "
                             f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_esc_where} "
-                            "ORDER BY importance DESC, access_count ASC LIMIT 1",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
                             (project, *_esc_exclude)
                         ).fetchone()
                         if _esc_row:

@@ -4984,6 +4984,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   16 条 hash_changed|full 空召回 = 有知识但拒绝给出。
                     # 修复：ceiling+3 重试，允许选 7d 较高但非极端垄断的 chunk。
                     #   最终选中的仍受 same_hash 去重保护，不会连续重复注入。
+                    # iter934: escalation_diversity_order — access_count ASC 优先
+                    #   根因（数据驱动，2026-05-06）：importance DESC 使垄断 chunk 反复被选。
+                    #   改为低访问优先，打破垄断轮换。
                     _esc_ceiling = _ult_ceiling + 3
                     _esc_exclude = [cid for cid, cnt in _fb_7d_ult.items() if cnt >= _esc_ceiling]
                     _esc_ph = ','.join(['?'] * len(_esc_exclude)) if _esc_exclude else ''
@@ -4993,7 +4996,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             "SELECT id, summary, content, chunk_type, importance, "
                             "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
                             f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_esc_where} "
-                            "ORDER BY importance DESC, access_count ASC LIMIT 1",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
                             (project, *_esc_exclude)
                         ).fetchone()
                         if _esc_row:
