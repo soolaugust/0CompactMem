@@ -2319,6 +2319,15 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             )
             if not _has_ext_domain:
                 return
+            # iter922: internal_stat_with_domain_anchor — 外部锚点+系统内部术语共存时仍拒绝
+            # 数据驱动（2026-05-06）："PE 分析 chunk 7d=6次...top6 占 78% 注入位"
+            #   含 "PE"（匹配 Proxy.Execution）但实质是 memory-os 内部统计，无用户价值。
+            # 修复：同时含系统内部术语 → 拒绝（外部锚点仅是引用名而非讨论领域本身）。
+            if _has_ext_domain and re.search(
+                r'(?:chunk|注入|suppress|fallback|top.?k|触发|阈值|垄断|逃逸|空召回)',
+                summary
+            ):
+                return
     importance_map = {
         "decision": 0.85,
         "reasoning_chain": 0.80,
