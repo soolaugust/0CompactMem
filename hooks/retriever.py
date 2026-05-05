@@ -2439,7 +2439,7 @@ def main():
                 # 根因（数据驱动，2026-05-05）：33-chunk 库 7d=5 即 suppress，
                 #   日均 <1 次使用就封锁核心知识 → 空召回。7 次/7d = 1次/天是正常频率。
                 #   24h>=4 和 6h>=3 仍有效控制 burst。
-                _suppress_7d_thresh = 7 if _tiny_db else (8 if score >= 0.5 else 6) if _small_db else (5 if score >= 0.5 else 3)
+                _suppress_7d_thresh = 5 if _tiny_db else (8 if score >= 0.5 else 6) if _small_db else (5 if score >= 0.5 else 3)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -4562,7 +4562,7 @@ def main():
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
                          if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663_7d.get(c["id"], 0) < (7 if _sf663_tiny_db else (8 if s >= 0.5 else 6) if _sf663_small_db else (5 if s >= 0.5 else 3))]
+                         and _rt663_7d.get(c["id"], 0) < (5 if _sf663_tiny_db else (8 if s >= 0.5 else 6) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4584,7 +4584,7 @@ def main():
                 _p24 = _rt663_24h.get(cid, 0)
                 _p7d = _rt663_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663_tiny_db else (3 if score >= 0.5 else 2) if _sf663_small_db else (3 if score >= 0.5 else 2)
-                _p7d_lim = 7 if _sf663_tiny_db else (8 if score >= 0.5 else 6) if _sf663_small_db else (5 if score >= 0.5 else 3)
+                _p7d_lim = 5 if _sf663_tiny_db else (8 if score >= 0.5 else 6) if _sf663_small_db else (5 if score >= 0.5 else 3)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
