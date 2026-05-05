@@ -2450,7 +2450,11 @@ def main():
                 # 根因（数据驱动，2026-05-05）：33-chunk 库 7d=5 即 suppress，
                 #   日均 <1 次使用就封锁核心知识 → 空召回。7 次/7d = 1次/天是正常频率。
                 #   24h>=4 和 6h>=3 仍有效控制 burst。
-                _suppress_7d_thresh = 5 if _tiny_db else (8 if score >= 0.5 else 6) if _small_db else (5 if score >= 0.5 else 3)
+                # iter909: score_7d_align_daemon — tiny_db 5→4 对齐 daemon(3) + final_gate(3)
+                #   根因（数据驱动，2026-05-06）：_score_chunk 阈值=5 vs final_gate=3，
+                #   14 个 chunk 7d>=4 仍通过评分阶段注入（fallback/pair 可绕过 final_gate）。
+                #   收紧到 4 在评分阶段早期拦截，预计减少 21% 垄断注入。
+                _suppress_7d_thresh = 4 if _tiny_db else (8 if score >= 0.5 else 6) if _small_db else (5 if score >= 0.5 else 3)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
