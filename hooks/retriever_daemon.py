@@ -3699,7 +3699,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter810: tiny_db_24h_relax — 小库统一阈值
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672_tiny else (3 if score >= 0.5 else 2) if _s672_small else (3 if score >= 0.5 else 2)):
                     score = 0.0
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672_tiny else (5 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)):
+                # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
+                elif _recent_7d_counts.get(_cid, 0) >= (7 if _s672_tiny else (5 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk[_CI_AC] or 0) >= 30:
@@ -3787,7 +3788,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter810: tiny_db_24h_relax — sync
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672d_tiny else (3 if score >= 0.5 else 2) if _s672d_small else (3 if score >= 0.5 else 2)):
                     score = 0.0
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672d_tiny else (5 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)):
+                # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
+                elif _recent_7d_counts.get(_cid, 0) >= (7 if _s672d_tiny else (5 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk.get("access_count", 0) or 0) >= 30:
@@ -4629,7 +4631,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = [(s, c) for s, c in top_k
                          if _rt663d_6h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else 2)  # iter818: 6h 分级
                          and _rt663d_24h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663d_7d.get(c[_CI_ID], 0) < (5 if _sf663d_tiny_db else (5 if s >= 0.5 else 4) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
+                         # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
+                         and _rt663d_7d.get(c[_CI_ID], 0) < (7 if _sf663d_tiny_db else (5 if s >= 0.5 else 4) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4648,7 +4651,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _p24 = _rt663d_24h.get(cid, 0)
                 _p7d = _rt663d_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663d_tiny_db else (3 if score >= 0.5 else 2) if _sf663d_small_db else (3 if score >= 0.5 else 2)
-                _p7d_lim = 5 if _sf663d_tiny_db else (5 if score >= 0.5 else 4) if _sf663d_small_db else (5 if score >= 0.5 else 3)
+                _p7d_lim = 7 if _sf663d_tiny_db else (5 if score >= 0.5 else 4) if _sf663d_small_db else (5 if score >= 0.5 else 3)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True
