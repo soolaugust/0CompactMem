@@ -3270,11 +3270,11 @@ def main():
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
                          and _recent_24h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
-                         # iter899: 7d_tighten_tiny_v2 — tiny_db 7d 阈值 3→2
-                         #   根因（数据驱动，2026-05-05）：import-90139 7d=7 次注入，因并发
-                         #   session write-back 竞态导致 suppress_final_gate 在 7d_count<3 时逃逸。
-                         #   收紧到 <2 使 worst-case 并发逃逸从 7→3 次，有效去垄断。
-                         and _recent_7d_counts.get(c["id"], 0) < (2 if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (5 if s >= 0.5 else 3))]
+                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
+                         #   根因（数据驱动，2026-05-05）：iter899 <2 导致 26-chunk 库 54% chunks
+                         #   被 suppress（7d 分布二值化：=1 有 10 个，>=3 有 14 个，无 =2）。
+                         #   结果：几乎所有检索空召回或 fallback 单条。<4 只 suppress 20%（真垄断）。
+                         and _recent_7d_counts.get(c["id"], 0) < (4 if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
             if len(top_k) == 1 and len(final) >= 3:
@@ -3308,8 +3308,8 @@ def main():
                 # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate 阈值
                 # 根因（数据驱动，2026-05-05）：hard_deadline fallback ceiling=5 但 final_gate 阈值=3，
                 #   7d=3-4 chunk 被 final_gate suppress 后被 fallback 重新选中。对齐消除逃逸。
-                # iter899: 7d_tighten_tiny_v2 — fallback ceiling 同步 3→2
-                _fb_hd_ceiling = 2 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                # iter904: 7d_rebalance_tiny — fallback ceiling 同步 2→4
+                _fb_hd_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_ceiling
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
@@ -4663,8 +4663,8 @@ def main():
                 #   修复：tiny 5→3，small 8/6→4/3（与 hard_deadline line 3268 对齐）。
                 top_k = [(s, c) for s, c in top_k
                          if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
-                         # iter899: 7d_tighten_tiny_v2 — tiny_db 7d 3→2
-                         and _rt663_7d.get(c["id"], 0) < (2 if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (5 if s >= 0.5 else 3))]
+                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
+                         and _rt663_7d.get(c["id"], 0) < (4 if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4684,8 +4684,8 @@ def main():
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c["id"], 0) < 2
                      and _recent_24h_counts.get(c["id"], 0) < (3 if _fg887_tiny else (3 if s >= 0.5 else 2) if _fg887_small else (3 if s >= 0.5 else 2))
-                     # iter899: 7d_tighten_tiny_v2 — tiny_db 7d 3→2
-                     and _recent_7d_counts.get(c["id"], 0) < (2 if _fg887_tiny else (4 if s >= 0.5 else 3) if _fg887_small else (5 if s >= 0.5 else 3))]
+                     # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
+                     and _recent_7d_counts.get(c["id"], 0) < (4 if _fg887_tiny else (4 if s >= 0.5 else 3) if _fg887_small else (5 if s >= 0.5 else 3))]
             if len(top_k) < _pre887:
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter887_closure_fallback_suppress: filtered "
@@ -4991,8 +4991,8 @@ def main():
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
                          #   根因：LITE tiny_db 7d<5 允许 4 次，FULL/daemon 已收紧到 <3
-                         # iter899: 7d_tighten_tiny_v2 — tiny_db 7d 3→2
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (2 if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (5 if s >= 0.5 else 3))]
+                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (4 if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
@@ -5009,8 +5009,8 @@ def main():
                     # iter892: fallback_exp_decay — LITE 路径同步指数衰减
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
-                    # iter899: 7d_tighten_tiny_v2 — fallback ceiling 同步 3→2
-                    _fb_lite_ceiling = 2 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                    # iter904: 7d_rebalance_tiny — fallback ceiling 同步 2→4
+                    _fb_lite_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
                                     if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_ceiling
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < 3]
