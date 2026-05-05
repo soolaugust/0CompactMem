@@ -4890,7 +4890,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     f"ORDER BY importance DESC, access_count ASC LIMIT 5",
                     (project, _dp895_top1_type)
                 ).fetchall()
-                _dp895_lim = 8 if _db_chunk_count < 50 else 10
+                # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值（同 iter914）
+                _dp895_lim = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _dp895_ok = [r for r in _dp895_rows
                              if _recent_7d_counts.get(r[0], 0) < _dp895_lim]
                 if _dp895_ok:
@@ -4993,7 +4994,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     (project, _pf914_top1_id, _pf914_top1_type)
                 ).fetchall()
                 _pf914_7d = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
-                _pf914_lim = 6 if _db_chunk_count < 50 else 8
+                # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值
+                # 根因（数据驱动，2026-05-06）：iter914 pair 的 7d 限制=6（tiny_db），
+                #   而 suppress_final_gate 阈值=3。7d=4-5 的垄断 chunk 被 final_gate suppress
+                #   后经 fallback→pair 路径复活注入（如 import-90139 7d=4 仍注入 6 次/7d）。
+                # 修复：pair 7d 限制对齐 suppress_final_gate，阻止被 suppress 的 chunk 经配对逃逸。
+                _pf914_lim = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _pf914_ok = [r for r in _pf914_rows if _pf914_7d.get(r[0], 0) < _pf914_lim]
                 if _pf914_ok:
                     _pf914_pick = _pf914_ok[0]

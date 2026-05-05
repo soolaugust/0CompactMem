@@ -4843,7 +4843,9 @@ def main():
                 # iter920: fix NameError — _sf663_tiny_db 仅在 suppress_final_gate(line 4687) 内定义，
                 #   LITE 路径或 try 失败时不存在 → NameError 被 except 吞掉 → pair 零触发。
                 _dp895_tiny = _sf663_tiny_db if '_sf663_tiny_db' in dir() else (_db_chunk_count < 50)
-                _dp895_lim = 8 if _dp895_tiny else 10 if '_sf663_small_db' in dir() and _sf663_small_db else 8
+                # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值（同 iter914）
+                _dp895_small = _sf663_small_db if '_sf663_small_db' in dir() else (_db_chunk_count < 100)
+                _dp895_lim = 3 if _dp895_tiny else (4 if _dp895_small else 5)
                 _dp895_ok = [r for r in _dp895_rows
                              if _dp895_7d.get(r[0], 0) < _dp895_lim
                              and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh]
@@ -4944,7 +4946,12 @@ def main():
                     (project, _pf914_top1_id, _pf914_top1_type)
                 ).fetchall()
                 _pf914_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-                _pf914_lim = 6 if _db_chunk_count < 50 else 8
+                # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值
+                # 根因（数据驱动，2026-05-06）：iter914 pair 的 7d 限制=6（tiny_db），
+                #   而 suppress_final_gate 阈值=3。7d=4-5 的垄断 chunk 被 final_gate suppress
+                #   后经 fallback→pair 路径复活注入（如 import-90139 7d=4 仍注入 6 次/7d）。
+                # 修复：pair 7d 限制对齐 suppress_final_gate，阻止被 suppress 的 chunk 经配对逃逸。
+                _pf914_lim = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _pf914_ok = [r for r in _pf914_rows if _pf914_7d.get(r[0], 0) < _pf914_lim]
                 if _pf914_ok:
                     _pf914_pick = _pf914_ok[0]
