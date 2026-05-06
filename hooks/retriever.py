@@ -2640,7 +2640,13 @@ def main():
                 # 修复：ac>=4 的 global chunk 阈值 -2（与 cross 同级），ac<4 保持 -1。
                 if chunk.get("project", "") == "global":
                     _g_ac = _acc if _acc is not None else (chunk.get("access_count", 0) or 0)
-                    _suppress_7d_thresh = max(2, _suppress_7d_thresh - (2 if _g_ac >= 4 else 1))
+                    # iter1031: global_deep_saturated_suppress — ac>=7 深度内化强制阈值=2
+                    # 根因（数据驱动，2026-05-07）：git commit(ac=9) 7d=4 仍逃逸（阈值=3）。
+                    #   ac>=7 表明 agent 已深度内化，7d 仅允许 1 次注入后立即 suppress。
+                    if _g_ac >= 7:
+                        _suppress_7d_thresh = 2
+                    else:
+                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - (2 if _g_ac >= 4 else 1))
                 # iter1009: local_saturated_suppress — 本项目高 ac chunk 7d 阈值收紧
                 # 根因（数据驱动，2026-05-06）：25-chunk 库中 PE分析(ac=7,7d=6)、
                 #   Android诊断(ac=10,7d=5) 等高 ac 本项目 chunk 7d 阈值=5 仍逃逸。
@@ -3495,6 +3501,9 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         _g_ac = c.get("access_count", 0) or 0
+                        # iter1031: global_deep_saturated_suppress — sync hard_deadline
+                        if _g_ac >= 7:
+                            return 2
                         return max(2, _t - (2 if _g_ac >= 4 else 1))
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     _l_ac = c.get("access_count", 0) or 0
@@ -5149,6 +5158,9 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         _g_ac = c.get("access_count", 0) or 0
+                        # iter1031: global_deep_saturated_suppress — ac>=7 强制阈值=2
+                        if _g_ac >= 7:
+                            return 2
                         return max(2, _t - (2 if _g_ac >= 4 else 1))
                     # iter1009: local_saturated_suppress — sync suppress_final_gate
                     _l_ac = c.get("access_count", 0) or 0
@@ -5226,6 +5238,9 @@ def main():
                     return max(2, _t - 2)
                 elif _is_global:
                     _g_ac = c.get("access_count", 0) or 0
+                    # iter1031: global_deep_saturated_suppress — sync closure_fallback
+                    if _g_ac >= 7:
+                        return 2
                     return max(2, _t - (2 if _g_ac >= 4 else 1))
                 # iter1009: local_saturated_suppress — sync closure_fallback
                 _l_ac = c.get("access_count", 0) or 0
