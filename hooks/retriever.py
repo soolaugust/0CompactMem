@@ -3396,7 +3396,9 @@ def main():
                 # iter940: floor_raise — 0.05→0.10 对齐 dead_zone_min/gap_bridge_floor
                 #   数据驱动（2026-05-06）：PE chunk score=0.071 逃逸 0.05 floor，24h 被注入 5 次。
                 #   score<0.10 说明 FTS5 词汇重叠极低（<1/10），注入无信息增量。
-                if _fb_hd_pool and max(s for s, _ in _fb_hd_pool) < 0.10:
+                # iter996: micro_db_floor_relax — sync hard_deadline path
+                _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                if _fb_hd_pool and max(s for s, _ in _fb_hd_pool) < _fb_hd_floor:
                     _fb_hd_pool = None
                 if _fb_hd_pool:
                     _fb_hd_sorted = sorted(_fb_hd_pool,
@@ -5059,7 +5061,12 @@ def main():
                 # 修复：_fb_pool 最高分 < 0.05 时跳过此路径，落到 db_ultimate_fallback（有轮转多样性）。
                 # iter940: floor_raise — 0.05→0.10 对齐 dead_zone_min/gap_bridge_floor
                 #   数据驱动（2026-05-06）：PE chunk score=0.071 逃逸 0.05 floor，24h 5x 注入。
-                if _fb_pool and max(s for s, _ in _fb_pool) < 0.10:
+                # iter996: micro_db_floor_relax — <=5 自有 chunk 库 floor 0.10→0.01
+                #   根因（数据驱动，2026-05-06）：abspath:51963532bc1b(1自有+6global)空召回率 100%(9/9)。
+                #   global chunk FTS score 天然低(0.03-0.08)，0.10 floor 全灭 → ultimate_fallback
+                #   ceiling=4 又排除 7d>=4 的 3 个 global → 空召回。小库有知识总比空好。
+                _fb_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None  # 全部候选相关性极低，不强制注入
                 if _fb_pool:
                     _fb_sorted = sorted(_fb_pool,
@@ -5440,7 +5447,9 @@ def main():
                     _fb_lite_pool = _fb_lite_cap if _fb_lite_cap else _pre_suppress_top_k_lite
                     # iter940: fallback_relevance_floor — LITE 路径同步（此前遗漏）
                     #   数据驱动（2026-05-06）：PE chunk score=0.071 走 LITE fallback 24h 3x 逃逸。
-                    if _fb_lite_pool and max(s for s, _ in _fb_lite_pool) < 0.10:
+                    # iter996: micro_db_floor_relax — sync LITE path
+                    _fb_lite_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                    if _fb_lite_pool and max(s for s, _ in _fb_lite_pool) < _fb_lite_floor:
                         _fb_lite_pool = None
                     if _fb_lite_pool:
                         _fb_lite_sorted = sorted(

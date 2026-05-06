@@ -4976,7 +4976,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   当前 prompt 与库内知识本就无关时，强制注入 = 用户感知噪声。
                 # 修复：_fb_pool 最高分 < 0.05 时跳过，落到 db_ultimate_fallback（有分钟轮转多样性）。
                 # iter940: floor_raise — 0.05→0.10（sync retriever.py）
-                if _fb_pool and max(s for s, _ in _fb_pool) < 0.10:
+                # iter996: micro_db_floor_relax — <=5 自有 chunk 库 floor 0.10→0.01（sync）
+                _fb_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None
                 if _fb_pool:
                     _fb_sorted = sorted(_fb_pool,
