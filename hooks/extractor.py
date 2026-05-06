@@ -1908,6 +1908,13 @@ def _is_tool_insight_noise(text: str) -> bool:
     if re.search(r'(?:P50|P95|P99|冷启动|cold.?start|FULL.*ms|LITE.*ms|pre.?INIT|lazy\s*import|busy.?loop)', text, re.I):
         if not re.search(r'(?:kernel|sched|Android|feishu|飞书|binder|migration)', text, re.I):
             return True
+    # iter959: diff_snippet_gate — 纯 diff/代码片段无独立检索价值
+    # 根因（数据驱动，2026-05-06）：3 条 ac=0 tool_insight 为纯 diff 行
+    #   "+ u64 end = bpf_ktime_get_ns()..."、"+ * root sched with bug6_slow_init=1..."
+    #   脱离上下文后无法独立理解，且代码变更后即过时。
+    # 检测：以 +/* 开头（diff/comment 行）且无中文解释
+    if re.match(r'^\+\s*[\w*/]', text) and not re.search(r'[\u4e00-\u9fff]', text):
+        return True
     return False
 
 
@@ -3862,6 +3869,14 @@ def main():
             # 纯否定句（"X 并没有 Y" / "X 不 Y"）短于 45 字 → 结论碎片
             if re.match(r'.{3,15}(?:并没有|没有|不会|不能|不是).{3,25}$', _stripped) and len(_stripped) < 45:
                 return False
+            # iter959: question_fragment_gate — 纯疑问句不含知识，无检索价值
+            # 根因（数据驱动，2026-05-06）：2 条 ac=0 conversation_summary 为纯疑问句
+            #   "sched_ext_dead() 在 state=INIT 时的行为是否正确——"(40字)
+            #   "此时能拿 rq lock 吗"(14字) — 疑问句记录问题而非答案。
+            # 检测：以疑问词/助词结尾 或 含"是否/能否/是不是" + 长度<60
+            if _stripped.endswith(('吗', '呢', '？', '?', '——')) and len(_stripped) < 60:
+                if re.search(r'是否|能否|是不是|可以吗|对吗|正确|能拿|能用', _stripped):
+                    return False
             return True
         _qualified_summaries = [s for s in conv_summaries
                                 if _is_quality_chunk(s) and len(s.strip()) >= _cs_min_len
