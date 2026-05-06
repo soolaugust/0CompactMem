@@ -2399,6 +2399,17 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：在 _write_chunk 内部统一检查，任何路径都无法绕过。
     if not _is_quality_chunk(summary):
         return
+    # iter965: causal_reasoning_fragment_final_gate — 终极碎片拦截
+    # 根因（数据驱动，2026-05-06）：extractor_pool 路径的 iter956 gate 在部署前写入 13 条碎片。
+    #   iter836 在 extractor.py 的 _qualified_chains 路径有效，但 pool 路径和未来路径无法保证。
+    # 修复：_write_chunk 内统一拦截 causal_chain/reasoning_chain <120 字 + 结论词开头碎片。
+    #   有 content_override 时说明已构建了 rich content（邻节点聚合），不受此限制。
+    if chunk_type in ("causal_chain", "reasoning_chain") and not content_override:
+        _s_stripped = summary.strip()
+        if re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:]|总结[：:])', _s_stripped):
+            return
+        if len(_s_stripped) < 120:
+            return
     # iter897: iter_metric_report_gate — 拦截迭代器数值对比/统计报告
     # 数据驱动（2026-05-05）：今日写入 11 chunk 中 10 条是迭代器自身产出的指标对比
     #   如 "噪声 chunk 占比 19%→3%"、"exp_decay 除数 /3→/2"、"单条注入率 54%"。
