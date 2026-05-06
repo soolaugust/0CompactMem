@@ -2338,6 +2338,9 @@ def _vma_validate(summary: str) -> bool:
     return True
 
 
+_write_chunk_seen: set = set()  # iter963: in-process dedup — 防止同 batch 重复写入
+
+
 def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
                  topic: str = "", conn: sqlite3.Connection = None,
                  importance_override: float = None,
@@ -2351,6 +2354,17 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     迭代301：新增 stability 初始值（importance * 2.0）。
     迭代306：新增 raw_snippet（写入时保真原始片段，≤500字，可选）。
     """
+    # iter963: in-process batch dedup — 同一进程内防止相同 summary 重复写入
+    # 根因（数据驱动，2026-05-06）：2 条 causal_chain 完全相同（间隔 2ms），
+    #   因 _txn_managed=True 跳过 commit → already_exists 查不到未提交行 → 重复写入。
+    # 修复：进程内 set 记录已写入的 (chunk_type, summary_normalized)，无需等待 commit。
+    import re as _re963
+    _dedup_key = (chunk_type, _re963.sub(r'\s+', '', summary.lower()))
+    if _dedup_key in _write_chunk_seen:
+        return
+    if len(_write_chunk_seen) > 500:
+        _write_chunk_seen.clear()
+    _write_chunk_seen.add(_dedup_key)
     # iter596: ephemeral_type_gate — 拒绝写入临时/无跨会话价值的 chunk 类型
     # 根因（数据驱动）：38% chunk 零访问，其中 4 条 conversation_summary/prompt_context
     # 是迭代器自身写入的噪声（重复提示词、轮次计数），从未被用户召回。
