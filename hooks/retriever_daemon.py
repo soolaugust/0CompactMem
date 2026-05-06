@@ -5616,7 +5616,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-05）：top_k_ids 在 line 4771 基于旧 top_k 计算，
         #   但 suppress_final_gate/fallback 可能修改 top_k，导致 accessed_ids 与
         #   top_k_data 不一致 → 11% trace 的 top_k_json=[] 污染 recall_counts。
-        accessed_ids = [c[_CI_ID] for _, c in top_k]
+        # iter1039: freeze_accessed_ids — tuple 不可变，消除 writeback 线程读取时潜在的引用失效
+        #   数据驱动（2026-05-07）：40% trace 记录 injected=0,top_k=[] 但 dmesg 确认注入成功。
+        #   _accessed_ids 默认参数绑定 list 对象，writeback 线程延迟执行时偶发读到空。
+        #   tuple 不可变 + 立即求值，消除 GC/thread 时序导致的引用失效。
+        accessed_ids = tuple(c[_CI_ID] for _, c in top_k)
 
         # iter200: pre-built header + json.dumps(ctx) only (4.43us → 1.35us)
         # iter226: write() ~0.407us vs print() ~0.679us (saves ~0.271us on inject path)
@@ -5709,8 +5713,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 修复：用 _daemon_inject_log 最近 2s 内的条目作为 ultimate fallback。
                 if not _effective_top_k and _top_k_len > 0:
                     _wb_now = time.time()
+                    # iter1039: window 2s→30s — writeback 线程排队延迟可达数秒，2s 窗口频繁 miss
+                    #   数据驱动（2026-05-07）：40% trace 失准，inmem_log_fallback 实际触发率极低。
                     _inmem_recent = [cid for cid, ts in _daemon_inject_log
-                                     if _wb_now - ts < 2.0]
+                                     if _wb_now - ts < 30.0]
                     if _inmem_recent:
                         _effective_top_k = [{"id": cid} for cid in _inmem_recent[-_top_k_len:]]
                         dmesg_log(_wconn, DMESG_WARN, "retriever",
