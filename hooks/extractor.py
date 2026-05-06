@@ -1750,6 +1750,21 @@ def _is_quality_decision(summary: str) -> bool:
         return False
     if re.match(r'^✅\s', s) and re.search(r'(?:完成|修复|通过|升级|迭代|验证|实现)', s[:50]):
         return False
+    # X5. iter954: self_impl_gate — memory-os 自身实现细节不是用户决策
+    #   根因（数据驱动，2026-05-06）：9 条 ac=0 noise chunk 中 7 条为迭代器自身实现描述，
+    #   如 "excluded_path 新增密度 gate"、"tiny_db 阈值 7d<3 太激进" 等。
+    #   这些记录了系统内部调参过程，脱离开发上下文对用户检索零价值。
+    #   检测：含 suppress/gate/阈值/extractor/retriever 等系统关键词 + 不含用户业务上下文。
+    _SELF_IMPL_KW = re.compile(
+        r'(?:suppress|_gate|阈值|threshold|extractor|retriever|recall_count'
+        r'|zero_access|tiny_db|small_db|hard_cap|bandwidth|iter\d{3}'
+        r'|excluded_path|chunk_type|conv_summary|density.gate|碎片.*拒绝|过渡句.*拒绝)'
+    )
+    if _SELF_IMPL_KW.search(s) and not re.search(r'[\u4e00-\u9fff]{8,}', s.split('：')[0] if '：' in s else ''):
+        # 含系统关键词，且冒号前无 >=8 个连续中文（有中文业务上下文则放行）
+        # 额外放行：以决策动词开头 → 用户明确决策，系统关键词只是被引用
+        if not re.match(r'^(?:决定|选择|采用|推荐|改用)', s):
+            return False
 
     # ── 通过条件（满足任一即写入）─────────────────────────────
     # A. 决策动词
