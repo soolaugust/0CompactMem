@@ -3442,8 +3442,9 @@ def main():
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                         else:
-                            # iter981: omf_least_monopoly_fallback (hard_deadline path)
-                            top_k = [min(top_k, key=lambda x: _recent_7d_counts.get(x[1].get("id", ""), 0))]
+                            # iter987: omf_graduated_fallback (hard_deadline path)
+                            _omf_sorted_hd = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1].get("id", ""), 0))
+                            top_k = _omf_sorted_hd[:min(2, len(_omf_sorted_hd))]
                     _TYPE_PREFIX = {"decision": "[决策]", "excluded_path": "[排除]",
                                     "reasoning_chain": "[推理]", "conversation_summary": "[摘要]",
                                     "task_state": "", "design_constraint": "⚠️ [约束]"}
@@ -5740,13 +5741,14 @@ def main():
                                   session_id=session_id, project=project)
                 top_k = _omf_filtered
             else:
-                # iter981: omf_least_monopoly_fallback — 全候选超 ceiling 时，
-                # 选 7d count 最低的 1 条（而非放弃过滤让垄断 chunk 全部通过）。
-                # 根因：24-chunk 库 13/21 注入 chunk 7d>=3 → _omf_filtered=[] → 不过滤 →
-                #   OMF 从未触发（0/31 traces）。
-                top_k = [min(top_k, key=lambda x: _omf_7d_src.get(x[1].get("id", ""), 0))]
+                # iter987: omf_graduated_fallback — 全灭时选 7d 最低的 top-2
+                # 根因（数据驱动，2026-05-06）：23-chunk 库 13/21 chunk 7d>=3(ceiling)，
+                #   只选 1 条过度限制多样性——用户每次只看到 1 条知识，信息量不足。
+                # 修复：按 7d count 升序取前 min(2, len) 条，排除最高垄断者同时保留多样性。
+                _omf_sorted = sorted(top_k, key=lambda x: _omf_7d_src.get(x[1].get("id", ""), 0))
+                top_k = _omf_sorted[:min(2, len(_omf_sorted))]
                 _deferred.log(DMESG_DEBUG, "retriever",
-                              f"iter981_omf_least_monopoly_fallback: {len(top_k)}->1, picked 7d={_omf_7d_src.get(top_k[0][1].get('id',''), 0)}",
+                              f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}, 7d={[_omf_7d_src.get(x[1].get('id',''), 0) for x in top_k]}",
                               session_id=session_id, project=project)
 
         constraint_items = []

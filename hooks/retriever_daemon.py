@@ -5227,6 +5227,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"iter975_output_monopoly_filter: {len(top_k)}->{len(_omf_filtered)}",
                                   session_id=session_id, project=project)
                 top_k = _omf_filtered
+            else:
+                # iter987: omf_graduated_fallback — 全灭时选 7d 最低的 top-2
+                # 根因：23-chunk 库 13/21 chunk 7d>=ceiling(3)，daemon 无 fallback
+                #   → 垄断 chunk 全部逃逸 OMF。
+                _omf_sorted = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1][_CI_ID], 0))
+                top_k = _omf_sorted[:min(2, len(_omf_sorted))]
+                _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                              f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}",
+                              session_id=session_id, project=project)
 
         # ── Build context text ──
         # iter238: _TYPE_PREFIX now module-level constant (see definition near _CONSTRAINT_RE)
