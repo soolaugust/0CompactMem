@@ -1900,10 +1900,14 @@ def main():
                             if _is_6h:
                                 _rt_6h[_c] = _rt_6h.get(_c, 0) + 1  # iter813
                 _rt_7d = {k: len(v) for k, v in _rt_7d_sessions.items()}
-                # merge: 7d 用 session-dedup 值覆盖 timeline raw count（更准确）
-                # iter957: timeline 无 session 信息，DB session-dedup 更可靠
+                # iter1033: 7d_merge_max — 取 max 而非覆盖，保留 timeline 实时性
+                # 根因（数据驱动，2026-05-07）：iter957 覆盖语义将 timeline 实时 7d=5
+                #   降级为 DB session-dedup 7d=4（WAL 延迟 + dedup 误差），
+                #   致 local ac=7 chunk 逃逸 suppress（阈值=5）。
+                #   import-90139(PE分析) 7d timeline=7 但 DB dedup=4→逃逸→累计注入 6 次。
+                # 修复：与 24h/6h merge 统一为 max 语义，timeline 实时性不被 DB 滞后降级。
                 for _mc, _mv in _rt_7d.items():
-                    _recent_7d_counts[_mc] = _mv  # 覆盖而非 max
+                    _recent_7d_counts[_mc] = max(_recent_7d_counts.get(_mc, 0), _mv)
                 for _mc, _mv in _rt_24h.items():
                     _recent_24h_counts[_mc] = max(_recent_24h_counts.get(_mc, 0), _mv)
                 # iter813: 6h merge
