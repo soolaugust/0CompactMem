@@ -419,6 +419,21 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 #   summary = t[:120]，需与 extractor.py _write_chunk 保持同等过滤。
                 if not _is_quality_chunk(t[:120]):
                     continue
+                # iter956: pool_causal_reasoning_gate — 对齐 extractor.py 的碎片门控
+                # 根因（数据驱动，2026-05-06）：extractor_pool 路径缺少 causal_chain/reasoning_chain
+                #   的 120 字门控和结论词拦截，21 条碎片 chunk（avg 55 字）逃逸写入 DB。
+                #   extractor.py line 3795-3797 有独立的结论词+长度门控，此处同步。
+                if chunk_type in ("causal_chain", "reasoning_chain"):
+                    _t_stripped = t.strip()
+                    # 结论词开头 → 不完整因果链
+                    if _re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:])', _t_stripped):
+                        continue
+                    # <120 字短句 → 独立碎片无检索价值
+                    if len(_t_stripped) < 120:
+                        continue
+                    # 连接词短句（推理过渡）
+                    if _re.match(r'^(?:但是|不过|然而|而且|并且|也就是说|换言之|即)\s*', _t_stripped) and len(_t_stripped) < 80:
+                        continue
                 imp = base_importance
                 if throttle_active:
                     imp = round(imp * importance_factor, 3)
