@@ -5300,9 +5300,14 @@ def main():
                     _dp_7d_exclude = set(cid for cid, cnt in _dp_7d.items() if cnt >= _dp_7d_ceil)
                     _dp_all_exclude = _sh_top_k_ids | _dp_7d_exclude
                     _dp_exclude = ",".join(f"'{x}'" for x in _dp_all_exclude) if _dp_all_exclude else "''"
+                    # iter998: diversity_probe_include_global — 与 iter969 fallback_include_global 对齐
+                    # 根因（数据驱动，2026-05-06）：22-chunk 库 20 次 skipped_same_hash，
+                    #   diversity_probe 只查 project=? 排除 6 个 global chunk，候选池枯竭。
+                    #   db_ultimate_fallback 已包含 global（iter969），此处遗漏。
+                    # 修复：加 OR project='global'，扩大候选池打破 hash 锁定。
                     _dp_rows = conn.execute(
                         f"SELECT id, summary, content, chunk_type, importance, access_count "
-                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                         f"AND id NOT IN ({_dp_exclude}) "
                         f"ORDER BY access_count ASC, importance DESC LIMIT 10",
                         (project,)

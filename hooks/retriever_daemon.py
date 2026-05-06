@@ -5129,9 +5129,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _dp_7d_exclude = set(cid for cid, cnt in _dp_7d.items() if cnt >= _dp_7d_ceil)
                 _dp_all_exclude = _sh_top_k_ids | _dp_7d_exclude
                 _dp_exclude = ",".join(f"'{x}'" for x in _dp_all_exclude) if _dp_all_exclude else "''"
+                # iter998: diversity_probe_include_global — 与 iter969 fallback_include_global 对齐
+                # 根因（数据驱动，2026-05-06）：小库 diversity_probe 只查 project=?，
+                #   排除 global chunk 导致候选池枯竭，same_hash 无法打破。
                 _dp_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
-                    f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                     f"AND id NOT IN ({_dp_exclude}) "
                     f"ORDER BY access_count ASC, importance DESC LIMIT 10",
                     (project,)
