@@ -5171,6 +5171,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if not _fb_cap:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                                if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d]
+                # iter1038: fallback_ceiling_escalate — small_db 全灭时放宽 ceiling +2 兜底
+                # 根因（数据驱动，2026-05-07）：24-chunk 库 11/24 chunk 7d>=4，
+                #   ceiling=4 全灭 → _fb_pool=None → ultimate_fallback 盲选不相关知识。
+                # 修复：ceiling +2 重试，优先选最相关的被suppress知识（同步 retriever.py）。
+                if not _fb_cap and _db_chunk_count < 100:
+                    _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
+                               if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d + 2]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
                 _fb_pool = _fb_cap if _fb_cap else None
                 # iter939: fallback_relevance_floor — 低相关性时不强制注入噪声（sync retriever.py）
