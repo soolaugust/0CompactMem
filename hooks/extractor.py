@@ -1337,7 +1337,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 #   "top5 chunk 垄断度" — "垄断 chunk" 拦截不到 "垄断度"
                 #   "/.spec-workflow/approvals/" — 纯文件路径 tool_insight 无知识价值
                 #   "因：昨天创建这条待办时只打了 travel" — todo 标签调试记录
-                "垄断度", ".spec-workflow/", "status-pending 标签"]
+                "垄断度", ".spec-workflow/", "status-pending 标签",
+                # iter1012: ceiling_active_noise — 迭代器度量快照逃逸
+                # 数据驱动（2026-05-07）："FTS5 噪声密度降 12%（94→83 active chunks）"
+                #   逃逸原因："active chunks" 是 memory-os 内部度量关键词。
+                "active chunks", "pair 路径"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter944: code_expr_gate — 代码条件表达式/数组索引碎片拦截
