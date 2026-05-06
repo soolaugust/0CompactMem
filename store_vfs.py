@@ -2122,6 +2122,21 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
         except Exception:
             pass
         return  # 静默拒绝，不抛异常（与 LSM deny 语义一致）
+    # ── iter973: content_min_density_gate — content 过短且无增量时拒绝 ──────
+    # 根因（数据驱动，2026-05-06）：17 个 ac=0 碎片 chunk 逃逸所有上层 gate 写入 DB，
+    #   共同特征：content<120 字且 content≈summary（无信息增量）。占 FTS 23% 搜索空间。
+    # 修复：VFS 层终极防线——content 存在且 <50 字 + 与 summary 相同 → 拒绝。
+    #   有 content_override 或 content 远大于 summary 时不受影响（wiki import/聚合场景）。
+    _content_973 = (d.get("content") or "").strip()
+    _summary_973 = (d.get("summary") or "").strip()
+    if _content_973 and len(_content_973) < 50 and _content_973 == _summary_973:
+        return
+    # ── iter973b: vfs_ephemeral_type_gate — 对齐 extractor 的 _EPHEMERAL_TYPES ──
+    # 根因（数据驱动，2026-05-06）：writer.py 直接调用 insert_chunk 绕过 _write_chunk 的
+    #   _EPHEMERAL_TYPES 检查，5 条 conversation_summary 碎片经此路径写入 DB。
+    # 修复：VFS 层统一拦截临时类型，任何路径不可绕过。
+    if d.get("chunk_type") in ("prompt_context", "conversation_summary"):
+        return
     # ── iter536: seccomp_filter — 语义碎片清洗 ────────────────────────
     # OS 类比：seccomp BPF (Will Drewry, 2012) — syscall 入口过滤，
     # 在 vfs_write_protect 物理检查之后执行语义检查（JSON 残留/截断 token）。
