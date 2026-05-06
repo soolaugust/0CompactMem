@@ -2445,10 +2445,17 @@ def main():
                     _dp_factor *= 2.0
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
                 # iter1004: type_concentration_penalty — 群体垄断额外衰减
+                # iter1005: progressive_type_penalty — 按个体 7d 计数累进衰减
+                # 根因（数据驱动，2026-05-06）：固定 *0.6 对 7d=6 和 7d=1 一视同仁，
+                #   高频 chunk 打折后仍胜出（6*0.6=3.6 vs 新知识 1*1.0），无法让位。
+                # 修复：阈值放宽 >0.30 + >=2 chunk（覆盖更多垄断场景），
+                #   penalty = 0.7^(个体7d-1)：7d=1→1.0, 7d=2→0.7, 7d=4→0.34, 7d=6→0.17
                 _ct = chunk.get("chunk_type", "")
                 _tc_info = _type_7d_conc.get(_ct)
-                if _tc_info and _tc_info[0] > 0.40 and _tc_info[1] >= 3:
-                    score *= 0.6  # 高集中度 type 额外 40% 衰减
+                if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2:
+                    _chunk_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
+                    if _chunk_7d > 1:
+                        score *= 0.7 ** (_chunk_7d - 1)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
