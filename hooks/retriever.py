@@ -3444,8 +3444,16 @@ def main():
                 #   7d=3-4 chunk 被 final_gate suppress 后被 fallback 重新选中。对齐消除逃逸。
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵 suppress 后 fallback 逃逸
                 _fb_hd_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync final_gate
+                # iter1008: fallback_global_ceiling_sync — 对齐 suppress_final_gate global 逻辑
+                # 根因（数据驱动，2026-05-06）：global chunk (memory验证,ac=6,7d=4)
+                #   被 suppress_final_gate 拦截(阈值=2)，但 fallback ceiling=5 → 逃逸。
+                # 修复：global ac>=4 chunk 用 per-chunk ceiling = max(2, base-2)，对齐 final_gate。
+                def _fb_hd_chunk_ceiling(c):
+                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        return max(2, _fb_hd_ceiling - 2)
+                    return _fb_hd_ceiling
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
-                              if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_ceiling
+                              if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
                 # 根因（数据驱动，2026-05-06）：cap 为空时回退 _pre_suppress_top_k_hd（无过滤），
@@ -3484,8 +3492,13 @@ def main():
             #   修复：从 final 中排除 7d >= ceiling 的 chunk，对齐 suppress_final_gate。
             if not top_k and final:
                 _pebf_ceiling_hd = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
+                # iter1008: fallback_global_ceiling_sync — iter677 path 同步
+                def _pebf_chunk_ceiling_hd(c):
+                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        return max(2, _pebf_ceiling_hd - 2)
+                    return _pebf_ceiling_hd
                 _pebf_cands_hd = [(s, c) for s, c in final
-                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling_hd
+                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceiling_hd(c)
                                   and s >= 0.20]
                 if _pebf_cands_hd:
                     _pebf_best_hd = _pebf_cands_hd[0]
@@ -5113,8 +5126,13 @@ def main():
                 _fb_24h = _rt663_24h if '_rt663_24h' in dir() and _rt663_24h else _recent_24h_counts
                 # iter1000: fallback_ceiling_align — tiny 3→5 sync final_gate
                 _fb_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)
+                # iter1008: fallback_global_ceiling_sync — FULL path 同步
+                def _fb_chunk_ceiling(c):
+                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        return max(2, _fb_ceiling - 2)
+                    return _fb_ceiling
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                           if _fb_7d.get(c.get("id", ""), 0) < _fb_ceiling
+                           if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)
                            and _fb_24h.get(c.get("id", ""), 0) < 3]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
                 _fb_pool = _fb_cap if _fb_cap else None
