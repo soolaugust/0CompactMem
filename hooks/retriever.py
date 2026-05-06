@@ -5221,7 +5221,12 @@ def main():
                 #   不检查 7d → 垄断 chunk 经 rotation 逃逸 suppress。
                 # 修复：候选过滤加 7d >= ceiling 排除（与 iter927 对齐）。
                 _sh_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else {}
-                _sh_7d_ceil = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+                # iter992: rotation_7d_relax — 放宽 rotation 路径的 7d 排除阈值
+                # 根因（数据驱动，2026-05-06）：22 次 skipped_same_hash 中 rotation 全未触发，
+                #   因 7d_ceil=3 排除了 85-chunk 库中大部分活跃 chunk → 候选池枯竭。
+                #   rotation 目的是打破 hash 锁定，不需要和 suppress 同样严格。
+                # 修复：ceil 3→5（tiny_db）/ 5→7（small_db），给 rotation 更多候选空间。
+                _sh_7d_ceil = 5 if _db_chunk_count < 50 else (7 if _db_chunk_count < 100 else 7)
                 _sh_alt_cands = [(s, c) for s, c in _pre_suppress_top_k
                                  if c.get("id", "") not in _sh_top_k_ids_set
                                  and _sh_7d_src.get(c.get("id", ""), 0) < _sh_7d_ceil]
@@ -5258,7 +5263,8 @@ def main():
                     #   suppress_final_gate 拦截的垄断 chunk（7d>=3），轮转到的知识用户已反复看过。
                     # 修复：排除 7d >= suppress 阈值的 chunk，确保轮转到真正新鲜的知识。
                     _dp_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else {}
-                    _dp_7d_ceil = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+                    # iter992: rotation_7d_relax — 同步放宽 diversity_probe 的 7d 排除
+                    _dp_7d_ceil = 5 if _db_chunk_count < 50 else (7 if _db_chunk_count < 100 else 7)
                     _dp_7d_exclude = set(cid for cid, cnt in _dp_7d.items() if cnt >= _dp_7d_ceil)
                     _dp_all_exclude = _sh_top_k_ids | _dp_7d_exclude
                     _dp_exclude = ",".join(f"'{x}'" for x in _dp_all_exclude) if _dp_all_exclude else "''"
