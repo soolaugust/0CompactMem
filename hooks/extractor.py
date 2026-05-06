@@ -1463,8 +1463,9 @@ def _is_quality_chunk(summary: str) -> bool:
         r'(?:访问率|零访问|噪声比|命中率|skip.rate|注入率)\s*[：:]\s*[\d.]+%?[\s()\/\d]*→',
         re.I
     )
+    # iter978: fix \S{0,6} regex gap — "零访问 chunk" 有空格在中间导致不匹配
     _ITER_OPS_REPORT = re.compile(
-        r'^(?:删除|清理|移除|GC)\s*\d+\s*(?:个|条)?\s*\S{0,6}(?:噪声|chunk|trace|碎片)|'
+        r'^(?:删除|清理|移除|GC)\s*\d+\s*(?:个|条)?\s*\S{0,10}\s*(?:噪声|chunk|trace|碎片|知识|条目)|'
         r'^数据改动[：:]\s*(?:删除|清理|移除|新增|合并)',
         re.I
     )
