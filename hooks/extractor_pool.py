@@ -434,6 +434,19 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                     # 连接词短句（推理过渡）
                     if _re.match(r'^(?:但是|不过|然而|而且|并且|也就是说|换言之|即)\s*', _t_stripped) and len(_t_stripped) < 80:
                         continue
+                # iter962: pool_decision_quality_gate — decision 需含决策动词/技术锚点
+                # 根因（数据驱动，2026-05-06）：pool 路径 decision 只过 _is_quality_chunk，
+                #   不检查决策语义密度。"我们的代码没有 bug"(11字) 等无决策价值短句逃逸写入。
+                #   对齐 extractor.py _is_quality_decision：需含动词/锚点/对比才通过。
+                if chunk_type == "decision":
+                    _td = t.strip()
+                    if not (_re.search(r'(?:选择|决定|采用|推荐|替代|改用|放弃|因为|所以|根因|不选|不用|废弃|最终方案)', _td)
+                            or _re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|md)\b', _td)
+                            or _re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', _td)
+                            or _re.search(r'`[^`]+`', _td)
+                            or _re.search(r'(?:→|->)\s*\d', _td)
+                            or _re.search(r'(?:而非|而不是|不是.*而是|相比.*更|比.*更好)', _td)):
+                        continue
                 imp = base_importance
                 if throttle_active:
                     imp = round(imp * importance_factor, 3)
