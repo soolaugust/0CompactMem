@@ -2495,7 +2495,7 @@ def main():
                 #   根因（数据驱动，2026-05-06）：85-chunk 库中 13/21 活跃 chunk 7d>=3 被 suppress，
                 #   candidates=10 全灭 → 40% 空召回。85 chunk 库日均 1 session 使用同一知识是正常频率。
                 #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
-                _suppress_7d_thresh = 3 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter990: small_db 4/3→6/4
+                _suppress_7d_thresh = 5 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter1000: tiny_db 3→5 去垄断反转
                 # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
                 if chunk.get("project", "") == "global":
                     _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
@@ -3331,7 +3331,7 @@ def main():
                     _cross = (_cp != project and _cp != "global")
                     _is_global = (_cp == "global")
                     if _hd_tiny_db:
-                        _t = 3  # iter971: tiny 4→3 去垄断
+                        _t = 5  # iter1000: tiny 3→5 去垄断反转
                     elif _hd_small_db:
                         _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
@@ -3382,7 +3382,7 @@ def main():
                 # 根因（数据驱动，2026-05-05）：hard_deadline fallback ceiling=5 但 final_gate 阈值=3，
                 #   7d=3-4 chunk 被 final_gate suppress 后被 fallback 重新选中。对齐消除逃逸。
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵 suppress 后 fallback 逃逸
-                _fb_hd_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
+                _fb_hd_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync final_gate
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_ceiling
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
@@ -4839,7 +4839,7 @@ def main():
                     _cross = (_cp != project and _cp != "global")
                     _is_global = (_cp == "global")
                     if _sf663_tiny_db:
-                        _t = 3  # iter971: tiny 4→3 去垄断
+                        _t = 5  # iter1000: tiny 3→5 去垄断反转
                     elif _sf663_small_db:
                         _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
@@ -4893,7 +4893,7 @@ def main():
                 _cross = (_cp != project and _cp != "global")
                 _is_global = (_cp == "global")
                 if _fg887_tiny:
-                    _t = 3  # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
+                    _t = 5  # iter1000: tiny 3→5 去垄断反转（sync suppress_final_gate）
                 elif _fg887_small:
                     _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                 else:
@@ -4941,7 +4941,7 @@ def main():
                 # iter960: pair_7d_align_final_gate_v2 — tiny_db 5→4 堵 pair 逃逸
                 # 根因（数据驱动，2026-05-06）：7d=4 chunk 被 suppress_final_gate(4) 拦截后
                 #   经 pair 路径逃逸（pair lim=5 > final_gate=4）。对齐消除 1-gap 逃逸窗口。
-                _p7d_lim = 4 if _sf663_tiny_db else (5 if score >= 0.5 else 4) if _sf663_small_db else (3 if score >= 0.5 else 3)  # iter990: small_db pair 4/3→5/4
+                _p7d_lim = 6 if _sf663_tiny_db else (7 if score >= 0.5 else 5) if _sf663_small_db else (6 if score >= 0.5 else 4)  # iter1000: pair_7d sync final_gate+1
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
@@ -5047,8 +5047,8 @@ def main():
                 #   修复：用 _rt663_7d（如已计算）替代 _recent_7d_counts，ceiling 对齐 final_gate。
                 _fb_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _fb_24h = _rt663_24h if '_rt663_24h' in dir() and _rt663_24h else _recent_24h_counts
-                # iter971: fallback_ceiling_align — tiny 4→3 去垄断
-                _fb_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+                # iter1000: fallback_ceiling_align — tiny 3→5 sync final_gate
+                _fb_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_7d.get(c.get("id", ""), 0) < _fb_ceiling
                            and _fb_24h.get(c.get("id", ""), 0) < 3]
@@ -5445,7 +5445,7 @@ def main():
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
                     # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                    _fb_lite_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                    _fb_lite_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
                                     if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_ceiling
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < 3]
@@ -5829,7 +5829,7 @@ def main():
         #   解决闭包快照 _recent_7d_counts 在 session 内不更新 + 无 session-dedup 的问题。
         if top_k and len(top_k) > 1 and not _micro_db:
             _omf_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-            _omf_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+            _omf_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
             _omf_filtered = [(s, c) for s, c in top_k
                              if _omf_7d_src.get(c.get("id", ""), 0) < _omf_ceiling]
             if _omf_filtered:

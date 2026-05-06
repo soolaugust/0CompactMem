@@ -3723,7 +3723,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断
                 # iter990: small_db_7d_relax_v3 — small_db 4/3→6/4（sync retriever.py）
                 #   根因：85-chunk 库 13/21 活跃 chunk 7d>=3 被 suppress → 40% 空召回
-                elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672_tiny else (6 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)):
+                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672_tiny else (6 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)):  # iter1000: tiny 3→5
                     score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 elif (chunk[_CI_AC] or 0) >= 12:
@@ -3825,7 +3825,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter882: 7d_tighten_monopoly — sync FTS path
                 # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 # iter990: small_db_7d_relax_v3 — daemon dict path 同步
-                elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)):
+                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)):  # iter1000: tiny 3→5
                     score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 elif (chunk.get("access_count", 0) or 0) >= 12:
@@ -4814,9 +4814,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cp = c[_CI_CP] or ""
                     _cross = (_cp != project and _cp != "global")
                     if _sf663d_tiny_db:
-                        _t = 3  # iter971: tiny 4→3 去垄断
+                        _t = 5  # iter1000: tiny 3→5 去垄断反转
                     elif _sf663d_small_db:
-                        _t = 4 if s >= 0.5 else 3
+                        _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
@@ -4848,9 +4848,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cp = c[_CI_CP] or ""
                 _cross = (_cp != project and _cp != "global")
                 if _fg887d_tiny:
-                    _t = 3  # iter971: tiny 4→3 去垄断
+                    _t = 5  # iter1000: tiny 3→5 去垄断反转
                 elif _fg887d_small:
-                    _t = 4 if s >= 0.5 else 3
+                    _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
                 else:
                     _t = 5 if s >= 0.5 else 3
                 return max(2, _t - 2) if _cross else _t
@@ -4965,7 +4965,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _fb_7d_d = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
                 _fb_24h_d = _rt663d_24h if '_rt663d_24h' in dir() and _rt663d_24h else _recent_24h_counts
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                _fb_ceiling_d = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                _fb_ceiling_d = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d
                            and _fb_24h_d.get(c[_CI_ID], 0) < 3]
