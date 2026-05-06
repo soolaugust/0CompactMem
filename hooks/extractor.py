@@ -2405,6 +2405,17 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 特征：以 - 或 -- 开头的 CLI flag 格式，无知识价值。
     if not content_override and re.match(r'^-{1,2}[\w-]+=', summary.lstrip()):
         return
+    # iter984: ephemeral_realtime_gate — 实时行情/股票数据拒绝写入
+    # 数据驱动（2026-05-06）：c05860a8 "创业板指 5日涨幅 -1.16%≤1%，跳过扫描"
+    #   是纯实时市场数据快照，隔天即无效，无持久知识价值。
+    if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线)\s*[-\d.]+%', summary):
+        return
+    # iter985: en_short_fragment_gate — 纯英文短碎片 design_constraint 拒绝
+    # 数据驱动（2026-05-06）：c61eaecc "need SCX_TASK_OFF_TASKS"(4词)、
+    #   c60d1009 "and the existing sched_ext_dead() handles..."(英文对话片段)。
+    #   无 content_override 的纯英文 chunk <50字 = 缺乏独立语义的邮件/对话碎片。
+    if not content_override and len(summary) < 50 and not re.search(r'[\u4e00-\u9fff]', summary):
+        return
     # iter961: summary_min_density_gate — 无 content_override 时 summary 过短拒绝
     # 根因（数据驱动，2026-05-06）：2 条 design_constraint ac=0（"内核 panic，不需要 counter"
     #   20字 / "- 这是 Tejun 明确要求的，无推断" 16字）通过 <15 门控但检索价值极低。
