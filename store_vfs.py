@@ -1054,11 +1054,31 @@ def fts5_checkpoint(conn: sqlite3.Connection) -> dict:
             conn.execute("DELETE FROM memory_chunks_fts WHERE rowid=?", (fts_rowid,))
         stats["orphans_removed"] = len(orphans)
 
+    # Phase 1.5: 清理 SWAPPED chunk 的 FTS 条目
+    # iter995: swapped_fts_cleanup — SWAPPED chunk 不应被 FTS 检索命中
+    # 根因（数据驱动，2026-05-06）：3 条 chunk_state='SWAPPED' 仍有 FTS 条目，
+    #   导致 PA fts5_covers_all_chunks 失败（FTS=83 vs ACTIVE=80）。
+    #   设置 chunk_state 的路径未同步清理 FTS → 孤儿索引累积。
+    _has_state_col = conn.execute(
+        "SELECT COUNT(*) FROM pragma_table_info('memory_chunks') WHERE name='chunk_state'"
+    ).fetchone()[0]
+    if _has_state_col:
+        swapped_fts = conn.execute("""
+            SELECT f.rowid FROM memory_chunks_fts f
+            JOIN memory_chunks m ON CAST(f.rowid_ref AS INTEGER) = m.rowid
+            WHERE m.chunk_state != 'ACTIVE'
+        """).fetchall()
+        for (fts_rowid,) in swapped_fts:
+            conn.execute("DELETE FROM memory_chunks_fts WHERE rowid=?", (fts_rowid,))
+        stats["orphans_removed"] += len(swapped_fts)
+
     # Phase 2: 补建缺失条目（chunk 存在但 FTS5 无记录）
     # OS 类比：e2fsck Phase 3 — 重建缺失的目录条目
-    missing = conn.execute("""
+    # iter995: 只补建 ACTIVE chunk（SWAPPED 不应在 FTS 中）
+    _active_filter = "AND m.chunk_state='ACTIVE'" if _has_state_col else ""
+    missing = conn.execute(f"""
         SELECT m.rowid, m.summary, m.content, m.tags FROM memory_chunks m
-        WHERE m.summary != '' AND NOT EXISTS (
+        WHERE m.summary != '' {_active_filter} AND NOT EXISTS (
             SELECT 1 FROM memory_chunks_fts f WHERE CAST(f.rowid_ref AS INTEGER) = m.rowid
         )
     """).fetchall()
