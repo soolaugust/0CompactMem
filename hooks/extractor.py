@@ -1331,7 +1331,13 @@ def _is_quality_chunk(summary: str) -> bool:
                 #   "修复（4 处，<10 行改动）"/"条件：positive[0][0] >= 0.15"
                 #   "imp_pair_top1_gate"/"score<0.10 占比从 14.8%"
                 #   根因："修复：" 前缀只拦截冒号形式，括号形式逃逸；代码索引 [0][0] 无覆盖。
-                "修复（", "score<", "占比从"]
+                "修复（", "score<", "占比从",
+                # iter948: gc_5_residual_noise — 5 条 ac=0 噪声逃逸根因补漏
+                # 数据驱动（2026-05-06）：
+                #   "top5 chunk 垄断度" — "垄断 chunk" 拦截不到 "垄断度"
+                #   "/.spec-workflow/approvals/" — 纯文件路径 tool_insight 无知识价值
+                #   "因：昨天创建这条待办时只打了 travel" — todo 标签调试记录
+                "垄断度", ".spec-workflow/", "status-pending 标签"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter944: code_expr_gate — 代码条件表达式/数组索引碎片拦截
