@@ -3311,7 +3311,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (5 if _hd_tiny_db else 5)]  # iter946: pair_7d_relax_tiny — 配对放宽(3/4→5/5)，补充上下文非主注入
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 4)]  # iter947: pair_7d_tighten — 对齐 suppress_final_gate(3/4) 堵 pair 逃逸
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -3950,8 +3950,8 @@ def main():
                 #   但 diversity_pair_from_db 不检查 7d → 经分钟轮转逃逸注入。24h 5x。
                 # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
                 _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-                # iter946: pair_7d_relax_tiny — 配对放宽 7d ceiling(3/4/5→5/5/6)
-                _div_7d_ceiling = 5 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 6)
+                # iter947: pair_7d_tighten — diversity_pair 7d ceiling 对齐 suppress_final_gate(3/4/5)
+                _div_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
@@ -4825,10 +4825,10 @@ def main():
                 _p7d = _rt663_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663_tiny_db else (3 if score >= 0.5 else 2) if _sf663_small_db else (3 if score >= 0.5 else 2)
                 # iter936: pair_7d_align_final_gate — 4/6/5/5→3/4/3/3 对齐 suppress_final_gate
-                # iter946: pair_7d_relax_tiny — 配对放宽 7d 阈值（同步 db_diversity_pair）
-                # 根因：tiny_db 7d=3 导致 40% chunk 不可配对→56% 单条注入。
-                #   配对非主注入，放宽到 5 允许 7d=3-4 chunk 补充上下文。
-                _p7d_lim = 5 if _sf663_tiny_db else (5 if score >= 0.5 else 4) if _sf663_small_db else (4 if score >= 0.5 else 3)
+                # iter947: pair_7d_tighten — 对齐 suppress_final_gate 堵 pair 逃逸
+                # 数据驱动（2026-05-06）：7d=4 chunk 中 6/13 全部经 pair 路径逃逸（single=0, pair=4）
+                #   iter946 将 pair 放宽到 5 导致 suppress_final_gate(3) 失效。回退对齐 daemon。
+                _p7d_lim = 3 if _sf663_tiny_db else (4 if score >= 0.5 else 3) if _sf663_small_db else (3 if score >= 0.5 else 3)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
@@ -4895,15 +4895,11 @@ def main():
                 # iter920: fix NameError — _sf663_tiny_db 仅在 suppress_final_gate(line 4687) 内定义，
                 #   LITE 路径或 try 失败时不存在 → NameError 被 except 吞掉 → pair 零触发。
                 _dp895_tiny = _sf663_tiny_db if '_sf663_tiny_db' in dir() else (_db_chunk_count < 50)
-                # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值（同 iter914）
-                # iter946: pair_7d_relax_tiny — 小库配对放宽 7d 阈值 3→5
-                # 根因（数据驱动，2026-05-06）：40-chunk 库 16/40=40% 被 7d>=3 suppress，
-                #   配对候选池=主注入候选池（24/40），iter832/842/895 配对全部失败→56% 单条注入。
-                #   配对是补充上下文（非主注入），可容忍更高重复度。
-                # 修复：tiny_db pair 7d 阈值 3→5，允许 7d=3-4 chunk 作为配对候选。
-                #   主注入仍用 final_gate 7d=3 控制垄断，pair 放宽不影响主注入频率。
+                # iter947: pair_7d_tighten — 对齐 suppress_final_gate 堵 pair 逃逸
+                # 数据驱动（2026-05-06）：pair 7d 放宽(5/5/6)使 suppress_final_gate(3/4/5)失效，
+                #   6/13 高频 chunk 全经 pair 注入(single=0,pair=4)。回退对齐 daemon(3/4/5)。
                 _dp895_small = _sf663_small_db if '_sf663_small_db' in dir() else (_db_chunk_count < 100)
-                _dp895_lim = 5 if _dp895_tiny else (5 if _dp895_small else 6)
+                _dp895_lim = 3 if _dp895_tiny else (4 if _dp895_small else 5)
                 _dp895_ok = [r for r in _dp895_rows
                              if _dp895_7d.get(r[0], 0) < _dp895_lim
                              and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh]
