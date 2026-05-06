@@ -2189,7 +2189,7 @@ def main():
                     _lac2_conn = _lac2_sql.connect(str(STORE_DB))
                     for row in _lac2_conn.execute(
                         "SELECT id, COALESCE(access_count,0) FROM memory_chunks "
-                        "WHERE COALESCE(access_count,0) >= 15"
+                        "WHERE COALESCE(access_count,0) >= 10"  # iter980: 15→10 支持渐进衰减
                     ).fetchall():
                         _live_ac_cache[row[0]] = row[1]
                     _lac2_conn.close()
@@ -2248,7 +2248,7 @@ def main():
                     _acc_ee = _get_live_ac(chunk.get("id", ""))
                     if _acc_ee is None:
                         _acc_ee = chunk.get("access_count", 0) or 0
-                    if _acc_ee >= 30:
+                    if _acc_ee >= 15:  # iter980: 30→15 对齐主路径
                         return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
@@ -2317,9 +2317,19 @@ def main():
             _acc = _get_live_ac(chunk.get("id", ""))
             if _acc is None:
                 _acc = chunk.get("access_count", 0) or 0
-            if not _micro_db and _acc >= 30:
+            # iter980: saturation_tighten — 降低绝对 suppress 阈值 + 渐进衰减
+            # 根因（数据驱动，2026-05-06）：top6 chunk 占 55% 注入（shadow_traces 197/143/143…），
+            #   但 access_count 仅 10-12（update_accessed 频次远低于实际注入次数），
+            #   原阈值 >=30 永远不触发。7d suppress 窗口滑动后垄断 chunk 每周重新注入 3 次。
+            # 修复：suppress 阈值 30→15，新增 10-15 渐进衰减区间 score*=0.3-0.6。
+            #   AC=10 chunk 立即受 0.6 衰减，AC=12 受 0.4，AC>=15 永久 suppress。
+            #   让长尾低频知识有机会进入 top-K。
+            if not _micro_db and _acc >= 15:
                 score = 0.0
                 _hard_suppressed = True
+            elif not _micro_db and _acc >= 10:
+                # 渐进衰减：AC=10→*0.6, AC=11→*0.5, AC=12→*0.4, AC=13→*0.3, AC=14→*0.2
+                score *= max(0.2, 0.6 - 0.1 * (_acc - 10))
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
             # OS 类比：NUMA remote node penalty — acc 越高越像"远端内存"，成本高于收益。
