@@ -4838,12 +4838,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
-                top_k = [(s, c) for s, c in top_k
-                         if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
-                         and _rt663d_24h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
-                         # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
-                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                         and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)]
+                # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5052
+                # 根因（数据驱动，2026-05-07）：<=5 chunk 项目经 daemon 路径时 suppress_final_gate
+                #   无 micro_db 豁免 → global chunk 被 7d suppress 全灭。FULL/LITE 已有 bypass。
+                if _db_chunk_count > 5:
+                    top_k = [(s, c) for s, c in top_k
+                             if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
+                             and _rt663d_24h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
+                             # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
+                             # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                             and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4856,7 +4860,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # ── iter887: suppress_final_gate_closure_fallback — 闭包快照兜底 ──
         # 根因（数据驱动，2026-05-05）：suppress_final_gate 实时 DB 查询在 try/except
         #   中静默失败时，垄断 chunk 逃逸。用启动时闭包快照 _recent_6h/_24h/_7d_counts 兜底。
-        if top_k:
+        # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5073
+        if top_k and _db_chunk_count > 5:
             _pre887d = len(top_k)
             _fg887d_tiny = _db_chunk_count < 50
             _fg887d_small = _db_chunk_count < 100
