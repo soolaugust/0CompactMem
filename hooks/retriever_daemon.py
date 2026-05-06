@@ -3283,6 +3283,35 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter813: 6h merge
                 for _mc, _mv in _rt_6h_d.items():
                     _recent_6h_counts[_mc] = max(_recent_6h_counts.get(_mc, 0), _mv)
+                # iter1024: global_cross_project_suppress — global chunk 跨项目聚合 suppress 计数
+                # 根因（数据驱动，2026-05-07）：global chunk 分散在多项目各注入 1-2 次，
+                #   per-project 计数不触发 suppress，但用户实际 7d 看到多次。
+                # 修复：对 global chunk 做跨项目聚合，取所有项目总和。
+                try:
+                    _global_ids_set = set(r[0] for r in _fb_conn.execute(
+                        "SELECT id FROM memory_chunks WHERE project='global' AND chunk_state='ACTIVE'"
+                    ).fetchall())
+                    if _global_ids_set:
+                        for (_g_tk, _g_ts) in _fb_conn.execute(
+                                "SELECT top_k_json, timestamp FROM recall_traces "
+                                "WHERE injected=1 AND project!=? AND timestamp>?",
+                                (project, _cut_7d,)).fetchall():
+                            if not _g_tk: continue
+                            try:
+                                _g_ids = json.loads(_g_tk)
+                            except Exception: continue
+                            _g_is_24h = _g_ts > _cut_24h if _g_ts else False
+                            _g_is_6h = _g_ts > _cut_6h if _g_ts else False
+                            for _gi in (_g_ids if isinstance(_g_ids, list) else []):
+                                _gc = _gi.get("id","") if isinstance(_gi, dict) else ""
+                                if _gc and _gc in _global_ids_set:
+                                    _recent_7d_counts[_gc] = _recent_7d_counts.get(_gc, 0) + 1
+                                    if _g_is_24h:
+                                        _recent_24h_counts[_gc] = _recent_24h_counts.get(_gc, 0) + 1
+                                    if _g_is_6h:
+                                        _recent_6h_counts[_gc] = _recent_6h_counts.get(_gc, 0) + 1
+                except Exception:
+                    pass
                 _fb_conn.close()
             except Exception:
                 pass
