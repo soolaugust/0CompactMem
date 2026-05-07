@@ -3120,6 +3120,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _recent_6h_counts = {}   # iter813: short_burst_suppress
         _recent_24h_counts = {}  # iter630: hoist defaults outside try — NameError if connect() fails
         _recent_7d_counts = {}   # iter630: same — suppress must degrade to no-op, not crash
+        _last_inject_ts = {}     # iter1071: cooldown — {chunk_id: last_inject_iso_ts}
+        _cutoff_48h = ""         # iter1071: cooldown fallback
+        _cutoff_72h = ""         # iter1071: cooldown fallback
         _effective_bw_window = 30
         _local_bw_window = 30  # iter610: fallback
         _db_chunk_count = 50  # iter797: fallback for tiny/small判定
@@ -3225,7 +3228,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _now648 = _dt648.now(_tz648.utc)
                     _cutoff_6h = (_now648 - _td648(hours=6)).isoformat()  # iter813
                     _cutoff_24h = (_now648 - _td648(hours=24)).isoformat()
+                    _cutoff_48h = (_now648 - _td648(hours=48)).isoformat()  # iter1071
+                    _cutoff_72h = (_now648 - _td648(hours=72)).isoformat()  # iter1071
                     _cutoff_7d = (_now648 - _td648(days=7)).isoformat()
+                    _last_inject_ts = {}  # iter1071: {chunk_id: max_ts}
                     for _cid648, _ts_list in _itl_data.items():
                         _cnt_7d = sum(1 for t in _ts_list if t > _cutoff_7d)
                         _cnt_24h = sum(1 for t in _ts_list if t > _cutoff_24h)
@@ -3236,6 +3242,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _recent_24h_counts[_cid648] = _cnt_24h
                         if _cnt_7d > _recent_7d_counts.get(_cid648, 0):
                             _recent_7d_counts[_cid648] = _cnt_7d
+                        # iter1071: 记录最近一次注入时间（用于 cooldown suppress）
+                        if _ts_list:
+                            _last_inject_ts[_cid648] = max(_ts_list)
             except Exception:
                 pass
             finally:
@@ -3801,7 +3810,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断
                 # iter990: small_db_7d_relax_v3 — small_db 4/3→6/4（sync retriever.py）
                 #   根因：85-chunk 库 13/21 活跃 chunk 7d>=3 被 suppress → 40% 空召回
-                else:
+                if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对，改为独立 guard
                     _7d_base = 5 if _s672_tiny else (6 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)  # iter1000: tiny 3→5
                     # iter1031: global_deep_saturated_suppress — sync daemon _score_chunk
                     if (chunk[_CI_CP] or "") == "global":
@@ -3814,9 +3823,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _7d_base = max(2, _7d_base - 1)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base:
                         score = 0.0
+                # iter1071: injection_cooldown — ac>=7 上次注入后 cooldown 内不再注入
+                if score > 0 and (chunk[_CI_AC] or 0) >= 7 and _cutoff_48h and _last_inject_ts:
+                    _cd_id = chunk[_CI_ID]
+                    _cd_last = _last_inject_ts.get(_cd_id)
+                    if _cd_last:
+                        _cd_cut = _cutoff_72h if (chunk[_CI_AC] or 0) >= 10 else _cutoff_48h
+                        if _cd_last > _cd_cut:
+                            score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
-                elif (chunk[_CI_AC] or 0) >= 12:
+                if score > 0 and (chunk[_CI_AC] or 0) >= 12:
                     score = 0.0
                 elif (chunk[_CI_AC] or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
@@ -3934,7 +3951,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter882: 7d_tighten_monopoly — sync FTS path
                 # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 # iter990: small_db_7d_relax_v3 — daemon dict path 同步
-                else:
+                if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对
                     _7d_base_d2 = 5 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1000: tiny 3→5
                     # iter1031: global_deep_saturated_suppress — sync daemon dict path
                     if (chunk.get("project", "") or "") == "global":
@@ -3947,9 +3964,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _7d_base_d2 = max(2, _7d_base_d2 - 1)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base_d2:
                         score = 0.0
+                # iter1071: injection_cooldown — ac>=7 cooldown suppress (dict path)
+                if score > 0 and (chunk.get("access_count", 0) or 0) >= 7 and _cutoff_48h and _last_inject_ts:
+                    _cd_last_d2 = _last_inject_ts.get(_cid)
+                    if _cd_last_d2:
+                        _cd_cut_d2 = _cutoff_72h if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_48h
+                        if _cd_last_d2 > _cd_cut_d2:
+                            score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
-                elif (chunk.get("access_count", 0) or 0) >= 12:
+                if score > 0 and (chunk.get("access_count", 0) or 0) >= 12:
                     score = 0.0
                 elif (chunk.get("access_count", 0) or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))

@@ -1811,6 +1811,8 @@ def main():
             _recent_24h_counts = {}
             _recent_7d_counts = {}
             _injection_timeline = {}  # {chunk_id: [iso_ts, ...]}
+            _cutoff_48h = ""  # iter1071: cooldown fallback
+            _cutoff_72h = ""  # iter1071: cooldown fallback
             try:
                 if os.path.exists(_INJECTION_TIMELINE_FILE):
                     with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf:
@@ -1819,6 +1821,8 @@ def main():
                 _now647 = _dt647.now(_tz647.utc)
                 _cutoff_6h = (_now647 - _td647(hours=6)).isoformat()  # iter813
                 _cutoff_24h = (_now647 - _td647(hours=24)).isoformat()
+                _cutoff_48h = (_now647 - _td647(hours=48)).isoformat()  # iter1071: cooldown
+                _cutoff_72h = (_now647 - _td647(hours=72)).isoformat()  # iter1071: cooldown
                 _cutoff_7d = (_now647 - _td647(days=7)).isoformat()
                 _pruned = {}  # GC: 丢弃 >7d 的条目
                 for _cid647, _ts_list in _injection_timeline.items():
@@ -2426,6 +2430,22 @@ def main():
             #   85-chunk 库中 ac=5-6 仅 3 个，轻度衰减(*0.8/*0.7)不会空召回。
             # 修复：起始点 7→5，suppress 阈值保持 12。
             #   AC=5→*0.8, AC=6→*0.7, AC=7→*0.6, AC=8→*0.5, ..., AC=11→*0.2, AC>=12 suppress。
+            # iter1071: injection_cooldown — ac>=10 上次注入后 72h 内不再注入
+            # 根因（数据驱动，2026-05-07）：9a2692fd(ac=10) 7d 内注入 4 次，
+            #   因 7d suppress 阈值=2 只在 count>=2 后才生效，第 1 次必通过。
+            #   高 ac chunk 7d GC 归零后"重获新生"→循环垄断。
+            #   Top13 chunk 占 7d 注入 42%，全是 ac>=4 的高频知识。
+            # 修复：基于上次注入时间间隔（而非次数），ac>=10 需间隔 72h，ac>=7 需间隔 48h。
+            #   timeline 中无记录或记录过期不影响（仅有记录且在 cooldown 内才 suppress）。
+            if not _micro_db and _acc >= 7 and _injection_timeline and _cutoff_48h:
+                _cd_id = chunk.get("id", "")
+                _cd_ts_list = _injection_timeline.get(_cd_id)
+                if _cd_ts_list:
+                    _cd_last = max(_cd_ts_list)
+                    _cd_cutoff = _cutoff_72h if _acc >= 10 else _cutoff_48h
+                    if _cd_last > _cd_cutoff:
+                        score = 0.0
+                        _hard_suppressed = True
             if not _micro_db and _acc >= 12:
                 score = 0.0
                 _hard_suppressed = True
