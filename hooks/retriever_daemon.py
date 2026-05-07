@@ -3849,7 +3849,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _cd_is_global_d:
                             _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_10d
                         else:
-                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
+                            # iter1111: local_cooldown_5d — ac=4-6 cooldown 48h→5d
+                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_5d)
                         if _cd_last > _cd_cut:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
@@ -4003,7 +4004,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _cd_is_global_d2:
                             _cd_cut_d2 = _cutoff_14d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_10d
                         else:
-                            _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
+                            # iter1111: local_cooldown_5d
+                            _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_5d)
                         if _cd_last_d2 > _cd_cut_d2:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
@@ -5324,7 +5326,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _fgl:
                         _fcut = _cutoff_14d if _fac >= 10 else _cutoff_10d
                     else:
-                        _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_48h)
+                        # iter1111: local_cooldown_5d
+                        _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_5d)
                     return _fts <= _fcut
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_cooldown_ok_d(c)

@@ -2519,7 +2519,12 @@ def main():
                     if _cd_is_global:
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else _cutoff_10d
                     else:
-                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else _cutoff_48h)
+                        # iter1111: local_cooldown_5d — ac=4-6 non-global cooldown 48h→5d
+                        # 根因（数据驱动，2026-05-07）：import-d5600(ac=4) 7d注入3次，
+                        #   48h cooldown 允许每2天注入1次→7d=3-4次→占62-chunk库注入位60%。
+                        #   ac>=4 已有 4+ 次访问历史，边际信息低，48h 过短致循环垄断。
+                        # 修复：ac=4-6 cooldown 48h→5d，7d 内最多 1-2 次，与 global 对齐。
+                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else _cutoff_5d)
                     if _cd_last > _cd_cutoff:
                         score = 0.0
                         _hard_suppressed = True
