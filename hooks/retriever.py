@@ -6086,8 +6086,32 @@ def main():
                     def _lt1042_6h_thresh(c):
                         _a6 = (c.get("access_count", 0) or 0)
                         return 1 if (_a6 >= 7 or (c.get("chunk_type") == "design_constraint" and _a6 >= 5) or (c.get("project") == "global" and _a6 >= 4)) else 2
+                    # iter1092: lite_cooldown_gate — LITE final_gate 补充 cooldown 检查
+                    # 根因（数据驱动，2026-05-07）：93cbc985(ac=6,"memory验证路径") 同 session
+                    #   56min 内注入 2 次（5/6 01:37→02:33）。_score_chunk cooldown 设 score=0，
+                    #   但 suppress_fallback_lite 从 _pre_suppress_top_k_lite 恢复被 suppress chunk。
+                    #   LITE final_gate 只检 6h/24h/7d 计数，无 cooldown 时间戳检查 → 逃逸。
+                    # 修复：final_gate 过滤中加入 cooldown 排除，堵住 fallback 逃逸根源。
+                    _cut758_48h = (_now758 - _td758(hours=48)).isoformat()
+                    _cut758_10d = (_now758 - _td758(days=10)).isoformat()
+                    _cut758_14d = (_now758 - _td758(days=14)).isoformat()
+                    def _lt1092_cooldown_ok(c):
+                        _cac = c.get("access_count", 0) or 0
+                        _cgl = (c.get("project", "") == "global")
+                        if not (_cgl or _cac >= 4):
+                            return True
+                        _cts = _itl758.get(c["id"], [])
+                        _clast = max(_cts) if _cts else (c.get("last_accessed", "") if _cac >= 7 else "")
+                        if not _clast:
+                            return True
+                        if _cgl:
+                            _ccut = _cut758_14d if _cac >= 10 else _cut758_10d
+                        else:
+                            _ccut = _cut758_14d if _cac >= 10 else (_cut758_10d if _cac >= 7 else _cut758_48h)
+                        return _clast <= _ccut
                     top_k = [(s, c) for s, c in top_k
-                             if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < _lt1042_6h_thresh(c)  # iter1042
+                             if _lt1092_cooldown_ok(c)
+                             and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < _lt1042_6h_thresh(c)  # iter1042
                              and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)
                              # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
