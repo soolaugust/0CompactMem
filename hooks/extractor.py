@@ -1180,6 +1180,48 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
     return not has_ext_anchor
 
 
+def _is_metric_report_noise(summary: str, chunk_type: str) -> bool:
+    """iter1118: pool_metric_gate_sync — 迭代器数值报告噪声检测（可复用函数）。
+    返回 True 表示是纯指标变化/统计报告，应拒绝写入。
+    根因（数据驱动，2026-05-08）：extractor_pool._write_chunks 路径缺少 metric_report_gate，
+      "zero-access: 11.8% → 0%"(ac=0,decision) 逃逸写入——含 N%→M% 模式但无外部锚点。
+      提取为独立函数供 extractor.py _write_chunk 和 extractor_pool.py 共用。
+    """
+    if chunk_type not in ("decision", "reasoning_chain", "causal_chain"):
+        return False
+    _has_metric = re.search(
+        r'(?:\d+%?\s*[→➜→>]\s*\d+%?'
+        r'|\d+/\d+\s*[=＝(（]'
+        r'|残留\s*\d+%'
+        r'|iter\d{3}.*(?:已|自愈|清理|修复)'
+        r'|(?:占比|注入率|命中率|逃逸率)\s*[:：]?\s*\d+%'
+        r'|(?:旧|新)公式.*\d+%'
+        r'|\d+%\s*(?:降到|升到|降至|升至)'
+        r'|(?:从|自)\s*\d+%\s*(?:降|升|变)'
+        r'|\d+\s*次.*\(\d+%\)'
+        r'|\d+\s*次.*\d+\s*次.*\d+%)',
+        summary
+    )
+    if not _has_metric:
+        return False
+    _has_ext = re.search(
+        r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
+        r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
+        r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
+        r'公众号|微信|curl|HTTP|API|gRPC)',
+        summary, re.I
+    )
+    if not _has_ext:
+        return True
+    # 外部锚点+系统内部术语共存 → 仍拒绝
+    if re.search(
+        r'(?:chunk|注入|suppress|fallback|top.?k|触发|阈值|垄断|逃逸|空召回)',
+        summary
+    ):
+        return True
+    return False
+
+
 def _is_quality_chunk(summary: str) -> bool:
     """
     写入前质量过滤——返回 False 则丢弃。
@@ -2694,45 +2736,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         # B: 测试验证标记 — 正例/负例 + 通过标记
         if re.search(r'(?:正例|负例|测试[：:])', summary) and re.search(r'[✅✓→]', summary):
             return
-    # iter897: iter_metric_report_gate — 拦截迭代器数值对比/统计报告
-    # 数据驱动（2026-05-05）：今日写入 11 chunk 中 10 条是迭代器自身产出的指标对比
-    #   如 "噪声 chunk 占比 19%→3%"、"exp_decay 除数 /3→/2"、"单条注入率 54%"。
-    #   逃逸 self-ref gate 原因：用"正常语言"表达内部概念，术语匹配不足。
-    # 修复：检测"数值变化/百分比对比"模式 + 无外部领域锚点 → 拒绝。
-    #   仅对 decision/reasoning_chain/causal_chain 生效（不影响 procedure/qe）。
-    if chunk_type in ("decision", "reasoning_chain", "causal_chain"):
-        _has_metric_pattern = re.search(
-            r'(?:\d+%?\s*[→➜→>]\s*\d+%?'  # X→Y / X%→Y%
-            r'|\d+/\d+\s*[=＝(（]'          # X/Y= / X/Y(
-            r'|残留\s*\d+%'                  # 残留 N%
-            r'|iter\d{3}.*(?:已|自愈|清理|修复)'  # iter8xx 已自愈
-            r'|(?:占比|注入率|命中率|逃逸率)\s*[:：]?\s*\d+%'  # 指标: N%
-            r'|(?:旧|新)公式.*\d+%'          # 旧/新公式 N%
-            r'|\d+%\s*(?:降到|升到|降至|升至)'  # N% 降到
-            r'|(?:从|自)\s*\d+%\s*(?:降|升|变)'  # 从 N% 降/升
-            r'|\d+\s*次.*\(\d+%\)'  # iter1022: N次...M次(X%) 统计报告格式
-            r'|\d+\s*次.*\d+\s*次.*\d+%)',  # iter1022: N次中M次 X% 变体
-            summary
-        )
-        if _has_metric_pattern:
-            _has_ext_domain = re.search(
-                r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
-                r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
-                r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
-                r'公众号|微信|curl|HTTP|API|gRPC)',
-                summary, re.I
-            )
-            if not _has_ext_domain:
-                return
-            # iter922: internal_stat_with_domain_anchor — 外部锚点+系统内部术语共存时仍拒绝
-            # 数据驱动（2026-05-06）："PE 分析 chunk 7d=6次...top6 占 78% 注入位"
-            #   含 "PE"（匹配 Proxy.Execution）但实质是 memory-os 内部统计，无用户价值。
-            # 修复：同时含系统内部术语 → 拒绝（外部锚点仅是引用名而非讨论领域本身）。
-            if _has_ext_domain and re.search(
-                r'(?:chunk|注入|suppress|fallback|top.?k|触发|阈值|垄断|逃逸|空召回)',
-                summary
-            ):
-                return
+    # iter897→1118: iter_metric_report_gate — 拦截迭代器数值对比/统计报告
+    # iter1118: 提取为 _is_metric_report_noise() 可复用函数，与 extractor_pool 共用。
+    if _is_metric_report_noise(summary, chunk_type):
+        return
     importance_map = {
         "decision": 0.85,
         "reasoning_chain": 0.80,
