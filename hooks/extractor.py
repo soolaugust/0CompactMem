@@ -1683,7 +1683,7 @@ def _is_quality_chunk(summary: str) -> bool:
         r'score.{0,3}0|hard.?cap|hard.?gate|oom_adj|'
         # iter624: 扩展 self-ref gate — 拦截迭代器决策记录中的高频漏网模式
         # 根因：ac>=50/逃逸率/垄断/iter\d+/zero_access 等迭代术语只匹配 0-1 次→漏网
-        r'ac[>=]+\d|iter\d{3}|垄断|逃逸|burst|saturation|'
+        r'ac[>=]+\d|iter\d{3,}|垄断|逃逸|burst|saturation|'
         r'zero.access|relevance.{0,3}[<>0]|slot.?位|注入占比|'
         # iter661: ghost_gc/幽灵/孤岛化 — daemon 清理逻辑的常见漏网词
         r'ghost.?gc|幽灵条目|幽灵.*chunk|孤岛化|'
@@ -1723,7 +1723,13 @@ def _is_quality_chunk(summary: str) -> bool:
         # iter958: session_suppress_internal_gate — 拦截 suppress 内部运维因果链
         # 根因（数据驱动，2026-05-06）：3 条 ac=0 causal_chain 关于 session-dedup/7d timeline
         #   内部机制，含 "7d timeline 记录"/"session 内多次检索"/"suppress 误杀" 等。
-        r'timeline.*记录|session.*检索.*chunk|suppress.*误杀|session.dedup)',
+        r'timeline.*记录|session.*检索.*chunk|suppress.*误杀|session.dedup|'
+        # iter1063: agent_infra_gate — hook/skill 内部实现细节拦截
+        # 根因（数据驱动，2026-05-07）：2 条 ac=0 causal_chain 关于 coach skill 内部
+        #   "Stop Hook 报错退出"/"prompt_scores 聚合"，不含用户领域知识。
+        #   特征：Stop.?Hook/prompt_scores/growth_signals 等 agent infra 术语。
+        r'Stop.?Hook|prompt_scores|growth_signals|hook.*报错|hook.*退出|'
+        r'skill[：:].*(?:改为|聚合|触发)|/coach\s)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
