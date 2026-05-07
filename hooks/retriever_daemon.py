@@ -4974,10 +4974,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             return 2
                         return max(2, _t - (2 if _g_ac >= 4 else 1))
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
+                    # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                     _lac = c[_CI_AC] or 0
-                    if _lac >= 10:
-                        return max(2, _t - 2)
-                    elif _lac >= 7:
+                    if _lac >= 7:
+                        return 2
+                    elif _lac >= 5:
                         return max(2, _t - 1)
                     return _t
                 # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5052
@@ -5053,10 +5054,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return 2
                     return max(2, _t - (2 if _g_ac >= 4 else 1))
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
+                # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 _lac = c[_CI_AC] or 0
-                if _lac >= 10:
-                    return max(2, _t - 2)
-                elif _lac >= 7:
+                if _lac >= 7:
+                    return 2
+                elif _lac >= 5:
                     return max(2, _t - 1)
                 return _t
             # iter1019: saturated_24h_tighten — sync suppress_final_gate
@@ -5183,16 +5185,26 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _fb_24h_d = _rt663d_24h if '_rt663d_24h' in dir() and _rt663d_24h else _recent_24h_counts
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
                 _fb_ceiling_d = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
+                # iter1053: fallback_ceiling_align_local_deep — per-chunk ceiling 对齐 suppress thresh
+                def _fb_ceiling_d_fn(c):
+                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        return max(2, _fb_ceiling_d - 2)
+                    _lac = c[_CI_AC] or 0
+                    if _lac >= 7:
+                        return 2
+                    elif _lac >= 5:
+                        return max(2, _fb_ceiling_d - 1)
+                    return _fb_ceiling_d
                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                           if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d
+                           if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d_fn(c)
                            and _fb_24h_d.get(c[_CI_ID], 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
                 # iter1032: fallback_relax_24h — sync retriever.py
                 # 根因（数据驱动，2026-05-07）：31% 空召回。24h>=3 排除所有 FTS 候选 → 空召回。
                 # 修复：_fb_cap 全灭时只保留 7d ceiling（去掉 24h 过滤），保持 FTS 相关性。
                 if not _fb_cap:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                               if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d]
+                               if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d_fn(c)]
                 # iter1038: fallback_ceiling_escalate — small_db 全灭时放宽 ceiling +2 兜底
                 # 根因（数据驱动，2026-05-07）：24-chunk 库 11/24 chunk 7d>=4，
                 #   ceiling=4 全灭 → _fb_pool=None → ultimate_fallback 盲选不相关知识。

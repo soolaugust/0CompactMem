@@ -3629,10 +3629,11 @@ def main():
                     if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
                         return max(2, _fb_hd_ceiling - 2)
                     # iter1009: local_saturated_suppress — fallback ceiling sync
+                    # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 10:
-                        return max(2, _fb_hd_ceiling - 2)
-                    elif _lac >= 7:
+                    if _lac >= 7:
+                        return 2
+                    elif _lac >= 5:
                         return max(2, _fb_hd_ceiling - 1)
                     return _fb_hd_ceiling
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
@@ -5327,10 +5328,11 @@ def main():
                         return 2
                     return max(2, _t - (2 if _g_ac >= 4 else 1))
                 # iter1009: local_saturated_suppress — sync closure_fallback
+                # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 _l_ac = c.get("access_count", 0) or 0
-                if _l_ac >= 10:
-                    return max(2, _t - 2)
-                elif _l_ac >= 7:
+                if _l_ac >= 7:
+                    return 2
+                elif _l_ac >= 5:
                     return max(2, _t - 1)
                 return _t
             # iter1020: suppress_final_gate_24h_saturated_sync — closure_fallback 同步
@@ -5492,10 +5494,11 @@ def main():
                     if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
                         return max(2, _fb_ceiling - 2)
                     # iter1009: local_saturated_suppress — FULL fallback ceiling sync
+                    # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 10:
-                        return max(2, _fb_ceiling - 2)
-                    elif _lac >= 7:
+                    if _lac >= 7:
+                        return 2
+                    elif _lac >= 5:
                         return max(2, _fb_ceiling - 1)
                     return _fb_ceiling
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
