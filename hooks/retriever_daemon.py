@@ -5535,6 +5535,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     f"ORDER BY access_count ASC, importance DESC LIMIT 10",
                     (project,)
                 ).fetchall()
+                # iter1133: diversity_probe_exhaustion_fallback — 7d_exclude 枯竭时放宽重试
+                # 根因（数据驱动，2026-05-08）：20 次 same_hash skip 中 diversity_probe 0 次触发，
+                #   7d_exclude 过滤掉全部候选 → 候选池枯竭 → 21% 请求零注入。
+                # 修复：候选池空时去掉 7d_exclude 重查，宁可注入已见过的也不零注入。
+                if not _dp_rows:
+                    _dp_rows = conn.execute(
+                        f"SELECT id, summary, content, chunk_type, importance, access_count "
+                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
+                        f"AND id NOT IN ({','.join(repr(x) for x in _sh_top_k_ids) if _sh_top_k_ids else repr('')}) "
+                        f"ORDER BY access_count ASC, importance DESC LIMIT 10",
+                        (project,)
+                    ).fetchall()
                 if _dp_rows:
                     _dp_idx = _diversity_counter[0] % len(_dp_rows)
                     _diversity_counter[0] += 1
