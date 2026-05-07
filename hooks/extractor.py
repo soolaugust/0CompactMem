@@ -2581,6 +2581,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：无 content_override 时 summary < 30 → 拒绝。有 content_override 时不受影响。
     if not content_override and len(summary) < 30:
         return
+    # iter1103: content_override_min_gate — content_override 路径也需最小长度
+    # 根因（数据驱动，2026-05-07）：00bce5d7 conversation_summary content_override=14字
+    #   "云端 Claude 怎么启动"（纯疑问句碎片），绕过 summary<30 gate（该 gate 只拦无 override）。
+    #   content_override 路径由 conv_summary/causal_chain 聚合调用，
+    #   聚合后仍 <30 字说明输入源本身就是不可独立检索的碎片。
+    # 修复：content_override 非空时检查其长度 <30 → 拒绝。
+    if content_override and len(content_override.strip()) < 30:
+        return
     # iter607: _write_chunk 内置 quality gate — 最终防线
     # 根因（数据驱动，2026-05-03）：causal_chain/decision 绕过调用方的 _is_quality_chunk
     # 检查直接写入 store（6 个零访问迭代器噪声 chunk 在 gate 部署前写入）。
