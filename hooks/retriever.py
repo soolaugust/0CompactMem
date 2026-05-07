@@ -6169,6 +6169,20 @@ def main():
         # 根因（数据驱动，2026-05-06）：73% 注入 score<0.15，useful feedback 最低=0.15。
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
         _score_floor = 0.12
+        # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
+        # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
+        #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
+        #   真正相关时 score>=0.5（如操作飞书时 score=0.99）。
+        # 修复：global + design_constraint + ac>=5 → floor 提升到 0.25。
+        #   只过滤低相关性泛化词匹配，不影响真正相关的召回。
+        _GLOBAL_SAT_FLOOR = 0.25
+        if len(top_k) > 0:
+            top_k = [(s, c) if not (
+                c.get("project") == "global"
+                and c.get("chunk_type") == "design_constraint"
+                and (c.get("access_count") or 0) >= 5
+                and s < _GLOBAL_SAT_FLOOR
+            ) else (0.0, c) for s, c in top_k]
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_pre_len = len(top_k)
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
