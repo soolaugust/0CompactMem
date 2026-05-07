@@ -3622,9 +3622,14 @@ def main():
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                                   if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)]
                 # iter1038: fallback_ceiling_escalate — hard_deadline path sync
+                # iter1045: escalate_saturated_block — ac>=7 不参与 escalate
+                #   根因（数据驱动，2026-05-07）：PE chunk(ac=7,7d=7) 经 escalate(ceiling 3+2=5)
+                #   逃逸 suppress，但 ac>=7 已深度内化，注入零信息增量。
+                #   修复：escalate 仅适用 ac<7 chunk，高内化 chunk 严守原 ceiling。
                 if not _fb_hd_cap and _db_chunk_count < 100:
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
-                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2]
+                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2
+                                  and (c.get("access_count", 0) or 0) < 7]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
                 # 根因（数据驱动，2026-05-06）：cap 为空时回退 _pre_suppress_top_k_hd（无过滤），
                 #   7d>=3 的垄断 chunk 经此路径逃逸 suppress_final_gate。
@@ -5459,9 +5464,11 @@ def main():
                 #   ceiling=4(ac>=7 local) 全灭 → _fb_pool=None → ultimate_fallback 盲选不相关知识。
                 #   这些 chunk 是用户活跃项目的核心知识，suppress 全灭=系统对密集 session 无响应。
                 # 修复：ceiling +2 重试，优先选最相关的被suppress知识（而非盲选全局无关知识）。
+                # iter1045: escalate_saturated_block — ac>=7 不参与 escalate（同 hard_deadline path）
                 if not _fb_cap and _db_chunk_count < 100:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                               if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c) + 2]
+                               if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c) + 2
+                               and (c.get("access_count", 0) or 0) < 7]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
                 _fb_pool = _fb_cap if _fb_cap else None
                 # iter939: fallback_relevance_floor — 低相关性时不强制注入噪声
