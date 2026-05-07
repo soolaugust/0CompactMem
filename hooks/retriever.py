@@ -5896,7 +5896,12 @@ def main():
                     _cross = (_cp != project and _cp != "global")
                     _is_global = (_cp == "global")
                     if _sf758_tiny_db:
-                        _t = 3
+                        # iter1064: lite_tiny_db_7d_align_full — 对齐 FULL suppress_final_gate(5)
+                        # 根因（数据驱动，2026-05-07）：23-chunk 库 ac<5 chunk(Patch格式,7d=4)
+                        #   LITE base=3 → 7d=3 即 suppress，FULL base=5 → 7d=5 才 suppress。
+                        #   PSI downgrade 时用户看到更少相关知识（多 2 个 chunk 被过早 suppress）。
+                        #   ac>=5/7 有独立收紧逻辑，base 只影响 ac<5 的新 chunk。
+                        _t = 5
                     elif _sf758_small_db:
                         _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
