@@ -2544,7 +2544,16 @@ def main():
                         #   ac>=4 已有 4+ 次访问历史，边际信息低，48h 过短致循环垄断。
                         # 修复：ac=4-6 cooldown 48h→5d，7d 内最多 1-2 次，与 global 对齐。
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else _cutoff_5d)
-                    if _cd_last > _cd_cutoff:
+                    # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
+                    # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
+                    #   cooldown=5d 同时到期(5/11)→同时解禁→瞬时争抢注入位→再垄断。
+                    #   Top10 chunk 占 7d 34% 注入位，全是同期 cooldown 到期后解禁。
+                    # 修复：基于 chunk_id hash 的 deterministic jitter(0-48h)，
+                    #   同批到期 chunk 错峰解禁，注入位竞争分散到 2 天窗口内。
+                    #   hash 确保同一 chunk 每次 jitter 相同（deterministic），不影响单测。
+                    _cd_jitter_h = (hash(_cd_id) % 49)  # 0-48 hours jitter
+                    _cd_cutoff_adj = (_dt647.fromisoformat(_cd_cutoff) - _td647(hours=_cd_jitter_h)).isoformat()
+                    if _cd_last > _cd_cutoff_adj:
                         score = 0.0
                         _hard_suppressed = True
             if (not _micro_db or _cd_is_cross_project) and _acc >= 12:
@@ -3889,6 +3898,9 @@ def main():
                     else:
                         # iter1112: lite_cooldown_5d_sync — ac=4-6 cooldown 48h→5d
                         _ccut = _cutoff_14d if _cac >= 10 else (_cutoff_10d if _cac >= 7 else _cutoff_5d)
+                    # iter1145: staggered_cooldown_jitter — sync hard_deadline path
+                    _cjh = (hash(c.get("id", "")) % 49)
+                    _ccut = (_dt647.fromisoformat(_ccut) - _td647(hours=_cjh)).isoformat()
                     return _clast <= _ccut
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
@@ -6408,6 +6420,9 @@ def main():
                             #   ac=4-6 chunk 经 LITE 路径每 48h 可合法注入→7d=3-4次垄断。
                             # 修复：ac=4-6 cooldown 48h→5d 对齐 FULL 路径（L2527 _cutoff_5d）。
                             _ccut = _cut758_14d if _cac >= 10 else (_cut758_10d if _cac >= 7 else _cut758_5d)
+                        # iter1145: staggered_cooldown_jitter — sync LITE path
+                        _cjh = (hash(c.get("id", "")) % 49)
+                        _ccut = (_dt758.fromisoformat(_ccut) - _td758(hours=_cjh)).isoformat()
                         return _clast <= _ccut
                     top_k = [(s, c) for s, c in top_k
                              if _lt1092_cooldown_ok(c)
