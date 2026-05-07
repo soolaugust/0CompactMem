@@ -2421,8 +2421,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 根因（数据驱动，2026-05-06）：2 条 causal_chain 完全相同（间隔 2ms），
     #   因 _txn_managed=True 跳过 commit → already_exists 查不到未提交行 → 重复写入。
     # 修复：进程内 set 记录已写入的 (chunk_type, summary_normalized)，无需等待 commit。
+    # iter1062: cross_type_dedup — dedup key 去掉 chunk_type
+    # 根因（数据驱动，2026-05-07）：4 个 ac=0 chunk 中 2 对内容相同但 chunk_type 不同
+    #   （reasoning_chain vs conversation_summary），因 dedup key 含 type 未被拦截。
+    # 修复：key 只看 normalized summary，同内容不同类型视为重复。
     import re as _re963
-    _dedup_key = (chunk_type, _re963.sub(r'\s+', '', summary.lower()))
+    _dedup_key = _re963.sub(r'\s+', '', summary.lower())
     if _dedup_key in _write_chunk_seen:
         return
     if len(_write_chunk_seen) > 500:
