@@ -3005,9 +3005,11 @@ def main():
                 max_rank = 1.0
 
             final = []
+            _pre_score_relevance = []  # iter1084: suppress 前 relevance 快照（兜底空召回）
             fts_ids = set()
             for chunk in fts_results:
                 relevance = chunk["fts_rank"] / max_rank
+                _pre_score_relevance.append((relevance, chunk))
                 score = _score_chunk(chunk, relevance)
                 final.append((score, chunk))
                 fts_ids.add(chunk.get("id", ""))
@@ -3380,6 +3382,7 @@ def main():
                 relevance_scores = normalize(raw_scores)
 
                 final = []
+                _pre_score_relevance_hd = []  # iter1084: suppress 前 relevance 快照（兜底空召回）
                 for i, chunk in enumerate(chunks):
                     relevance = relevance_scores[i]
                     # iter131: global 项目 chunk 在 BM25 fallback 路径中施加强化折扣
@@ -3388,6 +3391,7 @@ def main():
                             and chunk.get("project", "") == "global"
                             and _bm25_global_discount < 1.0):
                         relevance = relevance * _bm25_global_discount
+                    _pre_score_relevance_hd.append((relevance, chunk))
                     score = _score_chunk(chunk, relevance)
                     final.append((score, chunk))
             # else: use_fts=True (TOT activated) — final/candidates_count already set above
@@ -3800,8 +3804,18 @@ def main():
                 _pebf_cands_hd = [(s, c) for s, c in final
                                   if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceiling_hd(c)
                                   and s >= 0.20]
+                # iter1084: relevance_fallback — 当 suppress 全灭时用原始 relevance 兜底
+                # 根因（数据驱动，2026-05-07）：29% 空召回(26/87)，_score_chunk 把
+                #   9-34 个候选全部 suppress 为 0 → s>=0.20 全滤除。
+                #   原始 relevance（BM25 语义相关度）未被 suppress 污染，
+                #   能准确反映与当前 query 的匹配度。仍尊重 7d ceiling 防垄断。
+                if not _pebf_cands_hd and _pre_score_relevance_hd:
+                    _pebf_cands_hd = [(r, c) for r, c in _pre_score_relevance_hd
+                                      if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceiling_hd(c)
+                                      and r >= 0.20
+                                      and (c.get("access_count", 0) or 0) < 30]
                 if _pebf_cands_hd:
-                    _pebf_best_hd = _pebf_cands_hd[0]
+                    _pebf_best_hd = max(_pebf_cands_hd, key=lambda x: x[0])
                     _pebf_score_hd = _pebf_best_hd[0]
                     _pebf_id_hd = _pebf_best_hd[1].get("id", "")
                     top_k = [_pebf_best_hd]
@@ -5027,8 +5041,14 @@ def main():
                 _pebf_cands = [(s, c) for s, c in final
                                if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceil(c)
                                and s >= 0.20]
+                # iter1084: relevance_fallback — FULL 路径 suppress 全灭兜底
+                if not _pebf_cands and _pre_score_relevance:
+                    _pebf_cands = [(r, c) for r, c in _pre_score_relevance
+                                   if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceil(c)
+                                   and r >= 0.20
+                                   and (c.get("access_count", 0) or 0) < 30]
                 if _pebf_cands:
-                    _pebf_best = _pebf_cands[0]  # final 已按 score desc 排序
+                    _pebf_best = max(_pebf_cands, key=lambda x: x[0])
                     _pebf_score = _pebf_best[0]
                     _pebf_id = _pebf_best[1].get("id", "")
                     top_k = [_pebf_best]
