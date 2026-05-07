@@ -1165,7 +1165,10 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise|'
         r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|单条注入|'
         r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|7d|24h|6h|量化预期|SWAPPED|timeline|suppress_final|'
-        r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率)',
+        r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率|'
+        # iter1127: chunk_type_ref_gate — chunk 类型名/内部字段名作为讨论主题时拦截
+        r'causal_chain|reasoning_chain|excluded_path|design_constraint|'
+        r'zero.access|access.count|拒绝写入|一律拒绝|chunk\s*数)',
         summary
     ))
     if hits < 2:
