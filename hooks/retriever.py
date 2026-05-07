@@ -2573,7 +2573,12 @@ def main():
                 #   间隔 56min-5h。6h 阈值=2 意味着允许 2 次（count=1 < 2 不 suppress）。
                 #   ac>=7 表明 agent 已多次内化，同 6h 窗口重复注入零信息增量。
                 _6h_ac = chunk.get("access_count", 0) or 0
-                _6h_thresh = 1 if _6h_ac >= 7 else 2  # iter865→1042: 高 ac 收紧
+                # iter1047: constraint_saturated_6h — design_constraint ac>=5 也享受 6h_thresh=1
+                # 数据驱动（2026-05-07）：93cbc985(memory验证路径,ac=6) 6h 内被注入 2x，
+                #   因 ac=6 < 7 走 thresh=2 逃逸。design_constraint 是规则类知识，
+                #   ac>=5 已充分内化，6h 重复注入零信息增量。
+                _6h_is_constraint = chunk.get("chunk_type") == "design_constraint"
+                _6h_thresh = 1 if (_6h_ac >= 7 or (_6h_is_constraint and _6h_ac >= 5)) else 2
                 if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3533,9 +3538,10 @@ def main():
                     if c.get("project") == "global" and _a >= 4:
                         return 1
                     return _b
-                # iter1042: saturated_6h_cap — hard_deadline 路径同步 ac>=7 → 6h 阈值=1
+                # iter1042+1047: saturated_6h_cap — hard_deadline 路径同步
                 def _hd1042_6h_thresh(c):
-                    return 1 if (c.get("access_count", 0) or 0) >= 7 else 2
+                    _hac = c.get("access_count", 0) or 0
+                    return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5)) else 2
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
                          and _recent_24h_counts.get(c["id"], 0) < _hd1019_24h_thresh(s, c)
@@ -4597,8 +4603,10 @@ def main():
                     return False
                 # iter813: 6h burst suppress (constraint path)
                 # iter818: tiny_db_6h_relax — 6h 分级
+                # iter1047: constraint_saturated_6h — design_constraint ac>=5 → thresh=1
                 _cst_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50
-                if _recent_6h_counts.get(_cid, 0) >= 2:  # iter865: 6h_tighten_tiny
+                _cst_6h_thresh = 1 if _ac_abs >= 5 else 2  # constraint 通道全为 design_constraint，ac>=5 即内化
+                if _recent_6h_counts.get(_cid, 0) >= _cst_6h_thresh:
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter806: sync small_db_suppress_tighten
@@ -5895,10 +5903,10 @@ def main():
                         return 1
                     return _b
                 if _db_chunk_count > 5:
-                    # iter1042: saturated_6h_cap — LITE 路径同步 ac>=7 → 6h 阈值=1
+                    # iter1042+1047: saturated_6h_cap — LITE 路径同步
                     def _lt1042_6h_thresh(c):
                         _a6 = (c.get("access_count", 0) or 0)
-                        return 1 if _a6 >= 7 else 2
+                        return 1 if (_a6 >= 7 or (c.get("chunk_type") == "design_constraint" and _a6 >= 5)) else 2
                     top_k = [(s, c) for s, c in top_k
                              if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < _lt1042_6h_thresh(c)  # iter1042
                              and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)

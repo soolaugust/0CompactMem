@@ -3774,7 +3774,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter865: 6h_tighten_tiny — tiny_db 3→2（数据驱动：6h=3 逃逸导致垄断）
-                if _recent_6h_counts.get(_cid, 0) >= 2:
+                # iter1042: saturated_6h_cap — ac>=7 → 6h_thresh=1
+                # iter1047: constraint_saturated_6h — design_constraint ac>=5 也享受 thresh=1
+                _6h_thresh_d = 1 if (_ac >= 7 or (chunk[_CI_CT] == "design_constraint" and _ac >= 5)) else 2
+                if _recent_6h_counts.get(_cid, 0) >= _6h_thresh_d:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — 小库统一阈值
                 # iter1019: saturated_24h_tighten — ac>=7 chunk 24h 阈值 -1（sync retriever.py）
@@ -3900,7 +3903,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter865: 6h_tighten_tiny — tiny_db 3→2（统一阈值）
-                if _recent_6h_counts.get(_cid, 0) >= 2:
+                # iter1042+1047: saturated_6h_cap — ac>=7 或 design_constraint ac>=5 → thresh=1
+                _6h_ac_d2 = chunk.get("access_count", 0) or 0
+                _6h_thresh_d2 = 1 if (_6h_ac_d2 >= 7 or (chunk.get("chunk_type") == "design_constraint" and _6h_ac_d2 >= 5)) else 2
+                if _recent_6h_counts.get(_cid, 0) >= _6h_thresh_d2:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — sync
                 # iter1019: saturated_24h_tighten — sync retriever.py
