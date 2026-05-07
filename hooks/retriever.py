@@ -5493,8 +5493,10 @@ def main():
                 from datetime import datetime as _dt663, timezone as _tz663, timedelta as _td663
                 _sf663_conn = _sf663.connect(str(STORE_DB))
                 _sf663_now = _dt663.now(_tz663.utc)
+                _cut663_6h = (_sf663_now - _td663(hours=6)).isoformat()
                 _cut663_24h = (_sf663_now - _td663(hours=24)).isoformat()
                 _cut663_7d = (_sf663_now - _td663(days=7)).isoformat()
+                _rt663_6h = {}
                 _rt663_24h = {}
                 _rt663_7d = {}
                 # iter835: suppress_final_gate_project_scope — 加 project 过滤
@@ -5519,6 +5521,8 @@ def main():
                                 _rt663_7d_sessions.setdefault(_c663, set()).add(_sid663 or "")
                                 if _ts663 and _ts663 > _cut663_24h:
                                     _rt663_24h[_c663] = _rt663_24h.get(_c663, 0) + 1
+                                    if _ts663 > _cut663_6h:
+                                        _rt663_6h[_c663] = _rt663_6h.get(_c663, 0) + 1
                     except Exception:
                         continue
                 _rt663_7d = {k: len(v) for k, v in _rt663_7d_sessions.items()}
@@ -5530,6 +5534,7 @@ def main():
                 _g888_ids = set(r[0] for r in _sf663_conn.execute(
                     "SELECT id FROM memory_chunks WHERE project='global'").fetchall())
                 if _g888_ids:
+                    _g888_6h_c = {}   # iter1139: 6h cross-project for global chunks
                     _g888_24h_c = {}
                     _g888_7d_c = {}  # iter957: session-dedup for global chunks too
                     _g888_7d_sessions = {}
@@ -5544,10 +5549,13 @@ def main():
                                     _g888_7d_sessions.setdefault(_c888id, set()).add(_sid888 or "")
                                     if _ts888 and _ts888 > _cut663_24h:
                                         _g888_24h_c[_c888id] = _g888_24h_c.get(_c888id, 0) + 1
+                                        if _ts888 > _cut663_6h:
+                                            _g888_6h_c[_c888id] = _g888_6h_c.get(_c888id, 0) + 1
                         except Exception:
                             continue
                     _g888_7d_c = {k: len(v) for k, v in _g888_7d_sessions.items()}
                     for _gid888 in _g888_ids:
+                        _rt663_6h[_gid888] = max(_rt663_6h.get(_gid888, 0), _g888_6h_c.get(_gid888, 0))
                         _rt663_24h[_gid888] = max(_rt663_24h.get(_gid888, 0), _g888_24h_c.get(_gid888, 0))
                         _rt663_7d[_gid888] = max(_rt663_7d.get(_gid888, 0), _g888_7d_c.get(_gid888, 0))
                 _sf663_conn.close()
@@ -5628,16 +5636,26 @@ def main():
                     if c.get("project") == "global" and _a >= 4:
                         return 1
                     return _b
+                # iter1139: realtime_6h_suppress — suppress_final_gate 补充实时 6h burst 拦截
+                # 根因（数据驱动，2026-05-08）：import-90139(ac=7) 在同一 6h 窗口内
+                #   被两个不同 session 各注入 1 次（06:27 + 06:54），6h 闭包快照因
+                #   timeline 文件写入滞后无法互见 → 6h suppress 失效。
+                #   实测：7 条 timeline 中 4 次为同 6h 窗口并发 session 逃逸。
+                # 修复：在实时 DB suppress_final_gate 中加 6h 维度（与 hard_deadline 对齐）。
+                def _sf1139_6h_thresh(c):
+                    _hac = c.get("access_count", 0) or 0
+                    return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
-                             if _rt663_24h.get(c["id"], 0) < _sf1020_24h_thresh(s, c)
+                             if _rt663_6h.get(c["id"], 0) < _sf1139_6h_thresh(c)
+                             and _rt663_24h.get(c["id"], 0) < _sf1020_24h_thresh(s, c)
                              # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                              and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
-                                  f"{_pre663 - len(top_k)} chunks (24h/7d realtime)",
+                                  f"{_pre663 - len(top_k)} chunks (6h/24h/7d realtime)",
                                   session_id=session_id, project=project)
             except Exception as _e663:
                 _deferred.log(DMESG_WARN, "retriever",
