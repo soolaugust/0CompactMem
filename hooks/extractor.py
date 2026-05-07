@@ -2569,7 +2569,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         _selfref_hits = len(re.findall(
             r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
             r'hard_suppressed|relevance_fallback|iter\d{3,4}|cooldown|bandwidth|'
-            r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise)',
+            r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise|'
+            r'噪声率?|ac=\d+|chunk.?type|selfref|gate|逃逸|垄断|注入率|单条注入)',
             summary
         ))
         if _selfref_hits >= 2:
