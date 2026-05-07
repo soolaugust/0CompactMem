@@ -5959,9 +5959,22 @@ def main():
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
                     # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
                     _fb_lite_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
+                    # iter1059: lite_fallback_per_chunk_ceiling — 对齐 HD 路径 per-chunk ceiling
+                    # 根因（数据驱动，2026-05-07）：LITE fallback 用固定 ceiling=5，
+                    #   ac>=7 chunk（PE LKMM,7d=5）5<5 不过滤 → 经 fallback 逃逸 suppress。
+                    #   HD 路径有 _fb_hd_chunk_ceiling 对 ac>=7 返回 2，LITE 遗漏。
+                    def _fb_lite_chunk_ceiling(c):
+                        _lac = c.get("access_count", 0) or 0
+                        if c.get("project", "") == "global" and _lac >= 4:
+                            return max(2, _fb_lite_ceiling - 2)
+                        if _lac >= 7:
+                            return 2
+                        elif _lac >= 5:
+                            return max(2, _fb_lite_ceiling - 1)
+                        return _fb_lite_ceiling
                     # iter1027: fallback_24h_align — 对齐 _lt1020_24h_thresh 动态阈值
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
-                                    if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_ceiling
+                                    if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_chunk_ceiling(c)
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)]
                     # iter1057: lite_fallback_no_unfiltered_pool — 对齐 FULL iter916 + HD iter921
                     # 根因（数据驱动，2026-05-07）：_fb_lite_cap 全灭时回退无过滤池，
