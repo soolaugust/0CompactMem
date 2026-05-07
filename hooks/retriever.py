@@ -2443,12 +2443,13 @@ def main():
             #   高 ac chunk 边际信息=0，7d 内重复注入 = 纯噪声。
             # 修复：ac>=10 cooldown=7d（timeline GC 保留窗口内），ac>=7 cooldown=5d。
             #   确保 7d 内最多 1 次注入（首次注入后立即进入 cooldown，不等 suppress count 累积）。
-            # iter1073: global_cooldown_widen — global chunk ac>=4 纳入 cooldown（72h）
-            # 根因（数据驱动，2026-05-07）：feishu CLI(ac=4) 7d注入4次, memory验证(ac=6) 7d注入4次,
-            #   git commit(ac=9,global) 7d注入5次。global chunk cooldown 需 ac>=7 才触发，
-            #   ac=4-6 的 global constraint 已被用户充分内化但无 cooldown 保护。
-            # 修复：global chunk ac>=4 → cooldown 72h；local 保持 ac>=7。
-            _cd_acc_floor = 4 if chunk.get("project") == "global" else 7
+            # iter1076: cooldown_local_widen — non-global cooldown floor 7→5
+            # 根因（数据驱动，2026-05-07）：import-d5600fefe(ac=4,decision) 7d注入4次无cooldown，
+            #   因 non-global floor=7 仅保护 ac>=7。ac=5-6 chunk 已有 saturation 衰减(iter989)
+            #   但无 cooldown 间隔保护，高 relevance 时衰减不足以阻止注入。
+            # 修复：non-global floor 7→5（对齐 saturation_widen 起点），global 保持 4。
+            #   新增层级 ac=5-6→48h cooldown，与 saturation 衰减形成双重保护。
+            _cd_acc_floor = 4 if chunk.get("project") == "global" else 5
             # iter1075: cooldown_cross_project_sync — micro_db bypass 不保护跨项目 chunk
             # 根因（数据驱动，2026-05-07）：9a2692fd(ac=10,proj=git:a0ab16e8cafc) 在
             #   abspath:7e3095aef7a6(cands=5,micro_db) 被注入，cooldown 被 micro_db bypass 跳过。
