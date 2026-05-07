@@ -3828,13 +3828,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1072: cooldown_widen — ac>=10 cooldown 72h→7d, ac>=7 48h→5d
                 # iter1073: global_cooldown_widen — global chunk ac>=4 纳入 cooldown（72h→48h）
                 # iter1078: cooldown_floor_unify — sync daemon floor 7→4
+                # iter1083: global_cooldown_floor_fix — global chunk 绕过 ac_floor
                 _cd_floor_d = 4
-                if score > 0 and (chunk[_CI_AC] or 0) >= _cd_floor_d and _cutoff_48h and _last_inject_ts:
+                _cd_is_global_d = (chunk[_CI_CP] == "global")
+                if score > 0 and (_cd_is_global_d or (chunk[_CI_AC] or 0) >= _cd_floor_d) and _cutoff_48h and _last_inject_ts:
                     _cd_id = chunk[_CI_ID]
                     _cd_last = _last_inject_ts.get(_cd_id)
                     if _cd_last:
                         # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
-                        _cd_is_global_d = (chunk[_CI_CP] == "global")
                         if _cd_is_global_d:
                             _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_5d
                         else:
@@ -3977,12 +3978,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1072: cooldown_widen — ac>=10 cooldown 72h→7d, ac>=7 48h→5d (dict path)
                 # iter1073: global_cooldown_widen — global chunk ac>=4 纳入 cooldown（72h→48h）
                 # iter1078: cooldown_floor_unify — sync daemon dict path floor 7→4
+                # iter1083: global_cooldown_floor_fix — global chunk 绕过 ac_floor
                 _cd_floor_d2 = 4
-                if score > 0 and (chunk.get("access_count", 0) or 0) >= _cd_floor_d2 and _cutoff_48h and _last_inject_ts:
+                _cd_is_global_d2 = (chunk.get("project", "") == "global")
+                if score > 0 and (_cd_is_global_d2 or (chunk.get("access_count", 0) or 0) >= _cd_floor_d2) and _cutoff_48h and _last_inject_ts:
                     _cd_last_d2 = _last_inject_ts.get(_cid)
                     if _cd_last_d2:
                         # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
-                        _cd_is_global_d2 = (chunk.get("project", "") == "global")
                         if _cd_is_global_d2:
                             _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_5d
                         else:

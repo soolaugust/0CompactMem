@@ -2462,7 +2462,14 @@ def main():
             #   与 iter1049 同理：micro_db 保护本项目唯一知识，跨项目 chunk 不应享受此免疫。
             _cd_chunk_proj = chunk.get("project", "")
             _cd_is_cross_project = _cd_chunk_proj != "" and _cd_chunk_proj != project
-            if (not _micro_db or _cd_is_cross_project) and _acc >= _cd_acc_floor and _injection_timeline and _cutoff_48h:
+            # iter1083: global_cooldown_floor_fix — global chunk cooldown 不受 ac_floor 限制
+            # 根因（数据驱动，2026-05-07）：iter1079 意图"global chunk 统一 5d 无论 ac"，
+            #   但 L2465 前提 _acc>=_cd_acc_floor(=4) 使 ac<4 的 global chunk 跳过 cooldown。
+            #   import-d(ac=2,"元能力复用") 5/7 被注入，9d07bb29(ac=3,"用户偏好") 无 cooldown。
+            #   global chunk 全是 design_constraint/procedure，agent 已内化，应无条件 cooldown。
+            # 修复：global chunk 绕过 _cd_acc_floor 检查，对齐 iter1079 意图。
+            _cd_is_global = _cd_chunk_proj == "global"
+            if (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _injection_timeline and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id)
                 if _cd_ts_list:
@@ -2477,7 +2484,6 @@ def main():
                     #   天然高于 per-project chunk，48h cooldown 不够——每48h可合法注入1次→7d=3-4次。
                     #   6 个 global chunk 全是 design_constraint(ac=2~9)，agent 已内化，边际信息≈0。
                     # 修复：global chunk cooldown 统一 5d（无论 ac），7d 内最多 1-2 次注入。
-                    _cd_is_global = _cd_chunk_proj == "global"
                     if _cd_is_global:
                         _cd_cutoff = _cutoff_7d if _acc >= 10 else _cutoff_5d
                     else:
