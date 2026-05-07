@@ -2471,7 +2471,17 @@ def main():
                     # 根因：iter1072 注释说 "ac>=7 48h→5d" 但代码用 _cutoff_72h(72h≠5d)。
                     #   import-90139(ac=7) 72h cooldown 过期后即被重新注入，7d 内累计 7 次。
                     # 修复：ac>=7 cooldown=5d(120h)，确保 7d 内最多 2 次注入。
-                    _cd_cutoff = _cutoff_7d if _acc >= 10 else (_cutoff_5d if _acc >= 7 else _cutoff_48h)
+                    # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
+                    # 根因（数据驱动，2026-05-07）：c9accb7b(飞书CLI,ac=4,global) 7d注入4次，
+                    #   93cbc985(memory验证,ac=6,global) 7d注入4次。global chunk 跨项目召回频率
+                    #   天然高于 per-project chunk，48h cooldown 不够——每48h可合法注入1次→7d=3-4次。
+                    #   6 个 global chunk 全是 design_constraint(ac=2~9)，agent 已内化，边际信息≈0。
+                    # 修复：global chunk cooldown 统一 5d（无论 ac），7d 内最多 1-2 次注入。
+                    _cd_is_global = _cd_chunk_proj == "global"
+                    if _cd_is_global:
+                        _cd_cutoff = _cutoff_7d if _acc >= 10 else _cutoff_5d
+                    else:
+                        _cd_cutoff = _cutoff_7d if _acc >= 10 else (_cutoff_5d if _acc >= 7 else _cutoff_48h)
                     if _cd_last > _cd_cutoff:
                         score = 0.0
                         _hard_suppressed = True

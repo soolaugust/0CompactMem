@@ -3833,7 +3833,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cd_id = chunk[_CI_ID]
                     _cd_last = _last_inject_ts.get(_cd_id)
                     if _cd_last:
-                        _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_5d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
+                        # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
+                        _cd_is_global_d = (chunk[_CI_CP] == "global")
+                        if _cd_is_global_d:
+                            _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_5d
+                        else:
+                            _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_5d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
                         if _cd_last > _cd_cut:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
@@ -3976,7 +3981,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if score > 0 and (chunk.get("access_count", 0) or 0) >= _cd_floor_d2 and _cutoff_48h and _last_inject_ts:
                     _cd_last_d2 = _last_inject_ts.get(_cid)
                     if _cd_last_d2:
-                        _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
+                        # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
+                        _cd_is_global_d2 = (chunk.get("project", "") == "global")
+                        if _cd_is_global_d2:
+                            _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_5d
+                        else:
+                            _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
                         if _cd_last_d2 > _cd_cut_d2:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
