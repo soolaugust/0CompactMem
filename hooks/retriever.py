@@ -3854,7 +3854,8 @@ def main():
                 #   数据驱动（2026-05-06）：PE chunk score=0.071 逃逸 0.05 floor，24h 被注入 5 次。
                 #   score<0.10 说明 FTS5 词汇重叠极低（<1/10），注入无信息增量。
                 # iter996: micro_db_floor_relax — sync hard_deadline path
-                _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                # iter1116: fallback_floor_relax_large_db — sync hard_deadline path
+                _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if _db_chunk_count >= 50 else 0.10)
                 if _fb_hd_pool and max(s for s, _ in _fb_hd_pool) < _fb_hd_floor:
                     _fb_hd_pool = None
                 if _fb_hd_pool:
@@ -5787,7 +5788,12 @@ def main():
                 #   根因（数据驱动，2026-05-06）：abspath:51963532bc1b(1自有+6global)空召回率 100%(9/9)。
                 #   global chunk FTS score 天然低(0.03-0.08)，0.10 floor 全灭 → ultimate_fallback
                 #   ceiling=4 又排除 7d>=4 的 3 个 global → 空召回。小库有知识总比空好。
-                _fb_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                # iter1116: fallback_floor_relax_large_db — >=50 chunk 库 floor 0.10→0.05
+                # 根因（数据驱动，2026-05-08）：kernel(62-chunk) 5/5 下午 3 次空召回。
+                #   top15 chunk 全在 cooldown/suppress 中，剩余候选 FTS score 0.03-0.08，
+                #   _fb_floor=0.10 全灭 → _fb_pool=None → ultimate_fallback 盲选。
+                #   大库 suppress 后候选多，0.05-0.10 弱相关知识好过空召回或盲选。
+                _fb_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if _db_chunk_count >= 50 else 0.10)
                 if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None  # 全部候选相关性极低，不强制注入
                 if _fb_pool:
@@ -6286,7 +6292,8 @@ def main():
                     # iter940: fallback_relevance_floor — LITE 路径同步（此前遗漏）
                     #   数据驱动（2026-05-06）：PE chunk score=0.071 走 LITE fallback 24h 3x 逃逸。
                     # iter996: micro_db_floor_relax — sync LITE path
-                    _fb_lite_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                    # iter1116: fallback_floor_relax_large_db — sync LITE path
+                    _fb_lite_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if _db_chunk_count >= 50 else 0.10)
                     if _fb_lite_pool and max(s for s, _ in _fb_lite_pool) < _fb_lite_floor:
                         _fb_lite_pool = None
                     if _fb_lite_pool:
