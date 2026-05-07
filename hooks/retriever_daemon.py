@@ -5118,11 +5118,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return 1
                     return _b
                 # iter1049: micro_db_cross_project_suppress — micro_db 跨项目 chunk 仍需 suppress
+                # iter1142: micro_db_cross_saturated — ac>=7 阈值 3→1（sync retriever.py）
                 if _db_chunk_count <= 5:
+                    def _d_micro_cross_7d_cap(c):
+                        _mc_ac = c[_CI_AC] or 0
+                        if _mc_ac >= 7:
+                            return 1
+                        if _mc_ac >= 5:
+                            return 2
+                        return 3
                     top_k = [(s, c) for s, c in top_k
                              if (c[_CI_CP] or "") == project
                              or (c[_CI_CP] or "") == "global"
-                             or _rt663d_7d.get(c[_CI_ID], 0) < 3]
+                             or _rt663d_7d.get(c[_CI_ID], 0) < _d_micro_cross_7d_cap(c)]
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2

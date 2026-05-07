@@ -3710,11 +3710,23 @@ def main():
             #   跨项目注入占 75%（6/8 injections），因 micro_db bypass 跳过全部 suppress。
             #   micro_db 保护本项目唯一知识不被 suppress，但跨项目 chunk 不应享受此免疫。
             # 修复：micro_db 时仍对跨项目 chunk 应用 7d>=3 suppress。
+            # iter1142: micro_db_cross_saturated — ac>=7 跨项目 chunk 7d 阈值 3→1
+            # 根因（数据驱动，2026-05-08）：9a2692fd(ac=10) 在 micro_db 项目经固定阈值 3 逃逸，
+            #   timeline 显示 7d=3 时仍注入（WAL 滞后使 _recent_7d_counts=2 < 3）。
+            #   ac>=7 的高内化知识在 micro_db 跨项目场景应更严格 suppress。
+            # 修复：ac>=7 阈值=1（7d 内有任何注入即 suppress），ac>=5 阈值=2。
             if top_k and _db_chunk_count <= 5:
+                def _micro_cross_7d_cap(c):
+                    _mc_ac = c.get("access_count", 0) or 0
+                    if _mc_ac >= 7:
+                        return 1
+                    if _mc_ac >= 5:
+                        return 2
+                    return 3
                 top_k = [(s, c) for s, c in top_k
                          if c.get("project", "") == project
                          or c.get("project", "") == "global"
-                         or _recent_7d_counts.get(c["id"], 0) < 3]
+                         or _recent_7d_counts.get(c["id"], 0) < _micro_cross_7d_cap(c)]
             if top_k and _db_chunk_count > 5:
                 # iter767: tiered_small_db — 分级小库阈值
                 _hd_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50
@@ -6340,6 +6352,21 @@ def main():
                     if c.get("project") == "global" and _a >= 4:
                         return 1
                     return _b
+                # iter1142: micro_db_cross_saturated — LITE 路径同步 hard_deadline
+                # 根因（数据驱动，2026-05-08）：micro_db bypass 跳过整个 LITE final_gate，
+                #   但跨项目高 ac chunk 仍需 suppress（9a2692fd ac=10 在 micro_db 逃逸）。
+                if _db_chunk_count <= 5 and top_k:
+                    def _lt_micro_cross_7d_cap(c):
+                        _mc_ac = c.get("access_count", 0) or 0
+                        if _mc_ac >= 7:
+                            return 1
+                        if _mc_ac >= 5:
+                            return 2
+                        return 3
+                    top_k = [(s, c) for s, c in top_k
+                             if c.get("project", "") == project
+                             or c.get("project", "") == "global"
+                             or sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt_micro_cross_7d_cap(c)]
                 if _db_chunk_count > 5:
                     # iter1042+1047: saturated_6h_cap — LITE 路径同步
                     def _lt1042_6h_thresh(c):
