@@ -2613,6 +2613,20 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             return
         if len(_s_stripped) < 120:
             return
+    # iter1105: iter_progress_report_gate — 迭代器进度汇报拒绝写入
+    # 根因（数据驱动，2026-05-07）：3 个 ac=0 decision chunk 是迭代器向飞书 append 的
+    #   进度条目（"PA 10/10"、"2. 47% 零访问 → ✅ 当前仅 12%"），
+    #   逃逸 selfref_gate（hits<2）和 iter_metric_report_gate（无 N→M 格式）。
+    #   共性：含 PA 评分 / 序号+✅ 进度标记 / "测试零新增" 断言结果。
+    # 修复：结构性模式检测，仅对 decision 类型生效。
+    if chunk_type == "decision" and re.search(
+        r'(?:PA\s*\d+/\d+'
+        r'|^\d+\.\s.*[→✅]'
+        r'|测试零新增失败'
+        r'|零访问.*当前仅)',
+        summary, re.M
+    ):
+        return
     # iter1085: internal_selfref_gate — 纯系统自描述 chunk 拒绝写入
     # 根因（数据驱动，2026-05-07）：4 个 ac=0 噪声逃逸 iter_metric_report_gate，
     #   因无指标变化模式（N→M）但含 ≥2 个系统内部术语（_score_chunk/suppress/候选全灭等）。
