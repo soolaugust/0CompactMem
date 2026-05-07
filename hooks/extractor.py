@@ -2514,7 +2514,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter984: ephemeral_realtime_gate — 实时行情/股票数据拒绝写入
     # 数据驱动（2026-05-06）：c05860a8 "创业板指 5日涨幅 -1.16%≤1%，跳过扫描"
     #   是纯实时市场数据快照，隔天即无效，无持久知识价值。
-    if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线)\s*[-\d.]+%', summary):
+    # iter1080: realtime_gate_widen — 正则放宽，关键词+百分比共现即拦截
+    # 根因（数据驱动，2026-05-07）：fedc79ef "创业板指 5 日涨幅 +3.01%..." 逃逸，
+    #   因 "创业板" 后不紧跟数字（中间隔 "指 5 日涨幅"）。
+    # 修复：关键词和百分比数值在同一 summary 中共现即拦截（不要求紧邻）。
+    if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线|形态识别|通过硬过滤)', summary) \
+       and re.search(r'[-+]?\d+\.?\d*%', summary):
         return
     # iter985: en_short_fragment_gate — 纯英文短碎片 design_constraint 拒绝
     # 数据驱动（2026-05-06）：c61eaecc "need SCX_TASK_OFF_TASKS"(4词)、
