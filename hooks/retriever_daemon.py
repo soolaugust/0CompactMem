@@ -4332,22 +4332,52 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                         if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hd]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
-                    # iter1013: topic_group_dedup (hard_deadline path)
+                    # iter1013+1056: topic_group_dedup (hard_deadline path)
                     if len(top_k) > 1 and _db_chunk_count > 5:
+                        import re as _tgd_hd_re
+                        _TGD_HD_MIN = 3
+                        def _tgd_hd_core(s):
+                            toks = set(_tgd_hd_re.findall(r'[a-z][a-z0-9_]*|[0-9]+', s.lower()))
+                            cn = _tgd_hd_re.sub(r'[^\u4e00-\u9fff]', '', s)
+                            for i in range(len(cn) - 1):
+                                toks.add(cn[i:i + 2])
+                            return toks
                         _tgd_seen_hd = {}
                         _tgd_res_hd = []
+                        _tgd_np_hd = []  # [(id, type, tokens)]
                         for _ts, _tc in top_k:
                             _tsum = (_tc[_CI_SUM] or "")
                             _tkey = _tsum.split("]")[0] + "]" if _tsum.startswith("[") and "]" in _tsum else None
-                            if not _tkey or _tkey not in _tgd_seen_hd:
-                                _tgd_res_hd.append((_ts, _tc))
-                                if _tkey:
-                                    _tgd_seen_hd[_tkey] = _tc[_CI_ID]
-                            else:
-                                if _recent_7d_counts.get(_tc[_CI_ID], 0) < _recent_7d_counts.get(_tgd_seen_hd[_tkey], 0):
-                                    _tgd_res_hd = [(s, c) for s, c in _tgd_res_hd if c[_CI_ID] != _tgd_seen_hd[_tkey]]
+                            if _tkey:
+                                if _tkey not in _tgd_seen_hd:
                                     _tgd_res_hd.append((_ts, _tc))
                                     _tgd_seen_hd[_tkey] = _tc[_CI_ID]
+                                else:
+                                    if _recent_7d_counts.get(_tc[_CI_ID], 0) < _recent_7d_counts.get(_tgd_seen_hd[_tkey], 0):
+                                        _tgd_res_hd = [(s, c) for s, c in _tgd_res_hd if c[_CI_ID] != _tgd_seen_hd[_tkey]]
+                                        _tgd_res_hd.append((_ts, _tc))
+                                        _tgd_seen_hd[_tkey] = _tc[_CI_ID]
+                            else:
+                                _CHAIN_GROUP_HD = {"reasoning_chain", "causal_chain"}
+                                _cid = _tc[_CI_ID]
+                                _ctype = _tc[_CI_CT] or ""
+                                _ctoks = _tgd_hd_core(_tsum)
+                                _matched = None
+                                for _gi, (_gid, _gtype, _gtoks) in enumerate(_tgd_np_hd):
+                                    _type_compat_hd = (_ctype == _gtype or
+                                                      (_ctype in _CHAIN_GROUP_HD and _gtype in _CHAIN_GROUP_HD))
+                                    if _type_compat_hd and len(_ctoks & _gtoks) >= _TGD_HD_MIN:
+                                        _matched = _gi
+                                        break
+                                if _matched is None:
+                                    _tgd_res_hd.append((_ts, _tc))
+                                    _tgd_np_hd.append((_cid, _ctype, _ctoks))
+                                else:
+                                    _gid_m = _tgd_np_hd[_matched][0]
+                                    if _recent_7d_counts.get(_cid, 0) < _recent_7d_counts.get(_gid_m, 0):
+                                        _tgd_res_hd = [(s, c) for s, c in _tgd_res_hd if c[_CI_ID] != _gid_m]
+                                        _tgd_res_hd.append((_ts, _tc))
+                                        _tgd_np_hd[_matched] = (_cid, _ctype, _ctoks)
                         if _tgd_res_hd and len(_tgd_res_hd) < len(top_k):
                             top_k = _tgd_res_hd
                     # iter238: _TYPE_PREFIX hoisted to module level (was local dict, 0.356us → 0.128us)
@@ -5505,29 +5535,64 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}",
                               session_id=session_id, project=project)
 
-        # ── iter1013: topic_group_dedup — 同主题群体去垄断 ─────────────────────
-        # 根因（数据驱动，2026-05-07）：同主题多条各 7d<ceiling 但群体垄断。
-        # 修复：summary [topic] 前缀做 group key，同 topic 最多保留 1 条。
+        # ── iter1013+1046+1056: topic_group_dedup — 同主题群体去垄断 ──────────────
+        # iter1013: [topic] 前缀 group key
+        # iter1046: core_token_dedup — 无前缀同 chunk_type 用核心标识符重叠(>=3)去重
+        # iter1056: cn_bigram_dedup — 加中文 bigram 解决纯中文 chunk 去重失效
         if top_k and len(top_k) > 1 and _db_chunk_count > 5:
+            import re as _tgd_re
+            _TGD_MIN_SHARED = 3
+            def _tgd_core(s):
+                toks = set(_tgd_re.findall(r'[a-z][a-z0-9_]*|[0-9]+', s.lower()))
+                cn = _tgd_re.sub(r'[^\u4e00-\u9fff]', '', s)
+                for i in range(len(cn) - 1):
+                    toks.add(cn[i:i + 2])
+                return toks
             _tgd_seen = {}  # topic_key -> chunk_id
             _tgd_result = []
+            _tgd_np_groups = []  # [(rep_id, chunk_type, core_tokens)]
             for _tgd_s, _tgd_c in top_k:
                 _tgd_sum = (_tgd_c[_CI_SUM] or "")
                 _tgd_key = _tgd_sum.split("]")[0] + "]" if _tgd_sum.startswith("[") and "]" in _tgd_sum else None
-                if not _tgd_key or _tgd_key not in _tgd_seen:
-                    _tgd_result.append((_tgd_s, _tgd_c))
-                    if _tgd_key:
-                        _tgd_seen[_tgd_key] = _tgd_c[_CI_ID]
-                else:
-                    _tgd_cur_7d = _recent_7d_counts.get(_tgd_c[_CI_ID], 0)
-                    _tgd_exist_7d = _recent_7d_counts.get(_tgd_seen[_tgd_key], 0)
-                    if _tgd_cur_7d < _tgd_exist_7d:
-                        _tgd_result = [(s, c) for s, c in _tgd_result if c[_CI_ID] != _tgd_seen[_tgd_key]]
+                if _tgd_key:
+                    if _tgd_key not in _tgd_seen:
                         _tgd_result.append((_tgd_s, _tgd_c))
                         _tgd_seen[_tgd_key] = _tgd_c[_CI_ID]
+                    else:
+                        _tgd_cur_7d = _recent_7d_counts.get(_tgd_c[_CI_ID], 0)
+                        _tgd_exist_7d = _recent_7d_counts.get(_tgd_seen[_tgd_key], 0)
+                        if _tgd_cur_7d < _tgd_exist_7d:
+                            _tgd_result = [(s, c) for s, c in _tgd_result if c[_CI_ID] != _tgd_seen[_tgd_key]]
+                            _tgd_result.append((_tgd_s, _tgd_c))
+                            _tgd_seen[_tgd_key] = _tgd_c[_CI_ID]
+                else:
+                    # iter1046+1056: 无前缀 chunk — core_token(含中文bigram) 同 type 去重
+                    # iter1056: reasoning_chain/causal_chain 视为同一 dedup group
+                    _CHAIN_GROUP = {"reasoning_chain", "causal_chain"}
+                    _cid = _tgd_c[_CI_ID]
+                    _ctype = _tgd_c.get("chunk_type", "") if isinstance(_tgd_c, dict) else ""
+                    _ctoks = _tgd_core(_tgd_sum)
+                    _matched_idx = None
+                    for _gi, (_gid, _gtype, _gtoks) in enumerate(_tgd_np_groups):
+                        _type_compat = (_ctype == _gtype or
+                                        (_ctype in _CHAIN_GROUP and _gtype in _CHAIN_GROUP))
+                        if _type_compat and len(_ctoks & _gtoks) >= _TGD_MIN_SHARED:
+                            _matched_idx = _gi
+                            break
+                    if _matched_idx is None:
+                        _tgd_result.append((_tgd_s, _tgd_c))
+                        _tgd_np_groups.append((_cid, _ctype, _ctoks))
+                    else:
+                        _tgd_cur_7d = _recent_7d_counts.get(_cid, 0)
+                        _gid_m = _tgd_np_groups[_matched_idx][0]
+                        _tgd_exist_7d = _recent_7d_counts.get(_gid_m, 0)
+                        if _tgd_cur_7d < _tgd_exist_7d:
+                            _tgd_result = [(s, c) for s, c in _tgd_result if c[_CI_ID] != _gid_m]
+                            _tgd_result.append((_tgd_s, _tgd_c))
+                            _tgd_np_groups[_matched_idx] = (_cid, _ctype, _ctoks)
             if len(_tgd_result) < len(top_k):
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                              f"iter1013_topic_group_dedup: {len(top_k)}->{len(_tgd_result)}",
+                              f"iter1056_topic_group_dedup: {len(top_k)}->{len(_tgd_result)}",
                               session_id=session_id, project=project)
                 top_k = _tgd_result if _tgd_result else top_k[:1]
 

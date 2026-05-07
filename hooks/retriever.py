@@ -6382,7 +6382,14 @@ def main():
             import re as _tgd_re
             _TGD_MIN_SHARED = 3
             def _tgd_core(s):
-                return set(_tgd_re.findall(r'[a-z][a-z0-9_]*|[0-9]+', s.lower()))
+                # iter1056: cn_bigram_dedup — 加中文 bigram 解决纯中文 chunk 去重失效
+                # 根因（数据驱动，2026-05-07）：纯中文 summary 提取 0 token → shared=0
+                #   同主题碎片（"没有沿调用链验证"×3 种表述）全部逃逸 topic_group_dedup。
+                toks = set(_tgd_re.findall(r'[a-z][a-z0-9_]*|[0-9]+', s.lower()))
+                cn = _tgd_re.sub(r'[^\u4e00-\u9fff]', '', s)
+                for i in range(len(cn) - 1):
+                    toks.add(cn[i:i + 2])
+                return toks
             _tgd_np_groups = []  # [(rep_id, chunk_type, core_tokens)]
             for _tgd_s, _tgd_c in top_k:
                 _tgd_sum = (_tgd_c.get("summary") or "")
@@ -6399,13 +6406,18 @@ def main():
                             _tgd_result.append((_tgd_s, _tgd_c))
                             _tgd_seen[_tgd_key] = _tgd_c.get("id", "")
                 else:
-                    # iter1046: 无前缀 chunk — core_token 同 type 去重
+                    # iter1046+1056: 无前缀 chunk — core_token 同 type 去重
+                    # iter1056: reasoning_chain/causal_chain 视为同一 dedup group
+                    #   根因：同一教训被写为两种 type（因果链 vs 推理链），完全逃逸去重。
+                    _CHAIN_GROUP = {"reasoning_chain", "causal_chain"}
                     _cid = _tgd_c.get("id", "")
                     _ctype = _tgd_c.get("chunk_type", "")
                     _ctoks = _tgd_core(_tgd_sum)
                     _matched_idx = None
                     for _gi, (_gid, _gtype, _gtoks) in enumerate(_tgd_np_groups):
-                        if _ctype == _gtype and len(_ctoks & _gtoks) >= _TGD_MIN_SHARED:
+                        _type_compat = (_ctype == _gtype or
+                                        (_ctype in _CHAIN_GROUP and _gtype in _CHAIN_GROUP))
+                        if _type_compat and len(_ctoks & _gtoks) >= _TGD_MIN_SHARED:
                             _matched_idx = _gi
                             break
                     if _matched_idx is None:
