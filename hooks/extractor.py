@@ -2530,6 +2530,16 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线|形态识别|通过硬过滤)', summary) \
        and re.search(r'[-+]?\d+\.?\d*%', summary):
         return
+    # iter1097: device_data_snapshot_gate — 纯设备数据输出/proc stats 碎片拒绝
+    # 数据驱动（2026-05-07）：16 个 ac=0 chunk 全是 zram/swap/RAM 配置读出，
+    #   如 "SwapTotal: 2050496 kB"、"zram mm_stat: 4096/64/20480"、"RAM：3.6GB"。
+    #   特征：含内存/存储单位关键词 + 数值参数，无推理结论。
+    # 修复：检测 proc/sys 数据快照模式 → 拒绝。不影响含分析结论的 chunk。
+    if chunk_type in ("decision", "causal_chain") and not content_override:
+        if re.search(r'(?:kB|KB|MB|GB|mm_stat|SwapTotal|SwapFree|MemTotal|MemFree|zram\w*[：:])', summary) \
+           and re.search(r'\d', summary) \
+           and not re.search(r'(?:根因|原因|所以|因此|说明|表明|意味着|证明|意味|导致)', summary):
+            return
     # iter985: en_short_fragment_gate — 纯英文短碎片 design_constraint 拒绝
     # 数据驱动（2026-05-06）：c61eaecc "need SCX_TASK_OFF_TASKS"(4词)、
     #   c60d1009 "and the existing sched_ext_dead() handles..."(英文对话片段)。
