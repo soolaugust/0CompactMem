@@ -2844,13 +2844,34 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             ).fetchall()
             for (_es,) in _existing_summaries:
                 _es_norm = re.sub(r'\s+', '', _es)
-                if len(_es_norm) >= 30 and (_s_norm in _es_norm or _es_norm in _s_norm):
-                    dmesg_log(conn, DMESG_DEBUG, "extractor",
-                              f"iter964_substring_dedup: '{summary[:30]}' subset",
-                              session_id=session_id, project=project)
-                    if not _txn_managed:
-                        conn.commit()
-                    return
+                if len(_es_norm) >= 30:
+                    # iter1108: lcs_ratio_dedup — 严格子串 + LCS 占比双重去重
+                    # 根因（数据驱动，2026-05-07）：同一事实的变体碎片逃逸严格子串检测：
+                    #   "记录——改进hypercode终端重用逻辑..." vs "hypercode终端重用逻辑..."
+                    #   互不包含（前缀/后缀差异），但实质内容重叠 >90%。
+                    #   13 个 ac=0 chunk 中 4 个属此类变体碎片。
+                    # 修复：保留严格子串快速路径 + 新增 LCS ratio >70% 检测。
+                    #   LCS 用 SequenceMatcher（difflib 内置，无需额外依赖），
+                    #   以 min(len) 为分母避免短串被长串稀释。
+                    if _s_norm in _es_norm or _es_norm in _s_norm:
+                        dmesg_log(conn, DMESG_DEBUG, "extractor",
+                                  f"iter964_substring_dedup: '{summary[:30]}' subset",
+                                  session_id=session_id, project=project)
+                        if not _txn_managed:
+                            conn.commit()
+                        return
+                    _min_len = min(len(_s_norm), len(_es_norm))
+                    if _min_len >= 40:
+                        from difflib import SequenceMatcher as _SM
+                        _lcs_size = _SM(None, _s_norm, _es_norm).find_longest_match(
+                            0, len(_s_norm), 0, len(_es_norm)).size
+                        if _lcs_size / _min_len > 0.70:
+                            dmesg_log(conn, DMESG_DEBUG, "extractor",
+                                      f"iter1108_lcs_dedup: '{summary[:30]}' lcs={_lcs_size}/{_min_len}",
+                                      session_id=session_id, project=project)
+                            if not _txn_managed:
+                                conn.commit()
+                            return
         # iter784: session_burst_cap — 同 session 同 chunk_type 短期写入过多时合并
         #   根因（数据驱动，2026-05-04）：session e3e4392b 在 2 分钟内写了 5 条 decision，
         #   4 条同秒写入。Jaccard 去重无法捕捉"同话题不同细节"的变体。
