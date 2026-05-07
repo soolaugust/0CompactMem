@@ -3124,6 +3124,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _cutoff_48h = ""         # iter1071: cooldown fallback
         _cutoff_72h = ""         # iter1071: cooldown fallback
         _cutoff_5d = ""          # iter1077: cooldown_5d_fix
+        _cutoff_10d = ""         # iter1091: cooldown_daemon_sync
+        _cutoff_14d = ""         # iter1091: cooldown_daemon_sync
         _effective_bw_window = 30
         _local_bw_window = 30  # iter610: fallback
         _db_chunk_count = 50  # iter797: fallback for tiny/small判定
@@ -3233,6 +3235,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cutoff_72h = (_now648 - _td648(hours=72)).isoformat()  # iter1071
                     _cutoff_5d = (_now648 - _td648(days=5)).isoformat()    # iter1077: cooldown_5d_fix
                     _cutoff_7d = (_now648 - _td648(days=7)).isoformat()
+                    _cutoff_10d = (_now648 - _td648(days=10)).isoformat()  # iter1091: cooldown_daemon_sync
+                    _cutoff_14d = (_now648 - _td648(days=14)).isoformat()  # iter1091: cooldown_daemon_sync
                     _last_inject_ts = {}  # iter1071: {chunk_id: max_ts}
                     for _cid648, _ts_list in _itl_data.items():
                         _cnt_7d = sum(1 for t in _ts_list if t > _cutoff_7d)
@@ -3834,12 +3838,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if score > 0 and (_cd_is_global_d or (chunk[_CI_AC] or 0) >= _cd_floor_d) and _cutoff_48h and _last_inject_ts:
                     _cd_id = chunk[_CI_ID]
                     _cd_last = _last_inject_ts.get(_cd_id)
+                    # iter1091: cooldown_daemon_sync — db_fallback 同步 retriever.py iter1090
+                    if not _cd_last and (chunk[_CI_AC] or 0) >= 7:
+                        _cd_la_d = chunk[_CI_LA] or ""
+                        if _cd_la_d:
+                            _cd_last = _cd_la_d
                     if _cd_last:
-                        # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
+                        # iter1091: cooldown_daemon_sync — 对齐 retriever.py iter1089
+                        # ac>=10→14d, ac>=7→10d, global→10d（原 7d/5d 太短导致逃逸）
                         if _cd_is_global_d:
-                            _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_5d
+                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_10d
                         else:
-                            _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_5d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
+                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
                         if _cd_last > _cd_cut:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
@@ -3983,10 +3993,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cd_is_global_d2 = (chunk.get("project", "") == "global")
                 if score > 0 and (_cd_is_global_d2 or (chunk.get("access_count", 0) or 0) >= _cd_floor_d2) and _cutoff_48h and _last_inject_ts:
                     _cd_last_d2 = _last_inject_ts.get(_cid)
+                    # iter1091: cooldown_daemon_sync — db_fallback (dict path)
+                    if not _cd_last_d2 and (chunk.get("access_count", 0) or 0) >= 7:
+                        _cd_la_d2 = chunk.get("last_accessed", "")
+                        if _cd_la_d2:
+                            _cd_last_d2 = _cd_la_d2
                     if _cd_last_d2:
-                        # iter1079: global_cooldown_escalate — global chunk cooldown 统一 5d
+                        # iter1091: cooldown_daemon_sync — 对齐 retriever.py iter1089
                         if _cd_is_global_d2:
-                            _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_5d
+                            _cd_cut_d2 = _cutoff_14d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_10d
                         else:
                             _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
                         if _cd_last_d2 > _cd_cut_d2:
