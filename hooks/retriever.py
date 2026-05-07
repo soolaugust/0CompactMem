@@ -4841,8 +4841,16 @@ def main():
                 if _recent_7d_counts.get(_cid, 0) >= _cst_7d_thresh:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
+                # iter1107: global_saturated_session_cap — ac>=5 global chunk session 内仅注入 1 次
+                # 根因（数据驱动，2026-05-07）：memory验证(ac=6,global) 在 session 6ca148eb
+                #   同 session 被 constraint 通道注入 2 次（01:37 + 02:33），用户已在 4 个 session
+                #   见过该知识，session 内第 2 次注入零信息增量。
+                # 修复：global + ac>=5 → session cap=1（首次注入后 suppress）。
                 _sinj = _session_injection_counts.get(_cid, 0)
-                if _sinj >= _session_constraint_cap:
+                _eff_session_cap = _session_constraint_cap
+                if c.get("project") == "global" and _ac_abs >= 5:
+                    _eff_session_cap = 1
+                if _sinj >= _eff_session_cap:
                     return False
                 _rc = _recall_counts.get(_cid, 0)
                 # hard cap: 注入频率超阈值直接 suppress，不论 relevance
