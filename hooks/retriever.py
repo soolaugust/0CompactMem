@@ -6553,9 +6553,16 @@ def main():
                 _inj_cnt = _session_injection_counts.get(_cid, 0)
                 # iter587: design_constraint 使用宽松阈值（不再无条件豁免）
                 # iter596: 高频 constraint (ac>30) 降回 1× — 已被用户内化，无需反复注入
+                # iter1121: global_saturated_dedup_sync — global+ac>=5 constraint 收紧到 1×
+                # 根因（数据驱动，2026-05-08）：memory验证(ac=6,global) 7d suppress 阈值=2，
+                #   但 session dedup 2× 阈值=4 允许 session 内注入 3 次仍不拦截。
+                #   WAL 延迟导致 7d count 在 session 内不更新 → 7d suppress 失效 → 依赖 session dedup 兜底。
+                #   修复：global+ac>=5 constraint 对齐 1×，确保 session 内第 2 次即被拦截。
                 _ac = _chunk.get("access_count", 0) or 0
                 if _ctype == "design_constraint" and _ac > 30:
                     _effective_threshold = _iter359_dedup_threshold  # 1× — 同普通 chunk
+                elif _ctype == "design_constraint" and _chunk.get("project", "") == "global" and _ac >= 5:
+                    _effective_threshold = _iter359_dedup_threshold  # 1× — global 已内化约束
                 elif _ctype == "design_constraint":
                     _effective_threshold = _constraint_dedup_threshold  # 2× — 低频约束仍宽松
                 else:
