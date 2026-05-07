@@ -420,6 +420,17 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 #   实测：5 个 len<50 的 chunk 全部 access_count=0。
                 if len(t.strip()) < 50:
                     continue
+                # iter1096: pool_table_sysdata_gate — 表格行+系统数据碎片拒绝
+                # 根因（数据驱动，2026-05-07）：16 个 ac=0 噪声全经 pool 路径写入，
+                #   含表格行碎片（|开头）和命令输出快照（KB/GB/mm_stat/Swap 数值）。
+                #   extractor.py _write_chunk 有 table_fragment_gate，pool 路径缺失。
+                # 修复：同步 table gate + 新增 sysdata gate（数值+单位 无决策动词）。
+                _ts = t.strip()
+                if _ts.startswith('|'):
+                    continue
+                if _re.search(r'(?:\d+\s*(?:KB|kB|MB|GB|TB|bytes)|\bmm_stat\b|Swap(?:Total|Free|Cached))', _ts) \
+                   and not _re.search(r'(?:应该|必须|决定|选择|改为|方案|建议|原因|因为|所以|优化|问题)', _ts):
+                    continue
                 # ── iter525: memfd_seal — Write Gate Integrity Seal ──
                 # OS 类比：Linux memfd_seal(F_SEAL_WRITE) (Jeff Xu, 2024) —
                 # sealed memory region 拒绝写入损坏数据，在 write 入口强制校验

@@ -2504,6 +2504,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 特征：以 - 或 -- 开头的 CLI flag 格式，无知识价值。
     if not content_override and re.match(r'^-{1,2}[\w-]+=', summary.lstrip()):
         return
+    # iter1096: sysdata_fragment_gate — 命令输出数值快照拒绝写入
+    # 数据驱动（2026-05-07）：10 条 ac=0 噪声是命令输出（KB/GB/mm_stat/SwapFree 等），
+    #   无跨会话决策价值，仅为一次性诊断快照。
+    # 修复：含数值+存储单位且无决策动词 → 纯数据碎片 → 拒绝。
+    if not content_override and re.search(
+            r'(?:\d+\s*(?:KB|kB|MB|GB|TB|bytes)|\bmm_stat\b|Swap(?:Total|Free|Cached))', summary) \
+       and not re.search(r'(?:应该|必须|决定|选择|改为|方案|建议|原因|因为|所以|优化|问题)', summary):
+        return
     # iter1007: write_chunk_quality_gate — 统一入口质量门控
     # 根因（数据驱动，2026-05-06）：11 个 ac=0 噪声 chunk 全部通过 _is_quality_decision
     #   （含百分比数字即通过）但实为迭代器内部调参记录（"suppress 率：70%→26%"）。
