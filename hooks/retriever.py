@@ -2285,6 +2285,10 @@ def main():
         #   导致 type_concentration_penalty 不触发。用户体感"全是 kernel 知识"。
         # 修复：预计算 per-project 7d 注入占比，>45% 且 >=4 不同 chunk 时，
         #   对该项目 chunk score 额外 penalty = 0.75^(个体7d-1)。
+        # iter1123: proj_conc_threshold_lower — 阈值 0.45→0.38, 衰减 0.75→0.70
+        # 根因（数据驱动，2026-05-08）：git:a0ab16e8cafc 7d=60/137=43.8% 卡在 >0.45 下方，
+        #   penalty 不触发，kernel 知识群体持续垄断 44% 注入位。
+        # 修复：阈值 0.45→0.38 覆盖当前实际垄断；衰减 0.75→0.70 对齐 type_concentration。
         _proj_7d_conc = {}  # {project: (ratio, n_chunks)}
         try:
             if _recent_7d_counts:
@@ -2565,7 +2569,14 @@ def main():
             #   micro_db 无替代候选，session 衰减等于永久 suppress。
             # 修复：micro_db 完全跳过 session density gate（与 24h/7d bypass 对齐）。
             if not _micro_db:
-                _sdg_hard = 3 if _tiny_db else _tmv_session_density_gate
+                # iter1125: saturated_session_hard_suppress — 高饱和 chunk session >=2 直接 suppress
+                # 根因（数据驱动，2026-05-08）：93cbc985(global,ac=6) 在 session 6ca148eb 内
+                #   被注入 2 次（01:37 + 02:33），*0.40 衰减不足以排除（仍为最高分候选）。
+                #   global ac>=5 / local ac>=7 已深度内化，session 第 2 次注入零信息增量。
+                # 修复：高饱和 chunk session >=2 即 hard suppress，不等 sdg_hard(3/4)。
+                _sdg_saturated = ((chunk.get("project", "") == "global" and _acc is not None and _acc >= 5)
+                                  or (_acc is not None and _acc >= 7))
+                _sdg_hard = 2 if _sdg_saturated else (3 if _tiny_db else _tmv_session_density_gate)
                 if _sess_inj >= _sdg_hard:
                     score = 0.0
                     _hard_suppressed = True
@@ -2639,10 +2650,10 @@ def main():
                 # iter1029: project_concentration_penalty — 同项目群体垄断衰减
                 _cp_proj = chunk.get("project", "")
                 _pc_info = _proj_7d_conc.get(_cp_proj)
-                if _pc_info and _pc_info[0] > 0.45 and _pc_info[1] >= 4:
+                if _pc_info and _pc_info[0] > 0.38 and _pc_info[1] >= 4:
                     _chunk_7d_pc = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d_pc > 1:
-                        score *= 0.75 ** (_chunk_7d_pc - 1)
+                        score *= 0.70 ** (_chunk_7d_pc - 1)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
@@ -3043,7 +3054,8 @@ def main():
             r'hard_deadline|scored|cands|FTS.*miss|BM25.*noise|'
             r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|'
             r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|量化预期|suppress_final|'
-            r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率)'
+            r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率|'
+            r'penalty|占比|阈值|(?:不)?触发|baseline|搭车|score\s*[=<>≥≤]|concentration)'
         )
         _selfref_anchor_re = re.compile(
             r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
