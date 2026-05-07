@@ -4769,6 +4769,47 @@ def main():
                                   f"imp={_fb_pair_best[0]:.2f} with fallback top1={_fb_pair_top1_id[:12]}",
                                   session_id=session_id, project=project)
 
+        # ── iter1136: post_fallback_diversity_pair — fallback 恢复后 DB 直查配对 ──
+        # 根因（数据驱动，2026-05-08）：git:a0ab16e8cafc(23 chunks) 48% 单条注入。
+        #   diversity_pair_from_db(line 4637) 要求 positive==1，但 suppress 全灭时 positive=0
+        #   → 不触发。fallback 恢复 1 条后，fallback_pair 从 final 找 pair——但 final 中
+        #   低 ac 新鲜 chunk(7个,7d=0) 因 FTS 不匹配不在 final → pair 无候选 → 单条注入。
+        # 修复：fallback_pair 失败后，对 positive==1 + tiny_db(<50) 执行 DB 直查，
+        #   选同 project、低 ac、高 importance、7d=0 的新鲜 chunk 作为 diversity pair。
+        #   复用 diversity_pair_from_db 逻辑，条件收窄（仅 7d=0）确保不引入垄断。
+        if len(positive) == 1 and _db_chunk_count < 50:
+            _pfd_top1_id = positive[0][1].get("id", "")
+            try:
+                import sqlite3 as _pfd_sql
+                _pfd_conn = _pfd_sql.connect(str(STORE_DB))
+                _pfd_rows = _pfd_conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "AND importance >= 0.5 AND id != ? AND access_count <= 4 "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 5",
+                    (project, _pfd_top1_id)).fetchall()
+                _pfd_conn.close()
+                _pfd_cands = [r for r in _pfd_rows
+                              if _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh
+                              and _recent_7d_counts.get(r[0], 0) == 0]
+                if _pfd_cands:
+                    from datetime import datetime as _dt1136, timezone as _tz1136
+                    _pfd_now = _dt1136.now(_tz1136.utc).isoformat()
+                    _pfd_idx = (int(_pfd_now[11:13]) * 60 + int(_pfd_now[14:16])) % len(_pfd_cands)
+                    _pfd_pick = _pfd_cands[_pfd_idx]
+                    _pfd_chunk = {"id": _pfd_pick[0], "summary": _pfd_pick[1],
+                                  "content": _pfd_pick[2], "chunk_type": _pfd_pick[3],
+                                  "importance": _pfd_pick[4], "access_count": _pfd_pick[5],
+                                  "project": project}
+                    _pfd_score = positive[0][0] * 0.20
+                    positive.append((_pfd_score, _pfd_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1136_post_fallback_diversity: db_pick {_pfd_pick[0][:12]} "
+                                  f"imp={_pfd_pick[4]:.2f} ac={_pfd_pick[5]} with top1 s={positive[0][0]:.3f}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
+
         # ── 迭代334：IWCSI — Importance-Weighted Cold-Start Injection ───────
         # 信息论依据（Shannon 1948）：高 importance + 零召回 chunk 的期望信息增益最高：
         #   I(chunk|context) ≈ H(chunk) × P(not_known) = importance × 1.0（从未被注入过）

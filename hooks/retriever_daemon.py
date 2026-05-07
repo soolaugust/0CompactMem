@@ -5472,11 +5472,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 根因（数据驱动，2026-05-06）：54% 单条注入。24-chunk 库中 decision 占 52%，
                 #   chunk_type != top1_type 排除过半候选 → 7d 过滤后常为空 → 配对失败。
                 # 修复：仅排除 id 相同的 chunk，允许同类型不同知识配对。
+                # iter1136: post_fallback_diversity_pair — 优先选低 ac 新鲜 chunk
+                # 根因（数据驱动，2026-05-08）：ORDER BY importance DESC 优先返回高 ac
+                #   垄断 chunk(imp>=0.84,ac>=7)，全部被 7d>=3 过滤 → pair 失败。
+                #   低 ac 新鲜 chunk(ac<=4,7d=0) importance 较低被 LIMIT 5 截断。
+                # 修复：ORDER BY access_count ASC 优先，确保新鲜 chunk 优先进入候选池。
                 _pf914_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                    f"AND id != ? "
-                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    f"AND id != ? AND importance >= 0.5 "
+                    f"ORDER BY access_count ASC, importance DESC LIMIT 8",
                     (project, _pf914_top1_id)
                 ).fetchall()
                 _pf914_7d = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
