@@ -3815,10 +3815,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base:
                         score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
+                # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
                 elif (chunk[_CI_AC] or 0) >= 12:
                     score = 0.0
                 elif (chunk[_CI_AC] or 0) >= 5:
-                    score *= max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
+                    _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
+                    if (chunk[_CI_AC] or 0) >= 10:
+                        _sat_mult *= 0.5
+                    score *= _sat_mult
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3944,10 +3948,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base_d2:
                         score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
+                # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
                 elif (chunk.get("access_count", 0) or 0) >= 12:
                     score = 0.0
                 elif (chunk.get("access_count", 0) or 0) >= 5:
-                    score *= max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
+                    _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
+                    if (chunk.get("access_count", 0) or 0) >= 10:
+                        _sat_mult *= 0.5
+                    score *= _sat_mult
             return score
 
         def _gc_dict_to_ci(c):

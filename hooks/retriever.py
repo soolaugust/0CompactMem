@@ -2296,6 +2296,10 @@ def main():
         except Exception:
             pass
 
+        _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
+        _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
+        _small_db = _db_chunk_count < 100
+
         def _score_chunk(chunk, relevance):
             _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
@@ -2426,8 +2430,15 @@ def main():
                 score = 0.0
                 _hard_suppressed = True
             elif not _micro_db and _acc >= 5:
-                # 渐进衰减：AC=5→*0.8, AC=6→*0.7, AC=7→*0.6, ..., AC=11→*0.2
-                score *= max(0.2, 0.8 - 0.1 * (_acc - 5))
+                # iter1070: deep_saturated_floor — ac>=10 衰减加速
+                # 根因（数据驱动，2026-05-07）：ac=10/11 chunk（Android诊断/PE分析/git commit）
+                #   衰减 *0.3/*0.2，FTS base=0.6 时得 0.18/0.12→仍通过 min_thresh(0.10-0.18)。
+                #   ac>=10 表明 agent 已 10+ 次内化，7d 重置后仍"合法"注入 = 零信息增量。
+                # 修复：ac>=10 额外 *0.5（0.3→0.15, 0.2→0.10），使 base=0.6→score=0.09 < min_thresh。
+                _sat_mult = max(0.2, 0.8 - 0.1 * (_acc - 5))
+                if _acc >= 10:
+                    _sat_mult *= 0.5
+                score *= _sat_mult
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
             # OS 类比：NUMA remote node penalty — acc 越高越像"远端内存"，成本高于收益。
@@ -2549,9 +2560,7 @@ def main():
             # 根因（数据驱动，2026-05-04）：52 chunk 库中 import-90139 7d=5 但阈值=8 → 逃逸
             #   iter703/764 一刀切 <100 放宽到 5/6,8/10 对 50+ chunk 库过于宽松
             # 修复：<30 极小库保持宽松；30-100 中小库收紧
-            _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
-            _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
-            _small_db = _db_chunk_count < 100
+            # _micro_db/_tiny_db/_small_db 已在 _score_chunk 外部（main() 层）初始化
             # iter781: tiny_db_suppress_tighten — 收紧 tiny_db suppress 阈值
             #   数据驱动（2026-05-04）：100% injected traces 的 candidates_count<30（全部 tiny_db）
             #   iter777 的 10/8 阈值导致 24h 内同一 chunk 被 5+ session 注入仍不 suppress
