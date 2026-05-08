@@ -1252,6 +1252,12 @@ def _is_quality_chunk(summary: str) -> bool:
     s = summary.strip()
     if len(s) < 10:
         return False
+    # iter1162: short_contextless_gate — 超短无技术锚点碎片
+    # 数据驱动（2026-05-08）：caf855dc "已有的失败，与本次改动无关"(13字) 无独立语义。
+    #   <=15 字且不含技术名词/代码标识符/完整判断句的碎片不构成可检索知识。
+    #   豁免：含否定判断（"不存在/没有/不能"）、技术概念（4+汉字+关键后缀）或代码标识。
+    if len(s) <= 15 and not re.search(r'[A-Z_]{2,}|[a-z_]{3,}\(|不[存能可]|没有.{2,}|[\u4e00-\u9fff]{4,}(?:规则|约束|协议|工作流|验证|调用链)', s):
+        return False
     # iter769: numbered_list_fragment — 拦截编号列表项碎片
     # 根因（数据驱动，2026-05-04）：同一事件（proxy 20MB limit 调试）被 3 个提取器
     #   各自逐行提取，产生 8 个碎片 chunk（占总库 17%）。每个碎片以 "1. xxx" 格式
@@ -1493,11 +1499,21 @@ def _is_quality_chunk(summary: str) -> bool:
         #   注意：'suppress' 已在 line 1464 存在，不重复添加。
         # 修复：加入 jitter/逃逸/概率 作为 combo term，与 cooldown/suppress 共现即拦截。
         'jitter', '逃逸', '概率',
+        # iter1162: combo_ceiling_escape — 截断碎片逃逸（ceiling/最后防线/escape tier）
+        # 数据驱动（2026-05-08）：bdee49f7 "levance>=0.5 时去除 ceiling" hits=1(ac<)，
+        #   因 ceiling/最后防线/escape tier 不在术语表。这些是 retriever 内部兜底机制名称。
+        'ceiling', '最后防线', 'escape tier', '兜底',
     ) if _t in s)
     # iter1114: regex 补充 — iter+4位数字是迭代器自引用标识
     if re.search(r'iter\d{4}', s):
         _mos_terms += 2
     if _mos_terms >= 3:
+        return False
+    # iter1162: truncated_combo_gate — 截断碎片 + combo 术语共现
+    # 数据驱动（2026-05-08）：bdee49f7 "levance>=0.5 时去除 ceiling"(hits=2)
+    #   以小写英文开头（截断标志） + 含 combo term = 迭代器内部描述碎片。
+    #   合法知识以小写开头时不含 memory-os 术语（如 "memory 引用前必须验证"）。
+    if _mos_terms >= 2 and re.match(r'^[a-z]', s) and not re.match(r'^(?:memory|kernel|sched|task|scx|cpu|bpf)', s):
         return False
     # iter1069: quantitative_forecast_gate — "量化预期"开头 = 迭代器效果预测
     # 数据驱动：用户真实知识从不以"量化预期"开头，这是迭代器自评模板。
@@ -1507,7 +1523,12 @@ def _is_quality_chunk(summary: str) -> bool:
     # 数据驱动（2026-05-08）：6 条 ac=0 噪声逃逸，前缀分别为：
     #   "量化："(非"量化预期")、"附带发现："、"修复：阈值按 ac 分级"。
     #   这些是迭代器固定模板输出，用户真实知识不以此开头。
-    if re.match(r'^(?:量化[：:]|附带发现[：:]|修复[：:](?:阈值|在|补充|同步))', s):
+    if re.match(r'^(?:量化[：:]|附带发现[：:]|修复[：:](?:阈值|在|补充|同步|最后))', s):
+        return False
+    # iter1162: root_cause_internal_gate — "根因：" + retriever 内部概念
+    # 数据驱动（2026-05-08）：df756f99 "根因：suppress/cooldown 过严导致 relevance_fallback"
+    #   combo hits=3 应被拦截但在 gate 更新前已写入。现 combo 已覆盖，此处加前缀加速拦截。
+    if re.match(r'^根因[：:]', s) and _mos_terms >= 2:
         return False
     # iter944: code_expr_gate — 代码条件表达式/数组索引碎片拦截
     # 数据驱动（2026-05-06）：1 条 ac=0 噪声 "条件：positive[0][0] >= 0.15 — top1 < 0.15 时不配对"
