@@ -2585,11 +2585,11 @@ def main():
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else _cutoff_10d
                     else:
                         # iter1111: local_cooldown_5d — ac=4-6 non-global cooldown 48h→5d
-                        # 根因（数据驱动，2026-05-07）：import-d5600(ac=4) 7d注入3次，
-                        #   48h cooldown 允许每2天注入1次→7d=3-4次→占62-chunk库注入位60%。
-                        #   ac>=4 已有 4+ 次访问历史，边际信息低，48h 过短致循环垄断。
-                        # 修复：ac=4-6 cooldown 48h→5d，7d 内最多 1-2 次，与 global 对齐。
-                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_5d if _acc >= 4 else _cutoff_72h))
+                        # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
+                        #   根因（数据驱动，2026-05-09）：git:a0ab16e8cafc 27 chunk 中 12 个被
+                        #   cooldown+7d suppress 双杀，5/6 后 top_k 全空→用户零记忆注入 3 天。
+                        #   ac=4-6 chunk 是核心知识，5d cooldown 对日活项目过长。
+                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_72h if _acc >= 4 else _cutoff_72h))
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
                     # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
                     #   cooldown=5d 同时到期(5/11)→同时解禁→瞬时争抢注入位→再垄断。
@@ -4069,8 +4069,8 @@ def main():
                     if _cgl:
                         _ccut = _cutoff_14d if _cac >= 10 else _cutoff_10d
                     else:
-                        # iter1112: lite_cooldown_5d_sync — ac=4-6 cooldown 48h→5d
-                        _ccut = _cutoff_14d if _cac >= 10 else (_cutoff_10d if _cac >= 7 else _cutoff_5d)
+                        # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
+                        _ccut = _cutoff_14d if _cac >= 10 else (_cutoff_10d if _cac >= 7 else _cutoff_72h)
                     # iter1145: staggered_cooldown_jitter — sync hard_deadline path
                     _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                     _ccut = (_dt647.fromisoformat(_ccut) - _td647(hours=_cjh)).isoformat()
@@ -6737,7 +6737,7 @@ def main():
                     #   LITE final_gate 只检 6h/24h/7d 计数，无 cooldown 时间戳检查 → 逃逸。
                     # 修复：final_gate 过滤中加入 cooldown 排除，堵住 fallback 逃逸根源。
                     _cut758_48h = (_now758 - _td758(hours=48)).isoformat()
-                    _cut758_5d = (_now758 - _td758(days=5)).isoformat()  # iter1112: lite_cooldown_5d_sync
+                    _cut758_72h = (_now758 - _td758(hours=72)).isoformat()  # iter1252: cooldown_5d_to_3d
                     _cut758_10d = (_now758 - _td758(days=10)).isoformat()
                     _cut758_14d = (_now758 - _td758(days=14)).isoformat()
                     def _lt1092_cooldown_ok(c):
@@ -6752,11 +6752,8 @@ def main():
                         if _cgl:
                             _ccut = _cut758_14d if _cac >= 10 else _cut758_10d
                         else:
-                            # iter1112: lite_cooldown_5d_sync — 同步 FULL 路径 iter1111
-                            # 根因：LITE final_gate ac=4-6 cooldown=48h，FULL 路径已升级 5d。
-                            #   ac=4-6 chunk 经 LITE 路径每 48h 可合法注入→7d=3-4次垄断。
-                            # 修复：ac=4-6 cooldown 48h→5d 对齐 FULL 路径（L2527 _cutoff_5d）。
-                            _ccut = _cut758_14d if _cac >= 10 else (_cut758_10d if _cac >= 7 else _cut758_5d)
+                            # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
+                            _ccut = _cut758_14d if _cac >= 10 else (_cut758_10d if _cac >= 7 else _cut758_72h)
                         # iter1145: staggered_cooldown_jitter — sync LITE path
                         _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                         _ccut = (_dt758.fromisoformat(_ccut) - _td758(hours=_cjh)).isoformat()

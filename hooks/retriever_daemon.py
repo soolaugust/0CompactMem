@@ -3889,8 +3889,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _cd_is_global_d:
                             _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_10d
                         else:
-                            # iter1111: local_cooldown_5d — ac=4-6 cooldown 48h→5d
-                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_5d)
+                            # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
+                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_72h)
                         # iter1151: staggered_cooldown_jitter_daemon — 对齐 retriever.py iter1145
                         _cd_jh_d = (hash(chunk[_CI_ID]) % 49)
                         _cd_cut = (_dt648.fromisoformat(_cd_cut) - _td648(hours=_cd_jh_d)).isoformat()
@@ -4065,9 +4065,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _cd_is_global_d2:
                             _cd_cut_d2 = _cutoff_14d if (chunk.get("access_count", 0) or 0) >= 10 else _cutoff_10d
                         else:
-                            # iter1111: local_cooldown_5d
-                            # iter1151: ac>=10→14d, ac>=7→10d（原 7d/5d 未对齐 FTS path）
-                            _cd_cut_d2 = _cutoff_14d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_10d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_5d)
+                            # iter1252: cooldown_5d_to_3d
+                            _cd_cut_d2 = _cutoff_14d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_10d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_72h)
                         # iter1151: staggered_cooldown_jitter_daemon — 对齐 retriever.py iter1145
                         _cd_jh_d2 = (hash(chunk.get("id", "")) % 49)
                         _cd_cut_d2 = (_dt648.fromisoformat(_cd_cut_d2) - _td648(hours=_cd_jh_d2)).isoformat()
@@ -5449,8 +5448,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _fgl:
                         _fcut = _cutoff_14d if _fac >= 10 else _cutoff_10d
                     else:
-                        # iter1111: local_cooldown_5d
-                        _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_5d)
+                        # iter1252: cooldown_5d_to_3d
+                        _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_72h)
                     return _fts <= _fcut
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_cooldown_ok_d(c)
