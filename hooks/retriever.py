@@ -2576,6 +2576,17 @@ def main():
                     if _cd_last > _cd_cutoff_adj:
                         score = 0.0
                         _hard_suppressed = True
+            # iter1180: session_cooldown_sync — session 内 cooldown 补充
+            # 根因（数据驱动，2026-05-08）：93cbc985(ac=6,global) 同 session 56min 内注入 2 次，
+            #   因 _injection_timeline 在 write-back 才更新，同 session 后续请求看不到刚注入的记录。
+            #   _session_injection_counts 是内存级实时更新，但仅用于 session_dedup(阈值=2-4)，
+            #   未与 cooldown 联动。高 ac 知识同 session 重复注入=零信息增量。
+            # 修复：ac>=5 且 session 内已注入 >=1 次 → hard suppress。
+            #   与 cooldown 形成双重保护：跨 session 靠 timeline，同 session 靠此处。
+            if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and _acc >= 5:
+                if _session_injection_counts.get(chunk.get("id", ""), 0) >= 1:
+                    score = 0.0
+                    _hard_suppressed = True
             if (not _micro_db or _cd_is_cross_project) and _acc >= 12:
                 score = 0.0
                 _hard_suppressed = True
