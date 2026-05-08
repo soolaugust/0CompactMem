@@ -4532,6 +4532,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _now_iso1081 = _dt1081.now(_tz1081.utc).isoformat()
                     for _iid1081 in top_k_ids:
                         _last_inject_ts[_iid1081] = _now_iso1081
+                    # iter1224: burst_counts_inmem_sync — 注入后即时递增 burst counts
+                    for _iid1224 in top_k_ids:
+                        _recent_6h_counts[_iid1224] = _recent_6h_counts.get(_iid1224, 0) + 1
+                        _recent_24h_counts[_iid1224] = _recent_24h_counts.get(_iid1224, 0) + 1
+                        _recent_7d_counts[_iid1224] = _recent_7d_counts.get(_iid1224, 0) + 1
                     # iter173: persistent conn — do NOT close
                     try:
                         wconn = open_db()
@@ -6022,6 +6027,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _now_iso1081b = _dt1081b.now(_tz1081b.utc).isoformat()
         for _iid1081b in accessed_ids:
             _last_inject_ts[_iid1081b] = _now_iso1081b
+        # iter1224: burst_counts_inmem_sync — normal path
+        for _iid1224b in accessed_ids:
+            _recent_6h_counts[_iid1224b] = _recent_6h_counts.get(_iid1224b, 0) + 1
+            _recent_24h_counts[_iid1224b] = _recent_24h_counts.get(_iid1224b, 0) + 1
+            _recent_7d_counts[_iid1224b] = _recent_7d_counts.get(_iid1224b, 0) + 1
         # iter219: removed sys.stdout.flush() — no-op on StringIO (captured in _handle_connection)
         # iter173: persistent conn — do NOT close here; writeback will invalidate after write
 
