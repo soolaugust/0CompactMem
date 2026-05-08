@@ -442,7 +442,8 @@ def lru_gen_boost(lru_gen: int, max_gen: int = 8) -> float:
     return 0.06 * (1.0 - gen / max_gen)
 
 
-def numa_distance_penalty(chunk_project: str, current_project: str) -> float:
+def numa_distance_penalty(chunk_project: str, current_project: str,
+                          access_count: int = 0) -> float:
     """
     NUMA node distance 惩罚项（迭代111）。
 
@@ -457,6 +458,7 @@ def numa_distance_penalty(chunk_project: str, current_project: str) -> float:
     惩罚矩阵：
       same project  → 0.0   (本地 node，无惩罚)
       global project → 0.10  (共享 global tier，中等惩罚)
+      global + ac>=5 → 0.18  (已内化 global，高惩罚)
       other project  → 0.25  (远端 node，较大惩罚)
 
     注：惩罚不是绝对拒绝，高 relevance 的跨项目 chunk 依然可以进入 top_k。
@@ -466,12 +468,20 @@ def numa_distance_penalty(chunk_project: str, current_project: str) -> float:
       数据驱动（2026-05-05）：global 占库存 14%（6/44）但占注入量 20%（9/45），
       "飞书 CLI"/"git commit author" 各被注入 3 次与当前项目无关。
       iter718 降至 0.02/0.05 的前提"67.5% chunk 是 global"已不成立。
+    iter1149: saturated_global_penalty — 已内化 global chunk 增强 penalty
+      数据驱动（2026-05-08）：93cbc985(memory验证,ac=6,global) 在 kernel 项目被注入 3 次，
+      0aff0d67(git commit,ac=9,global) 在 3 个项目被注入 5 次。
+      ac>=5 表明 agent 已多次内化，边际信息≈0，但 0.10 penalty 不足以阻止。
+      修复：ac>=5 的 global chunk penalty 0.10→0.18，降低其竞争力但不绝对排除。
     """
     if not chunk_project or not current_project:
         return 0.0
     if chunk_project == current_project:
         return 0.0
     if chunk_project == "global":
+        # iter1149: 已内化 global chunk 增强 penalty
+        if access_count >= 5:
+            return 0.18
         return 0.10
     return 0.25
 
@@ -581,7 +591,7 @@ def retrieval_score(relevance: float, importance: float,
     # 迭代106: MGLRU lru_gen boost
     lgb = lru_gen_boost(lru_gen) if lru_gen is not None else 0.0
     # 迭代111: NUMA distance penalty
-    ndp = numa_distance_penalty(chunk_project, current_project)
+    ndp = numa_distance_penalty(chunk_project, current_project, access_count)
     # 迭代322: Query-Conditioned Importance — 动态 α 权重
     # OS 类比：Linux CPU frequency scaling (CPUFreq) — 根据负载动态调整频率
     #   高 relevance（强 query 命中）→ FTS5 rank 已是主信号，importance 降权（α 小）
