@@ -2192,7 +2192,7 @@ def _is_tool_insight_noise(text: str) -> bool:
     #   "busy-loops 10ms per task to widen the pre-INIT window"。
     #   特征：含 retriever/extractor 性能术语 + ms/冷启动/FULL/LITE 等度量词。
     if re.search(r'(?:P50|P95|P99|冷启动|cold.?start|FULL.*ms|LITE.*ms|pre.?INIT|lazy\s*import|busy.?loop)', text, re.I):
-        if not re.search(r'(?:kernel|sched|Android|feishu|飞书|binder|migration)', text, re.I):
+        if not re.search(r'(?:kernel|sched|Android|feishu|飞书|binder|migration|cgroup|uclamp|cpufreq|latency|延迟)', text, re.I):
             return True
     # iter959: diff_snippet_gate — 纯 diff/代码片段无独立检索价值
     # 根因（数据驱动，2026-05-06）：3 条 ac=0 tool_insight 为纯 diff 行
@@ -2200,6 +2200,15 @@ def _is_tool_insight_noise(text: str) -> bool:
     #   脱离上下文后无法独立理解，且代码变更后即过时。
     # 检测：以 +/* 开头（diff/comment 行）且无中文解释
     if re.match(r'^\+\s*[\w*/]', text) and not re.search(r'[\u4e00-\u9fff]', text):
+        return True
+    # iter1188: transient_error_url_gate \u2014 \u62e6\u622a\u77ac\u6001\u5de5\u5177\u9519\u8bef\u548c\u7eaf URL \u767b\u5f55\u91cd\u5b9a\u5411
+    # \u6839\u56e0\uff08\u6570\u636e\u9a71\u52a8\uff0c2026-05-08\uff09\uff1a2 \u6761 ac=0 tool_insight \u5206\u522b\u662f
+    #   "URL: https://cas.mioffice.cn/login?service=..." (\u767b\u5f55\u91cd\u5b9a\u5411 URL)
+    #   "playwright._impl._errors.TimeoutError: Page.goto: Timeout 30000ms exceeded."
+    #   \u77ac\u6001\u9519\u8bef/\u767b\u5f55\u5899\u5728\u4e0b\u6b21\u8bbf\u95ee\u53ef\u80fd\u6d88\u5931\uff0c\u65e0\u8de8\u4f1a\u8bdd\u590d\u7528\u4ef7\u503c\u3002
+    if re.search(r'TimeoutError|ConnectionError|ConnectionRefused|ECONNRESET|ETIMEDOUT|SSLError', text):
+        return True
+    if re.match(r'^(?:URL:\s*)?https?://\S+/(?:login|auth|sso|cas|oauth)\b', text, re.I):
         return True
     return False
 
