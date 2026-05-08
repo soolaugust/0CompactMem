@@ -270,26 +270,49 @@ def _reclaim_cold_born(conn: sqlite3.Connection, project: str,
     在首次 aging 扫描后直接进入回收队列，不等完整 LRU 轮转。
 
     条件：
-      - 创建超过 3 天（cold_born_days）
+      - 创建超过 N 天（cold_born_days，按 chunk_type 分层）
       - access_count = 0（从未被检索命中）
       - importance < 0.85（排除用户显式高权重）
       - 未被 pin（排除手动锁定）
       - 不回收 task_state 类型
+
+    iter1182: ephemeral_fast_reclaim — causal_chain/reasoning_chain 1天即回收。
+    根因（数据驱动，2026-05-08）：41 条 ac=0 chunk 中 25 条 causal_chain + 2 条
+    reasoning_chain，全是同 session 对话碎片。3 天窗口让无价值碎片占候选池 27%。
+    修复：推理碎片类型 1 天即回收（信息密度低、检索匹配率低），其他类型保持 3 天。
     """
     from store_vfs import get_pinned_ids
+    _FAST_RECLAIM_TYPES = ("causal_chain", "reasoning_chain")
     cold_born_days = 3
-    rows = conn.execute(
+    cold_born_days_fast = 1
+    # Phase 1: fast-reclaim 类型（1 天）
+    rows_fast = conn.execute(
         """SELECT id FROM memory_chunks
            WHERE project = ?
              AND COALESCE(access_count, 0) = 0
-             AND chunk_type != 'task_state'
+             AND chunk_type IN ('causal_chain', 'reasoning_chain')
              AND COALESCE(importance, 0.5) < 0.85
              AND COALESCE(oom_adj, 0) > -1000
              AND datetime(created_at) < datetime('now', ?)
            ORDER BY importance ASC, created_at ASC
            LIMIT ?""",
-        (project, f"-{cold_born_days} days", max_reclaim),
+        (project, f"-{cold_born_days_fast} days", max_reclaim),
     ).fetchall()
+    # Phase 2: 其他类型（3 天）
+    _remaining = max_reclaim - len(rows_fast)
+    rows_rest = conn.execute(
+        """SELECT id FROM memory_chunks
+           WHERE project = ?
+             AND COALESCE(access_count, 0) = 0
+             AND chunk_type NOT IN ('causal_chain', 'reasoning_chain', 'task_state')
+             AND COALESCE(importance, 0.5) < 0.85
+             AND COALESCE(oom_adj, 0) > -1000
+             AND datetime(created_at) < datetime('now', ?)
+           ORDER BY importance ASC, created_at ASC
+           LIMIT ?""",
+        (project, f"-{cold_born_days} days", _remaining if _remaining > 0 else 0),
+    ).fetchall() if _remaining > 0 else []
+    rows = rows_fast + rows_rest
 
     if not rows:
         return []
