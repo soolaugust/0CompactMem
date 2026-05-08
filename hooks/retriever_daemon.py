@@ -3825,15 +3825,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   根因：85-chunk 库 13/21 活跃 chunk 7d>=3 被 suppress → 40% 空召回
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对，改为独立 guard
                     _7d_base = 5 if _s672_tiny else (6 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)  # iter1000: tiny 3→5
-                    # iter1031: global_deep_saturated_suppress — sync daemon _score_chunk
+                    # iter1194: global_unified_thresh — sync daemon _score_chunk
                     if (chunk[_CI_CP] or "") == "global":
-                        _g_ac_d = chunk[_CI_AC] or 0
-                        if _g_ac_d >= 5:  # iter1088: global_saturated_widen
-                            _7d_base = 2
-                        elif _g_ac_d >= 4:
-                            _7d_base = max(2, _7d_base - 2)
-                        else:
-                            _7d_base = max(2, _7d_base - 1)
+                        _7d_base = 2
                     elif (chunk[_CI_CP] or "") != "global":
                         # iter1143: local_mid_saturated_suppress — sync retriever.py
                         _l_ac_d = chunk[_CI_AC] or 0
@@ -3994,15 +3988,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter990: small_db_7d_relax_v3 — daemon dict path 同步
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对
                     _7d_base_d2 = 5 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1000: tiny 3→5
-                    # iter1031: global_deep_saturated_suppress — sync daemon dict path
+                    # iter1194: global_unified_thresh — sync daemon dict path
                     if (chunk.get("project", "") or "") == "global":
-                        _g_ac_d2 = chunk.get("access_count", 0) or 0
-                        if _g_ac_d2 >= 5:  # iter1088: global_saturated_widen
-                            _7d_base_d2 = 2
-                        elif _g_ac_d2 >= 4:
-                            _7d_base_d2 = max(2, _7d_base_d2 - 2)
-                        else:
-                            _7d_base_d2 = max(2, _7d_base_d2 - 1)
+                        _7d_base_d2 = 2
                     elif (chunk.get("project", "") or "") != "global":
                         # iter1143: local_mid_saturated_suppress — sync dict path
                         _l_ac_d2 = chunk.get("access_count", 0) or 0
@@ -5117,11 +5105,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # 根因：daemon suppress_final_gate 缺少 global chunk 7d 收紧，
                     #   feishu CLI(ac=4)/memory验证(ac=6) 经 daemon 路径 7d suppress 逃逸。
                     elif _is_global:
-                        _g_ac = c[_CI_AC] or 0
-                        # iter1088: global_saturated_widen — ac>=7→5
-                        if _g_ac >= 5:
-                            return 2
-                        return max(2, _t - (2 if _g_ac >= 4 else 1))
+                        # iter1194: global_unified_thresh — sync daemon suppress_final_gate
+                        return 2
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                     _lac = c[_CI_AC] or 0
@@ -5206,13 +5191,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _t = 5 if s >= 0.5 else 3
                 if _cross:
                     return max(2, _t - 2)
-                # iter1023: global_chunk_suppress_tighten — sync closure_fallback
+                # iter1194: global_unified_thresh — sync daemon closure_fallback
                 elif _is_global:
-                    _g_ac = c[_CI_AC] or 0
-                    # iter1088: global_saturated_widen — ac>=7→5
-                    if _g_ac >= 5:
-                        return 2
-                    return max(2, _t - (2 if _g_ac >= 4 else 1))
+                    return 2
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 _lac = c[_CI_AC] or 0

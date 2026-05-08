@@ -2865,12 +2865,11 @@ def main():
                 #   ac>=4 表明 agent 已多次见过该知识，边际信息为零，应更早 suppress。
                 # 修复：ac>=4 的 global chunk 阈值 -2（与 cross 同级），ac<4 保持 -1。
                 if chunk.get("project", "") == "global":
-                    _g_ac = _acc if _acc is not None else (chunk.get("access_count", 0) or 0)
-                    # iter1088: global_saturated_widen — ac>=7→5 覆盖 93cbc985(ac=6) 等逃逸
-                    if _g_ac >= 5:
-                        _suppress_7d_thresh = 2
-                    else:
-                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - (2 if _g_ac >= 4 else 1))
+                    # iter1194: global_unified_thresh — global chunk 统一 7d thresh=2
+                    # 根因（数据驱动，2026-05-08）：feishu CLI(ac=4) thresh=3 仍 7d=4 逃逸，
+                    #   跨 project 分散计数使 per-project 7d<3 → suppress 不触发。
+                    #   global chunk 本质是固化通用约束，7d 内看 2 次已充分。
+                    _suppress_7d_thresh = 2
                 # iter1009: local_saturated_suppress — 本项目高 ac chunk 7d 阈值收紧
                 # 根因（数据驱动，2026-05-06）：25-chunk 库中 PE分析(ac=7,7d=6)、
                 #   Android诊断(ac=10,7d=5) 等高 ac 本项目 chunk 7d 阈值=5 仍逃逸。
@@ -3847,11 +3846,8 @@ def main():
                             return 2
                         return max(2, _t - 2)
                     elif _is_global:
-                        _g_ac = c.get("access_count", 0) or 0
-                        # iter1088: global_saturated_widen — ac>=7→5
-                        if _g_ac >= 5:
-                            return 2
-                        return max(2, _t - (2 if _g_ac >= 4 else 1))
+                        # iter1194: global_unified_thresh — sync hard_deadline
+                        return 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     _l_ac = c.get("access_count", 0) or 0
@@ -5817,11 +5813,8 @@ def main():
                             return 2
                         return max(2, _t - 2)
                     elif _is_global:
-                        _g_ac = c.get("access_count", 0) or 0
-                        # iter1088: global_saturated_widen — ac>=7→5
-                        if _g_ac >= 5:
-                            return 2
-                        return max(2, _t - (2 if _g_ac >= 4 else 1))
+                        # iter1194: global_unified_thresh — sync suppress_final_gate
+                        return 2
                     # iter1009: local_saturated_suppress — sync suppress_final_gate
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     _l_ac = c.get("access_count", 0) or 0
@@ -5914,11 +5907,8 @@ def main():
                 if _cross:
                     return max(2, _t - 2)
                 elif _is_global:
-                    _g_ac = c.get("access_count", 0) or 0
-                    # iter1088: global_saturated_widen — ac>=7→5
-                    if _g_ac >= 5:
-                        return 2
-                    return max(2, _t - (2 if _g_ac >= 4 else 1))
+                    # iter1194: global_unified_thresh — sync closure_fallback
+                    return 2
                 # iter1009: local_saturated_suppress — sync closure_fallback
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 _l_ac = c.get("access_count", 0) or 0
@@ -6541,15 +6531,8 @@ def main():
                             return 2
                         return max(2, _t - 2)
                     elif _is_global:
-                        _g_ac = c.get("access_count", 0) or 0
-                        # iter1060: lite_global_deep_saturated_sync — 对齐 FULL iter1031
-                        # 根因（数据驱动，2026-05-07）：global ac=9 chunk 在 small_db(23) LITE 路径
-                        #   阈值=max(2,6-2)=4，FULL 路径=2。差距允许 2 次逃逸。
-                        # 修复：ac>=5 直接返回 2，与 FULL suppress_final_gate 对齐。
-                        # iter1088: global_saturated_widen — ac>=7→5
-                        if _g_ac >= 5:
-                            return 2
-                        return max(2, _t - (2 if _g_ac >= 4 else 1))
+                        # iter1194: global_unified_thresh — sync LITE path
+                        return 2
                     # iter1021: lite_local_saturated_suppress — sync FULL/hd iter1009
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     _l_ac = c.get("access_count", 0) or 0
