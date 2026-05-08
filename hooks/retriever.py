@@ -2762,7 +2762,8 @@ def main():
                 _6h_is_constraint = chunk.get("chunk_type") == "design_constraint"
                 # iter1048: global_6h_sync — global ac>=4 同步 iter1023(24h cap=1)
                 _6h_is_global_saturated = chunk.get("project") == "global" and _6h_ac >= 4
-                _6h_thresh = 1 if (_6h_ac >= 7 or (_6h_is_constraint and _6h_ac >= 5) or _6h_is_global_saturated) else 2
+                # iter1171: constraint_local_saturated — design_constraint ac>=4 也享受 6h_thresh=1
+                _6h_thresh = 1 if (_6h_ac >= 7 or (_6h_is_constraint and _6h_ac >= 4) or _6h_is_global_saturated) else 2
                 if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -2866,8 +2867,16 @@ def main():
                     # 根因（数据驱动，2026-05-08）：Kernel Patch 格式规范(ac=4) tiny_db 7d=3
                     #   仍注入（阈值=5）。ac=4 表明用户已见过 4 次，7d 允许 4 次过于宽松。
                     # 修复：ac>=4 → -1（5→4），7d 内最多 3 次注入后 suppress。
+                    # iter1171: constraint_local_saturated — design_constraint ac>=4 用 -2
+                    # 根因（数据驱动，2026-05-08）：飞书CLI(ac=4,7d=4)、微信公众号(ac=4,7d=3)
+                    #   small_db score>=0.5 基础=6, -1=5, 7d=4 不触发。
+                    #   design_constraint 是硬规则，ac=4 已充分内化（比 decision 更快收敛）。
+                    # 修复：design_constraint ac>=4 → -2（6→4/5→3），7d 内最多 3/2 次后 suppress。
                     elif _l_ac >= 4:
-                        _suppress_7d_thresh = max(3, _suppress_7d_thresh - 1)
+                        if chunk.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = max(2, _suppress_7d_thresh - 2)
+                        else:
+                            _suppress_7d_thresh = max(3, _suppress_7d_thresh - 1)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -5736,7 +5745,10 @@ def main():
                     elif _l_ac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
+                    # iter1171: constraint_local_saturated — design_constraint ac>=4 用 -2
                     elif _l_ac >= 4:
+                        if c.get("chunk_type") == "design_constraint":
+                            return max(2, _t - 2)
                         return max(3, _t - 1)
                     return _t
                 # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
