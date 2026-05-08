@@ -3730,8 +3730,13 @@ def main():
             # 根因（数据驱动，2026-05-09）：global "memory 验证路径"(score=0.148) 注入 kernel 项目，
             #   "飞书 CLI"(0.193) 注入无关项目。低 score 跨项目 chunk 仅因本地候选不足被填充。
             # 修复：cross-project chunk score < 0.25 → 剔除（本项目 chunk 不受影响）。
+            # iter1246: sparse_cross_project_floor_relax — local_sparse 项目放宽到 0.10
+            # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local chunks) 本地 chunk 被
+            #   cooldown suppress 后，global chunk 也被 0.25 floor 剔除 → 连续 6 次空召回。
+            #   sparse 项目依赖跨项目知识作为主要补充源，0.25 门槛过高。
+            _cross_floor = 0.10 if _local_sparse else 0.25
             positive = [(s, c) for s, c in positive
-                        if c.get("project", "") in ("", project) or s >= 0.25]
+                        if c.get("project", "") in ("", project) or s >= _cross_floor]
             # iter826: single_result_pair_inject (hard_deadline path)
             # iter843: pair_dedup_aware — 配对时排除已达 session dedup 阈值的 chunk
             _pair_dedup_thresh_hd = _sysctl("retriever.session_dedup_threshold") or 2
@@ -4833,8 +4838,10 @@ def main():
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
         # iter1245: cross_project_relevance_floor (FULL path sync)
+        # iter1246: sparse_cross_project_floor_relax (FULL path sync)
+        _cross_floor_f = 0.10 if _local_sparse else 0.25
         positive = [(s, c) for s, c in positive
-                    if c.get("project", "") in ("", project) or s >= 0.25]
+                    if c.get("project", "") in ("", project) or s >= _cross_floor_f]
         # iter843: pair_dedup_aware — 配对候选预过滤 dedup threshold
         # 根因（数据驱动，2026-05-05）：55% 注入仅 1 条。iter826/827/840 配对成功后，
         #   session_dedup(iter359, threshold=2) 事后移除配对 chunk → 单条逃逸。
