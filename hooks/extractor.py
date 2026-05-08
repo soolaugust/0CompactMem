@@ -4359,8 +4359,24 @@ def main():
 
         # iter1250: context_snippet_extract — 从原文定位 summary 周围上下文
         def _context_snippet(summary: str, radius: int = 100) -> str:
-            _needle = summary[:40]
-            _pos = text.find(_needle)
+            # iter1253: fuzzy_context_snippet — 多级 fallback 提升 snippet 命中率
+            # 根因：summary[:40] 精确匹配经常失败（54% chunk content=summary），
+            #   因为 summary 经提取清洗后前缀与原文不完全一致。
+            # 修复：40→20→关键词段 三级 fallback，命中率预期 +30-50%。
+            _pos = -1
+            for _nlen in (40, 20):
+                _needle = summary[:_nlen]
+                if _needle:
+                    _pos = text.find(_needle)
+                    if _pos >= 0:
+                        break
+            if _pos < 0:
+                import re as _re_cs
+                _frags = _re_cs.findall(r'[一-鿿]{4,}|[a-zA-Z_]\w{5,}', summary)
+                for _f in sorted(_frags, key=len, reverse=True)[:3]:
+                    _pos = text.find(_f)
+                    if _pos >= 0:
+                        break
             if _pos < 0:
                 return ""
             _start = max(0, _pos - radius)
