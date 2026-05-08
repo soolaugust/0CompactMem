@@ -4068,9 +4068,16 @@ def main():
                 #   密集 session（同 session 多次请求）中同一 chunk 可每次通过 escape 被注入。
                 #   session 内已注入过的知识边际信息=0，第 2 次起应让位于次优候选。
                 # 修复：加 session_injection_counts == 0 条件，同 session 不重复 escape 注入。
+                # iter1176: escape_floor_relax_small — 小库 relevance 阈值放宽
+                # 根因（数据驱动，2026-05-08）：git:78dc99a5695f(2 local+6 global=8 chunks)
+                #   6 次 FULL 空召回(cands=11-25)，escape tier r>=0.50 全滤除。
+                #   小库候选少+global discount，BM25 relevance 多在 0.3-0.5 区间。
+                #   escape tier 已有 session_dedup(==0) 保护，不会垄断。
+                # 修复：<=20 chunks 阈值 0.50→0.30，允许中低 relevance 兜底。
+                _escape_rel_floor_hd = 0.30 if _db_chunk_count <= 20 else 0.50
                 if not _pebf_cands_hd and _pre_score_relevance_hd:
                     _pebf_cands_hd = [(r, c) for r, c in _pre_score_relevance_hd
-                                      if r >= 0.50
+                                      if r >= _escape_rel_floor_hd
                                       and (c.get("access_count", 0) or 0) < 30
                                       and _session_injection_counts.get(c.get("id", ""), 0) == 0]
                 if _pebf_cands_hd:
@@ -5445,9 +5452,11 @@ def main():
                 # iter1160: relevance_escape_ceiling — FULL 路径同步 hard_deadline
                 # 最后防线：去除 7d ceiling，仅限 relevance>=0.5。不加 cooldown（此处已是全灭兜底）。
                 # iter1161: escape_session_dedup — session 去重（同步 hard_deadline path）
+                # iter1176: escape_floor_relax_small — 小库 relevance 阈值放宽（同步 hd path）
+                _escape_rel_floor = 0.30 if _db_chunk_count <= 20 else 0.50
                 if not _pebf_cands and _pre_score_relevance:
                     _pebf_cands = [(r, c) for r, c in _pre_score_relevance
-                                   if r >= 0.50
+                                   if r >= _escape_rel_floor
                                    and (c.get("access_count", 0) or 0) < 30
                                    and _session_injection_counts.get(c.get("id", ""), 0) == 0]
                 if _pebf_cands:
