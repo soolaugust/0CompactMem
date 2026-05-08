@@ -2831,6 +2831,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1210: iterator_meta_narrative_gate — 迭代器自身 bug/fix 元叙述即使含领域词也拦截
     if _iter_match and re.search(r'(?:迭代器.*(?:逃逸|自记录|假阳性)|让迭代器|iterator.*gate.*逃)', summary):
         return
+    # iter1243: iterator_stats_gate — 含 ac=/注入 N 次/7d= 统计标记的必为迭代器 meta
+    # 根因（数据驱动，2026-05-09）："import-90139（PE barrier 知识）ac=3 却被周注入 6 次的垄断问题"
+    #   含 \bPE\b 触发 DOMAIN_KW → iter1202 gate 跳过。但 "ac=3" 和 "注入 6 次" 是
+    #   迭代器统计标记，真正的 PE 技术知识不会含 "ac=\d" 格式。
+    # 修复：summary 含 retriever 统计格式标记 → 直接拦截（不检查 DOMAIN_KW）。
+    if re.search(r'(?:\bac[=＝]\d|被.*注入.*\d+\s*次|7d[=＝]\d|周注入\s*\d)', summary):
+        return
     # iter1208: execution_status_gate — 执行状态日志/流水账拒绝写入
     # 数据驱动（2026-05-08）：3 个 ac=0 chunk 全为执行流水账：
     #   "Jira FDS trace 解析完成 issue=292604, 220052 chars — 220KB 内容传给 LLM"
