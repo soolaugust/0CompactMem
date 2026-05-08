@@ -2788,7 +2788,20 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
     # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
     # iter1233: iter_action_prefix_widen — 扩展前缀覆盖"量化结果/改动/预期效果/修复：/净增"
-    if re.match(r'^(?:量化结果[：:]|量化[：:改预]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
+    if re.match(r'^(?:量化结果[：:]|量化[：:改预效]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
+        return
+    # iter1247: injection_stats_narrative_gate — 含注入统计叙事的迭代器量化结论
+    # 根因（数据驱动，2026-05-09）：15e53f00(ac=0) "量化效果：过去 7d 的 16 次 global 注入中，
+    #   6 次 score<0.25 的低相关性注入将被拦截（37.5% 降噪）"
+    #   含 "kernel" → DOMAIN_KW 豁免 → iter1202 跳过。但 "N 次 X 注入" 是迭代器统计格式。
+    # 修复：检测 "N 次.*注入" + "拦截/降噪/suppress/score" 共现 → 迭代器 meta → 拒绝。
+    if re.search(r'\d+\s*次.*注入', summary) and re.search(r'(?:拦截|降噪|suppress|score[<>])', summary):
+        return
+    # iter1248: health_report_gate — 系统健康报告/PA结果拦截
+    # 根因（数据驱动，2026-05-09）：6c2c1bd4(ac=0) "量化：zero_access 1.2%→0%, PA 10/10 HEALTHY, 假阳性 0/7"
+    #   虽有 iter1144 prefix_gate 覆盖 "量化："，但 daemon 未 reload 时逃逸。
+    #   defense-in-depth：含 "PA \d+/\d+" 或 "HEALTHY" + 度量格式 → 系统报告非用户知识。
+    if re.search(r'(?:PA\s*\d+/\d+|HEALTHY|DEGRADED)', summary) and re.search(r'(?:\d+%|→|假阳性|precision|recall)', summary):
         return
     # iter1235: config_param_fragment_gate — 配置参数碎片拒绝
     # 数据驱动（2026-05-09）：3 个 ac=0 chunk 为纯配置值 "micro_db(≤5): 0.08" 等，
