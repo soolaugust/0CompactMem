@@ -1483,6 +1483,10 @@ def _is_quality_chunk(summary: str) -> bool:
         # 数据驱动（2026-05-08）：2 条 ac=0 噪声含 diversity_pair_from_db/fallback_pair/
         #   _pre_suppress_top_k 等内部函数名，combo hits=2 未达阈值 3。
         'diversity_pair', 'fallback_pair', '_pre_suppress', 'positive=0',
+        # iter1153: injection_quota_noise — 注入配额/slot 规划描述逃逸
+        # 数据驱动（2026-05-08）：95774dc1 "ac=5-6 chunk 每周最多注入 3 次...释放 ~8 slot/周"
+        #   逃逸 combo_gate（hits=2: chunk+次注入），因 "slot/周" 不在术语表。
+        'slot/', '低频知识', '最多注入',
     ) if _t in s)
     # iter1114: regex 补充 — iter+4位数字是迭代器自引用标识
     if re.search(r'iter\d{4}', s):
