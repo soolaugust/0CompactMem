@@ -1193,6 +1193,12 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
     ))
     if hits < 2:
         return False
+    # iter1212: selfref_high_hits_override — hits>=3 时外部锚点大概率是偶然命中
+    # 数据驱动（2026-05-08）："MCP direct 写入路径绕过 extractor gate（daemon 进程未热加载）"
+    #   hits=3(gate,selfref,噪声) 但"进程"触发 ext_anchor 误放行。
+    #   验证：全库 hits=3+ext_anchor 仅 2 条(ac=0 噪声)，无误杀风险。
+    if hits >= 3:
+        return True
     has_ext_anchor = re.search(
         r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
         r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
