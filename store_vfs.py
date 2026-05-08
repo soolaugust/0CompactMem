@@ -2016,6 +2016,8 @@ def _vfs_write_protect(summary: str) -> bool:
         '7d ', '24h ', '注入位', 'global chunk', 'supplement',
         'FTS', 'final_gate', '空召回', '垄断', '衰减',
         'concentration', '_penalty', '_suppress',
+        # iter1237: ac_ops_selfref — 拦截 access_count 操作/校正记录
+        'access_count', 'burst-inflat', 'chunk 的 ac', 'inflat',
     ) if _t in s)
     if _mos_hits >= 3:
         return True

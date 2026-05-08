@@ -141,7 +141,9 @@ def _seal_check_reject(text: str) -> bool:
                     'closure_fallback', 'pair_dedup',
                     # iter1052: self_impl_hook_names — hook 组件名逃逸
                     'posttool_guard', 'output_compressor', 'thrashing_detector',
-                    'x5 gate', 'x5_gate')
+                    'x5 gate', 'x5_gate',
+                    # iter1237: ac_ops_noise — 拦截 access_count 操作/校正记录
+                    'access_count', 'burst inflation', 'burst-inflated')
     _tl = text.lower()
     if any(ci in _tl for ci in _code_idents):
         return True
