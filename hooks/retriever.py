@@ -4167,6 +4167,8 @@ def main():
                         # iter1173: omf_ac_aware_ceiling (hard_deadline path sync)
                         def _omf_hd_ceil(c):
                             _oac = c.get("access_count", 0) or 0
+                            if _oac >= 10:
+                                return 1
                             if _oac >= 7:
                                 return 2
                             if _oac >= 5:
@@ -7156,6 +7158,11 @@ def main():
             # 修复：ac>=7→ceiling=2, ac>=5→ceiling=3, global ac>=4→ceiling=3，其余保持 base。
             def _omf_chunk_ceiling(c):
                 _oac = c.get("access_count", 0) or 0
+                # iter1204: deep_internalize_cap — ac>=10 每周最多注入 1 次
+                # 根因（数据驱动，2026-05-08）：ac=10-12 chunk 用户已深度内化，
+                #   ceiling=2 仍允许每周 2 次→月 8 次，信息增量≈0 却挤占注入槽位。
+                if _oac >= 10:
+                    return 1
                 if _oac >= 7:
                     return 2
                 if _oac >= 5:
