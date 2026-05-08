@@ -3800,7 +3800,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1042: saturated_6h_cap — ac>=7 → 6h_thresh=1
                 # iter1047: constraint_saturated_6h — design_constraint ac>=5 也享受 thresh=1
                 # iter1048: global_6h_sync — global ac>=4 同步 iter1023(24h cap=1)
-                _6h_thresh_d = 1 if (_ac >= 7 or (chunk[_CI_CT] == "design_constraint" and _ac >= 5) or (chunk[_CI_CP] == "global" and _ac >= 4)) else 2
+                # iter1225: constraint_saturated_6h_sync — design_constraint ac>=4 对齐 retriever.py iter1171
+                _6h_thresh_d = 1 if (_ac >= 7 or (chunk[_CI_CT] == "design_constraint" and _ac >= 4) or (chunk[_CI_CP] == "global" and _ac >= 4)) else 2
                 if _recent_6h_counts.get(_cid, 0) >= _6h_thresh_d:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — 小库统一阈值
@@ -3839,7 +3840,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         elif _l_ac_d >= 5:
                             _7d_base = max(2, _7d_base - 2)  # iter1152: local_mid_saturated_tighten
                         elif _l_ac_d >= 4:
-                            _7d_base = max(3, _7d_base - 1)
+                            # iter1225: constraint_7d_sync — design_constraint ac>=4 用 -2 对齐 retriever.py iter1171
+                            _7d_base = max(2, _7d_base - 2) if chunk[_CI_CT] == "design_constraint" else max(3, _7d_base - 1)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base:
                         score = 0.0
                 # iter1072: cooldown_widen — ac>=10 cooldown 72h→7d, ac>=7 48h→5d
@@ -3968,7 +3970,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1042+1047: saturated_6h_cap — ac>=7 或 design_constraint ac>=5 → thresh=1
                 _6h_ac_d2 = chunk.get("access_count", 0) or 0
                 # iter1048: global_6h_sync — global ac>=4 同步 iter1023(24h cap=1)
-                _6h_thresh_d2 = 1 if (_6h_ac_d2 >= 7 or (chunk.get("chunk_type") == "design_constraint" and _6h_ac_d2 >= 5) or (chunk.get("project") == "global" and _6h_ac_d2 >= 4)) else 2
+                # iter1225: constraint_saturated_6h_sync — ac>=5→4 对齐 retriever.py iter1171
+                _6h_thresh_d2 = 1 if (_6h_ac_d2 >= 7 or (chunk.get("chunk_type") == "design_constraint" and _6h_ac_d2 >= 4) or (chunk.get("project") == "global" and _6h_ac_d2 >= 4)) else 2
                 if _recent_6h_counts.get(_cid, 0) >= _6h_thresh_d2:
                     score = 0.0
                 # iter810: tiny_db_24h_relax — sync
