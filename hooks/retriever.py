@@ -2939,10 +2939,13 @@ def main():
                     #   因 TOCTOU 竞争（并发 session 同时读旧 timeline）绕过 thresh=2。
                     #   ac>=10 已极度内化（10+ 次访问），7d 内 1 次已充分，第 2 次=零信息增量。
                     # 修复：ac>=10→thresh=1，7d 有任何注入即 suppress。TOCTOU 最差=2 次（可接受）。
-                    if _l_ac >= 10:
+                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 阈值 2→1
+                    # 根因（数据驱动，2026-05-09）：import-90139(ac=7) 7d=6（6 个不同 session），
+                    #   thresh=2 在并发 session TOCTOU 下仅能限制到 ~2 次/7d，实际 6 次逃逸。
+                    #   ac>=7 已深度内化（7+ 次访问），7d 内 1 次注入信息增量已≈0。
+                    # 修复：ac>=7 统一 thresh=1，与 ac>=10 对齐。
+                    if _l_ac >= 7:
                         _suppress_7d_thresh = 1
-                    elif _l_ac >= 7:
-                        _suppress_7d_thresh = 2
                     elif _l_ac >= 5:
                         # iter1152: local_mid_saturated_tighten — ac>=5 从 -1 收紧到 -2
                         # 根因（数据驱动，2026-05-08）：84-chunk 库 ac=5-6 chunk（memory验证ac=6,
@@ -4020,12 +4023,10 @@ def main():
                         return _fb_hd_ceiling
                     # iter1009: local_saturated_suppress — fallback ceiling sync
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
-                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync fallback ceiling
+                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 统一=1
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 10:
+                    if _lac >= 7:
                         return 1
-                    elif _lac >= 7:
-                        return 2
                     elif _lac >= 5:
                         return max(2, _fb_hd_ceiling - 2)  # iter1152: local_mid_saturated_tighten
                     return _fb_hd_ceiling
@@ -6177,11 +6178,10 @@ def main():
                     # iter1009: local_saturated_suppress — FULL fallback ceiling sync
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL fallback
+                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 统一=1
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 10:
+                    if _lac >= 7:
                         return 1
-                    elif _lac >= 7:
-                        return 2
                     elif _lac >= 5:
                         return max(2, _fb_ceiling - 1)
                     return _fb_ceiling
@@ -6739,11 +6739,9 @@ def main():
                                 return 2
                             if _lac >= 4:
                                 return max(2, _fb_lite_ceiling - 2)
-                        # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync LITE fallback
-                        if _lac >= 10:
+                        # iter1232: deep_saturated_unified_thresh1 — ac>=7 统一=1 LITE fallback
+                        if _lac >= 7:
                             return 1
-                        elif _lac >= 7:
-                            return 2
                         elif _lac >= 5:
                             return max(2, _fb_lite_ceiling - 1)
                         return _fb_lite_ceiling

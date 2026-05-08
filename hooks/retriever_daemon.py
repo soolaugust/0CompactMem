@@ -5169,9 +5169,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return 4 if _local_sparse_d else 2
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
+                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 阈值 2→1 sync
                     _lac = c[_CI_AC] or 0
                     if _lac >= 7:
-                        return 2
+                        return 1
                     elif _lac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
@@ -5257,9 +5258,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return 4 if _local_sparse_d else 2
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
+                # iter1232: deep_saturated_unified_thresh1 — ac>=7 阈值 2→1 sync closure
                 _lac = c[_CI_AC] or 0
                 if _lac >= 7:
-                    return 2
+                    return 1
                 elif _lac >= 5:
                     return max(2, _t - 1)
                 # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
