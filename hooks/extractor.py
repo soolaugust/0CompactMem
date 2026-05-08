@@ -2788,7 +2788,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
     # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
     # iter1233: iter_action_prefix_widen — 扩展前缀覆盖"量化结果/改动/预期效果/修复：/净增"
-    if re.match(r'^(?:量化结果[：:]|量化[：:改]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
+    if re.match(r'^(?:量化结果[：:]|量化[：:改预]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
         return
     # iter1235: config_param_fragment_gate — 配置参数碎片拒绝
     # 数据驱动（2026-05-09）：3 个 ac=0 chunk 为纯配置值 "micro_db(≤5): 0.08" 等，
@@ -2813,7 +2813,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'24h.?(?:burst|阈值)|_score_chunk|_write_chunk|extractor.*gate|'
         r'recall_count|bw_window|anti.?monopoly|注入配额|注入频次|注入\s*slot|释放.*注入|'
         r'FTS5?\s*(?:噪声|命中率)|'
-        r'zero.?access|注入.*比例|单条注入|diversity.?pair|production_assertions|'
+        r'zero.?access|注入.*比例|注入率|注入仅\s*\d|注入\s*score|单条注入|diversity.?pair|production_assertions|'
         r'HEALTHY|chunk.*阈值.*触发|inject.*cap|cooldown.*escalat|'
         r'垄断\s*chunk|低频高价值|预期效果.*(?:注入|suppress|召回)|'
         r'注入仅含|(?:\d+\s*条\s*chunk|\d+\s*chunks).*(?:阈值|项目|库)|'
