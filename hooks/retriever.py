@@ -6058,10 +6058,14 @@ def main():
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
+        # iter1234: full_pair_score_floor — FULL pair 候选加 score 门槛对齐 LITE iter1197
+        # 根因（数据驱动，2026-05-09）：FULL pair 只要求 s>0，65% pair 注入 score<0.15，
+        #   低相关 chunk 被配对注入占用用户 context 无信息增量。LITE 已有 adaptive floor。
+        _full_pair_floor = 0.08 if _db_chunk_count <= 5 else (0.12 if _db_chunk_count < 50 else 0.15)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1].get("id", "")
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
-                              if c.get("id", "") != _ps_top1_id and s > 0
+                              if c.get("id", "") != _ps_top1_id and s >= _full_pair_floor
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                               and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_candidates:

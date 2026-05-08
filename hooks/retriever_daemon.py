@@ -5308,10 +5308,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True
+        # iter1234: full_pair_score_floor — daemon pair 候选加 score 门槛对齐 LITE iter1197
+        _full_pair_floor_d = 0.08 if _db_chunk_count <= 5 else (0.12 if _db_chunk_count < 50 else 0.15)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1][_CI_ID]
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
-                              if c[_CI_ID] != _ps_top1_id and s > 0
+                              if c[_CI_ID] != _ps_top1_id and s >= _full_pair_floor_d
                               and _pair_suppress_ok_d(c[_CI_ID], s)]
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
