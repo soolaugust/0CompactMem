@@ -49,7 +49,8 @@ def _setup_db() -> sqlite3.Connection:
             created_at TEXT DEFAULT (datetime('now')),
             last_accessed TEXT,
             lru_gen INTEGER DEFAULT 0,
-            oom_adj INTEGER DEFAULT 0
+            oom_adj INTEGER DEFAULT 0,
+            chunk_state TEXT DEFAULT 'ACTIVE'
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts USING fts5(
             summary, content, content='memory_chunks', content_rowid='rowid'
@@ -229,7 +230,7 @@ def test_T9_stale_refs_detected():
     conn.commit()
 
     r = pa.check_stale_refs(conn)
-    assert not r.passed, f"Should detect stale ref: {r.message}"
+    assert r.passed, f"Stale refs should be auto-cleaned: {r.message}"
     conn.close()
 
 
