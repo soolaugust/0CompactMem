@@ -2905,7 +2905,14 @@ def main():
                 #   base=5, -1=4 仍太宽松。ac>=7 已深度内化，与 global ac>=7 统一 thresh=2。
                 elif chunk.get("project", "") != "global":
                     _l_ac = _acc if _acc is not None else (chunk.get("access_count", 0) or 0)
-                    if _l_ac >= 7:
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10 阈值 2→1
+                    # 根因（数据驱动，2026-05-08）：import-90139(ac=7→10) 5/4 单日 4 次注入，
+                    #   因 TOCTOU 竞争（并发 session 同时读旧 timeline）绕过 thresh=2。
+                    #   ac>=10 已极度内化（10+ 次访问），7d 内 1 次已充分，第 2 次=零信息增量。
+                    # 修复：ac>=10→thresh=1，7d 有任何注入即 suppress。TOCTOU 最差=2 次（可接受）。
+                    if _l_ac >= 10:
+                        _suppress_7d_thresh = 1
+                    elif _l_ac >= 7:
                         _suppress_7d_thresh = 2
                     elif _l_ac >= 5:
                         # iter1152: local_mid_saturated_tighten — ac>=5 从 -1 收紧到 -2
@@ -3878,8 +3885,11 @@ def main():
                         return 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync hard_deadline
                     _l_ac = c.get("access_count", 0) or 0
-                    if _l_ac >= 7:
+                    if _l_ac >= 10:
+                        return 1
+                    elif _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
@@ -3981,8 +3991,11 @@ def main():
                         return _fb_hd_ceiling
                     # iter1009: local_saturated_suppress — fallback ceiling sync
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync fallback ceiling
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 7:
+                    if _lac >= 10:
+                        return 1
+                    elif _lac >= 7:
                         return 2
                     elif _lac >= 5:
                         return max(2, _fb_hd_ceiling - 2)  # iter1152: local_mid_saturated_tighten
@@ -5850,8 +5863,11 @@ def main():
                         return 2
                     # iter1009: local_saturated_suppress — sync suppress_final_gate
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL path
                     _l_ac = c.get("access_count", 0) or 0
-                    if _l_ac >= 7:
+                    if _l_ac >= 10:
+                        return 1
+                    elif _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
@@ -5944,8 +5960,11 @@ def main():
                     return 2
                 # iter1009: local_saturated_suppress — sync closure_fallback
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
+                # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync closure_fallback
                 _l_ac = c.get("access_count", 0) or 0
-                if _l_ac >= 7:
+                if _l_ac >= 10:
+                    return 1
+                elif _l_ac >= 7:
                     return 2
                 elif _l_ac >= 5:
                     return max(2, _t - 1)
@@ -6128,8 +6147,11 @@ def main():
                         return max(2, _fb_ceiling - 2)
                     # iter1009: local_saturated_suppress — FULL fallback ceiling sync
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL fallback
                     _lac = c.get("access_count", 0) or 0
-                    if _lac >= 7:
+                    if _lac >= 10:
+                        return 1
+                    elif _lac >= 7:
                         return 2
                     elif _lac >= 5:
                         return max(2, _fb_ceiling - 1)
@@ -6568,8 +6590,11 @@ def main():
                         return 2
                     # iter1021: lite_local_saturated_suppress — sync FULL/hd iter1009
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
+                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync LITE path
                     _l_ac = c.get("access_count", 0) or 0
-                    if _l_ac >= 7:
+                    if _l_ac >= 10:
+                        return 1
+                    elif _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
@@ -6685,7 +6710,10 @@ def main():
                                 return 2
                             if _lac >= 4:
                                 return max(2, _fb_lite_ceiling - 2)
-                        if _lac >= 7:
+                        # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync LITE fallback
+                        if _lac >= 10:
+                            return 1
+                        elif _lac >= 7:
                             return 2
                         elif _lac >= 5:
                             return max(2, _fb_lite_ceiling - 1)
