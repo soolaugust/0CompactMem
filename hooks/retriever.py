@@ -4073,11 +4073,15 @@ def main():
                     if not _tl:
                         return True
                     _lt = len(_tl)
-                    if _lt >= 6:
+                    # iter1326: lifetime_thresh_lower — 无条件阈值 6→5
+                    # 根因（数据驱动，2026-05-09）：368cb071(lifetime=5) 等 7 个 chunk
+                    #   因 last_inject > 72h 逃逸条件 suppress，cooldown 到期后将重新垄断。
+                    #   5 次注入(21d窗口)已充分内化，边际信息≈0。
+                    if _lt >= 5:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= 4:
                         return False
-                    if _lt >= 4 and _tl[-1] > _cutoff_72h:
+                    if _lt >= 4 and _tl[-1] > _cutoff_7d:
                         return False
                     return True
                 top_k = [(s, c) for s, c in top_k
@@ -6168,11 +6172,12 @@ def main():
                     if not _tl:
                         return True
                     _lt = len(_tl)
-                    if _lt >= 6:
+                    # iter1326: lifetime_thresh_lower — sync FULL path
+                    if _lt >= 5:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= 4:
                         return False
-                    if _lt >= 4 and _tl[-1] > _cutoff_72h:
+                    if _lt >= 4 and _tl[-1] > _cutoff_7d:
                         return False
                     return True
                 if _db_chunk_count > 5:
