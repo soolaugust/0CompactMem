@@ -2448,7 +2448,11 @@ def main():
             _c_content = chunk.get("content", "") or ""
             _c_summary = chunk.get("summary", "") or ""
             if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 100:
-                if len(_c_content) < 60:
+                # iter1307: high_value_decision_thin_rescue
+                # decision + imp>=0.75 → hard 阈值 60→30，恢复 4 个高价值短决策注入资格
+                _thin_hard_thresh = 30 if (chunk.get("chunk_type") == "decision"
+                                          and float(chunk.get("importance", 0)) >= 0.75) else 60
+                if len(_c_content) < _thin_hard_thresh:
                     return 0.0
                 score *= 0.5
 
