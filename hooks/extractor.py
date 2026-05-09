@@ -2912,6 +2912,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   FTS5 无法语义匹配 URL 字符串，检索价值为零。
     if re.match(r'^https?://\S+$', summary.strip()):
         return
+    # iter1271: git_ref_snapshot_gate — 纯 git hash/origin 状态快照拒绝
+    if re.search(r'(?:origin\)?[：:]\s*[0-9a-f]{6,}\.\.[0-9a-f]{6,}|^\s*-\s*GitLab|^\s*-\s*GitHub)', summary):
+        return
     # iter985: en_short_fragment_gate — 纯英文短碎片 design_constraint 拒绝
     # 数据驱动（2026-05-06）：c61eaecc "need SCX_TASK_OFF_TASKS"(4词)、
     #   c60d1009 "and the existing sched_ext_dead() handles..."(英文对话片段)。
