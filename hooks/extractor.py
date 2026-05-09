@@ -3011,6 +3011,23 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     }
     importance = importance_override if importance_override is not None else importance_map.get(chunk_type, 0.70)
 
+    # iter1259: db_substring_dedup_gate — 跨 batch 子串去重
+    # 根因（数据驱动，2026-05-09）：同一 session 不同 batch 产出同一信息的长/短表述，
+    #   batch 内 token-overlap gate 无法跨 batch 拦截，3-4 对冗余 chunk 入库。
+    # 修复：写入前查 DB 同 project 已有 chunk，子串包含关系 → 拒绝。
+    if conn and project:
+        _norm_new = re.sub(r'\s+', '', summary)
+        if len(_norm_new) >= 15:
+            _existing = conn.execute(
+                'SELECT summary FROM memory_chunks WHERE project=? AND chunk_state=? LIMIT 200',
+                (project, 'ACTIVE')).fetchall()
+            for _row in _existing:
+                _norm_ex = re.sub(r'\s+', '', (_row[0] or ''))
+                if len(_norm_ex) < 15:
+                    continue
+                if _norm_new in _norm_ex or _norm_ex in _norm_new:
+                    return
+
     # ── iter562: vma_validate — 写入时最终准入校验 ──────────────────────────────
     # OS 类比：Linux insert_vm_struct() — mmap 写路径最终关卡，拦截漏网碎片。
     if not _vma_validate(summary):
