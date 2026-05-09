@@ -2785,9 +2785,15 @@ def main():
                     #   单 chunk 不触发 7d suppress（阈值=5），但群体占 25% 注入位。
                     # 修复：project_concentrated + 7d>=4 + ac>=7 → hard suppress。
                     #   ac>=7 确保已充分内化，7d>=4 确保近期高频，不误杀新知识。
-                    if _chunk_7d_pc >= 4:
+                    # iter1333: small_db_proj_conc_tighten — <50 库 ac/7d 阈值收紧
+                    # 根因（数据驱动，2026-05-09）：48-chunk 库 10 chunk 各 7d=4-6 ac=3-5，
+                    #   ac>=7 条件过严无一触发，群体垄断 82%(40/49) 注入位。
+                    # 修复：<50 库 ac>=4 + 7d>=3 即 suppress；>=50 保持 ac>=7 + 7d>=4。
+                    _pcs_7d_thresh = 3 if _db_chunk_count < 50 else 4
+                    _pcs_ac_thresh = 4 if _db_chunk_count < 50 else 7
+                    if _chunk_7d_pc >= _pcs_7d_thresh:
                         _pc_ac = chunk.get("access_count") or 0
-                        if _pc_ac >= 7:
+                        if _pc_ac >= _pcs_ac_thresh:
                             score = 0.0
                             _hard_suppressed = True
             # ── iter1201: cross_project_saturated_decay — 跨项目高饱和 chunk 降权 ──
