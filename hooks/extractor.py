@@ -2831,6 +2831,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
        and re.search(r'(?:FTS5?|orphan|index|ACTIVE\s*=|对齐|chunk_version|writeback|daemon)', summary) \
        and not re.search(r'(?:kernel|sched|cpu|Android|飞书|git\s|用户|产品)', summary):
         return
+    # iter1265: ai_metacognition_gate — AI 自我反思/元认知碎片拒绝
+    if re.search(r'(?:我缺乏|我的推理是|正常人.*(?:会|的推理)|语言模型的典型|我[「""]知道[」""])', summary) \
+       and not re.search(r'(?:必须|禁止|规则|约束|决策|结论[：:])', summary):
+        return
     # iter1202: iterator_impl_gate — 拒绝写入迭代器/retriever/extractor 内部实现细节
     # 数据驱动（2026-05-08）：11 个 ac=0 chunk 全为迭代器自身的调参/bug/fix 记录
     #   （"suppress 率"、"空召回"、"relevance_floor"、"候选全被过滤"），用户永远不会检索这些。
