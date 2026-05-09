@@ -3006,6 +3006,15 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   真正的 kernel 技术知识不会以 "N-chunk 项目" 开头描述自己。
     if re.search(r'\d+-chunk\s*\S*\s*(?:库|项目)', summary):
         return
+    # iter1361: injection_metric_narrative_gate — 含注入频次度量语言的迭代器 meta 叙述
+    # 根因（数据驱动，2026-05-10）：62a83e1e/8864d5a2(ac=0) "三个 global constraint 各
+    #   7d 注入 4 次，合计占 34.7% 注入位" 逃逸全部 gate：
+    #   - iter1243 要求 "被.*注入" 或 "ac=" 前缀，此文无 "被" 无 "ac="
+    #   - iter1247 要求 "拦截/降噪/suppress/score<>"，此文无
+    #   真正用户知识不会用 "注入 N 次"/"占 N% 注入位" 度量语言。
+    if re.search(r'(?:注入\s*\d+\s*次|占\s*\d+[\d.]*%\s*注入|7d\s*注入)', summary) \
+       and re.search(r'(?:constraint|chunk|注入位|注入配额|阈值|逃逸|suppress|global)', summary):
+        return
     # iter1321: tunable_param_change_gate — retriever/extractor 调参记录拦截
     # 根因（数据驱动，2026-05-09）：iter1320 写入 5 条 ac=0 噪声 chunk 描述 DC type_concentration
     #   参数调整（"DC 类 factor 0.7→0.5"、"DC 注入占比 55%→25%"）。
