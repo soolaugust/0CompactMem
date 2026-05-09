@@ -1729,7 +1729,8 @@ def _is_quality_chunk(summary: str) -> bool:
         r'知识库\s*(?:纯度|质量|健康)|零价值\s*chunk|噪声\s*(?:写入|注入|逃逸)|'
         r'extractor\s*(?:阶段|拦截|过滤)|retriever\s*(?:阶段|注入|召回)|'
         # iter1285: quantify_selfref_gate — "量化改善：..." 迭代器自我总结逃逸
-        r'量化改善[：:].*(?:traces?|inject|噪声|空召回|suppress|注入率|命中率|chunk|行代码))',
+        # iter1286: quantify_broad_gate — 不依赖特定关键词，有数字变化格式即拦截
+        r'量化改善[：:].*[\d.]+%?\s*→)',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):
