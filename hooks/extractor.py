@@ -1164,7 +1164,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
       导致 decision chunk "量化预期：大库 suppress 全灭后空召回率降 ~50%"(ac=0) 逃逸。
       提取为独立函数供 extractor.py _write_chunk 和 extractor_pool.py 共用。
     """
-    if chunk_type not in ("decision", "reasoning_chain", "causal_chain", "excluded_path", "conversation_summary"):
+    _strict_types = ("decision", "reasoning_chain", "causal_chain", "excluded_path", "conversation_summary")
+    _is_constraint = chunk_type == "design_constraint"
+    if chunk_type not in _strict_types and not _is_constraint:
         return False
     hits = len(re.findall(
         r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
@@ -1202,6 +1204,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'跨项目聚合|project[=:].{0,5}(?:git|abspath)|管道符号过滤|'
         r'burst.suppress|daemon.*(?:注入|进程内)|retriever_daemon|'
         r'recall_trace|shadow_trace|注入质量|可观测性退化|'
+        r'MEMORY\.md|悬挂链接|FTS5|memory.chunks|store\.db|'
         # iter1261: direct_cap_final_gate — retriever 内部路径对齐术语
         r'direct.cap|final_gate|_score_chunk|base[=-]\d|'
         # iter1278: iterator_stats_report_gate — 迭代器统计报告/效果描述逃逸
@@ -1214,9 +1217,10 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'rs\[:\d+\]|截取.{0,5}token)',
         summary
     ))
-    if hits < 2:
-        # iter1282: short_single_hit_selfref — 极短文本(<30字)+单hit=纯迭代器噪声
-        if hits == 1 and len(summary) < 30 and not re.search(
+    # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
+    _min_hits = 3 if _is_constraint else 2
+    if hits < _min_hits:
+        if hits == 1 and len(summary) < 30 and not _is_constraint and not re.search(
                 r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|commit|git\b)', summary, re.I):
             return True
         return False
