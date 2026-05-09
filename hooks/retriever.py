@@ -3237,7 +3237,11 @@ def main():
                     #   relevance≈0.05-0.10，B10 打 50% 折扣后 score≈0.19 仍为最高分进入 top-K。
                     #   候选池被其他 suppress 机制清空后，低分 global constraint 作为幸存者被注入。
                     # 修复：relevance < 0.15 → score=0.0（等效 hard suppress），阻止零语义关联注入。
-                    if relevance < 0.15:
+                    # iter1360: global_gate_raise — 0.15→0.20 拦截边界逃逸
+                    # 根因（数据驱动，2026-05-10）：git commit(0aff0d67) score=0.15 恰好==阈值逃逸，
+                    #   memory验证(93cbc985) score=0.148 通过 suppress_fallback 绕过。
+                    #   7d 内 global chunk 占 34.7% 注入位(17/49)，前 3 个各 4 次。
+                    if relevance < 0.20:
                         score = 0.0
                     elif relevance < _relevance_gate:
                         score *= 0.50
