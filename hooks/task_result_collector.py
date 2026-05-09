@@ -64,6 +64,18 @@ def _extract_response_text(tool_response) -> str:
     return ""
 
 
+def _is_selfref_noise(text: str) -> bool:
+    """Reject memory-os self-referential results that have zero user value."""
+    tl = text.lower()
+    _NOISE_KW = ('fts5', 'recall_count', 'retriever_daemon', 'extractor_pool',
+                 'store.db', 'memory_chunks', 'recall_traces', 'bw_window',
+                 'suppress', 'inject', 'score_chunk', 'thrash', 'bandwidth_throttle',
+                 'zero_access', '注入垄断', '噪声写入', '去垄断', '写入门控',
+                 'access_count', 'chunk_state', 'insert_chunk', 'memory-os')
+    hits = sum(1 for kw in _NOISE_KW if kw in tl)
+    return hits >= 2
+
+
 def _make_summary(text: str, task_desc: str) -> str:
     """
     从子 Agent 输出中提取摘要。
@@ -114,6 +126,10 @@ def main():
         task_desc = _get_task_desc(tool_input)
         summary   = _make_summary(resp_text, task_desc)
         if not summary:
+            sys.exit(0)
+
+        # iter1275: selfref_noise_gate — 拦截 memory-os 自身实现分析结果写入
+        if _is_selfref_noise(summary) or _is_selfref_noise(resp_text[:600]):
             sys.exit(0)
 
         # ── 写入 store.db ────────────────────────────────────────────
