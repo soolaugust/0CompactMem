@@ -1221,11 +1221,14 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1346: internal_maintenance_gate — FTS5/index 维护 + 效果量化描述逃逸
         r'orphan|self.heal|index.修复|重建$|检索竞争力|importance\s*[+\-]|'
         # iter1348: sql_diag_gate — 内部 SQL 诊断/rowid 操作逃逸
-        r'rowid\s+NOT\s+IN|DELETE\s+FROM\s+memory|INSERT\s+INTO\s+memory|清空了.*表)',
+        r'rowid\s+NOT\s+IN|DELETE\s+FROM\s+memory|INSERT\s+INTO\s+memory|清空了.*表|'
+        # iter1373: pair_internal_gate — pair/候选/单条注入 内部检索概念逃逸
+        r'\bpair\b.*(?:候选|失败|排除|不包含)|候选[池=]|单条注入率?|预期改善[：:])',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
-    _min_hits = 3 if _is_constraint else 2
+    # iter1373: conversation_summary 阈值降为 1 — 对话摘要 + 任何内部术语即拒绝
+    _min_hits = 3 if _is_constraint else (1 if chunk_type == "conversation_summary" else 2)
     if hits < _min_hits:
         if hits == 1 and len(summary) < 30 and not _is_constraint and not re.search(
                 r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|commit|git\b)', summary, re.I):
