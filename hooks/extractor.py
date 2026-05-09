@@ -2918,9 +2918,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   "量化：zero_access 10%→0%"、"注入垄断已被 iter1232-1242 覆盖"、"FTS5 同步 57→55"
     #   特征：含 iter\d{3,4} 引用 + 系统指标词（或纯系统指标百分比变化）。
     if re.search(r'iter\d{3,4}', summary) and re.search(
-            r'(?:覆盖|gate|suppress|zero_access|passed|HEALTHY|precision|一致性)', summary):
+            r'(?:覆盖|gate|suppress|zero_access|passed|HEALTHY|precision|一致性|'
+            r'exempt|tighten|豁免|收紧|放宽|阈值|thresh)', summary):
         return
     if re.search(r'(?:zero_access|chunk_count|tests?\s*passed|FTS5?\s*索引|一致性\s*\d+%)\s*\d?', summary):
+        return
+    # iter1311: quantification_summary_gate — "量化：X% → Y%" 格式必为迭代器执行结果
+    if re.match(r'^\s*量化[：:]', summary):
         return
     # iter1243: iterator_stats_gate — 含 ac=/注入 N 次/7d= 统计标记的必为迭代器 meta
     # 根因（数据驱动，2026-05-09）："import-90139（PE barrier 知识）ac=3 却被周注入 6 次的垄断问题"
