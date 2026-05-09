@@ -2979,6 +2979,20 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             r'^(?:\d+\.\s*)?(?:所以|因此|但[是]?|而且|或者|之前|有一个|如果是|对[，,]|问题[：:])',
             _s_stripped_d):
             return
+    # iter1272: opinion_without_anchor_gate — 纯观点句拒绝写入
+    # 根因（数据驱动，2026-05-09）：5 个 ac=0 decision，content==summary <80字，
+    #   如 "这不是X问题"、"用户随时打断，这不是真问题"、"Agent OS 调度编排的现状与机会"。
+    #   纯粹对话中的观点/判断/标题，无技术锚点，不可独立检索。
+    # 修复：decision + 无 rich content + <80字 + 无技术锚点(API/函数/工具/配置/数值) → 拒绝。
+    if chunk_type == "decision" and not _has_rich_content:
+        _s_owa = summary.strip()
+        if len(_s_owa) < 80 and not re.search(
+            r'(?:[a-z_]{2,}\(|[A-Z][a-z]+[A-Z][a-z]|_[a-z]{2,}_|'  # func() / CamelCase / snake_case
+            r'\b(?:api|cli|sdk|hook|gate|config|param)\b|'  # tool/tech terms
+            r'\d+\s*(?:ms|us|ns|MB|KB|%|次/|条)|'  # numeric metrics
+            r'(?:必须|禁止|规则|强制|不得|应当))',  # actionable directives
+            _s_owa):
+            return
     # iter1105: iter_progress_report_gate — 迭代器进度汇报拒绝写入
     # 根因（数据驱动，2026-05-07）：3 个 ac=0 decision chunk 是迭代器向飞书 append 的
     #   进度条目（"PA 10/10"、"2. 47% 零访问 → ✅ 当前仅 12%"），
