@@ -2942,6 +2942,18 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   真正的 kernel 技术知识不会以 "N-chunk 项目" 开头描述自己。
     if re.search(r'\d+-chunk\s*\S*\s*(?:库|项目)', summary):
         return
+    # iter1321: tunable_param_change_gate — retriever/extractor 调参记录拦截
+    # 根因（数据驱动，2026-05-09）：iter1320 写入 5 条 ac=0 噪声 chunk 描述 DC type_concentration
+    #   参数调整（"DC 类 factor 0.7→0.5"、"DC 注入占比 55%→25%"）。
+    #   iter1202 的 _ITER_IMPL_KW 未覆盖 "DC"（design_constraint 缩写）和 tunable 参数变更格式。
+    # 修复：检测 DC/design_constraint 的迭代调参叙述 + tunable 参数箭头变更格式。
+    if re.search(
+            r'(?:\bDC\b.*(?:注入|占比|衰减|垄断|suppress)|type_concentration|'
+            r'design_constraint\s*(?:群体|垄断|占|衰减)|'
+            r'(?:penalty|factor|阈值|门槛|threshold)\s*[\d.]+\s*→\s*[\d.]|'
+            r'(?:fallback|suppress|cooldown).*(?:排除|门槛).*\d+\s*→\s*\d+|'
+            r'dc_type_conc|_tighten|_widen)', summary):
+        return
     # iter1249: system_self_assessment_gate — 系统自我评估/健康声明拦截
     # 数据驱动（2026-05-09）：f2588920(ac=0) "系统整体健康：87% 7d 覆盖率，cooldown 正常工作，无垄断复发"
     #   全部现有 gate 未能匹配：cooldown 需 escalat 后缀，垄断需 chunk 后缀，覆盖率无 gate。
