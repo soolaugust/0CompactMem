@@ -1995,8 +1995,9 @@ def _vfs_write_protect(summary: str) -> bool:
     if _re_vfs.match(r'^(?:抱歉|对不起|不好意思|sorry)', s, _re_vfs.IGNORECASE) \
        and not _re_vfs.search(r'(?:必须|禁止|规则|约束|方案|原因|因为|根因|修复)', s):
         return True
-    # iter1231: vfs_iter_prefix_gate — iter\d{3,4}: 或 "数据：" + 统计格式 = 迭代器自记录
-    if _re_vfs.match(r'^iter\d{3,4}\s*[：:_]', s):
+    # iter1231: vfs_iter_prefix_gate — iter\d{3,4} 开头 = 迭代器自记录
+    # iter1334: iter_prefix_widen — \b 覆盖 "iter1333 总结：" 变体
+    if _re_vfs.match(r'^iter\d{3,4}\b', s):
         return True
     if _re_vfs.match(r'^数据[：:]', s) and _re_vfs.search(r'\d+/\d+|\d+\.?\d*%', s) \
        and _RE_VFS_SELFREF.search(s):

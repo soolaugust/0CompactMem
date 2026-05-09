@@ -502,7 +502,8 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                     if not _is_quality_decision(t.strip()):
                         continue
                 # iter1193: iter_prefix_hardkill (pool sync)
-                if _re.match(r'^iter\d{2,4}\s*[:：]', t):
+                # iter1334: iter_prefix_widen — \b 覆盖 "iter1333 总结：" 变体
+                if _re.match(r'^iter\d{2,4}\b', t):
                     continue
                 # iter1282: iter_action_prefix_gate (pool sync extractor.py iter1233)
                 # iter1316: list_prefix_tolerance — sync extractor.py
