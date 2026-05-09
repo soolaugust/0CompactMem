@@ -271,15 +271,45 @@ def assert_fts5_covers_all_chunks(conn: sqlite3.Connection, fix: bool = False) -
             r.passed = True
             r.message = f"FTS5={fts_count}, chunks={chunk_count} (consistent)"
         elif fix:
-            # 自修复：重建 FTS5
+            # 自修复：重建 FTS5（带 CJK 分词，与 insert_chunk 写入路径对齐）
             conn.execute("DELETE FROM memory_chunks_fts")
-            # iter797: 修复 FTS5 重建路径 — 必须用 rowid_ref 列，过滤 chunk_state
-            conn.execute(
-                """INSERT INTO memory_chunks_fts (rowid_ref, summary, content)
-                   SELECT CAST(rowid AS TEXT), summary, COALESCE(content, '')
-                   FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''"""
-            )
             conn.commit()
+            # iter1322: fts_rebuild_tokenize — 重建必须经过 _cjk_tokenize 处理
+            try:
+                from store_vfs import _cjk_tokenize, _normalize_structured_summary
+                import json as _j_fts
+                _fts_rows = conn.execute(
+                    "SELECT rowid, summary, content, tags FROM memory_chunks "
+                    "WHERE chunk_state='ACTIVE' AND summary != ''"
+                ).fetchall()
+                for _fr, _fs, _fc, _ft in _fts_rows:
+                    _raw_c = _fc or ''
+                    if _ft:
+                        try:
+                            _tl = _j_fts.loads(_ft) if isinstance(_ft, str) else _ft
+                            _skip = {'semantic', 'consolidated', 'imported', 'design_constraint',
+                                     'decision', 'procedure', 'quantitative_evidence', 'causal_chain',
+                                     'excluded_path', 'prompt_context', 'reasoning_chain'}
+                            _u = [t for t in _tl if isinstance(t, str) and t not in _skip
+                                  and not t.startswith(('abspath:', 'git:', 'sec'))]
+                            if _u:
+                                _raw_c += ' ' + ' '.join(_u)
+                        except Exception:
+                            pass
+                    conn.execute(
+                        "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
+                        (str(_fr), _cjk_tokenize(_normalize_structured_summary(_fs)),
+                         _cjk_tokenize(_normalize_structured_summary(_raw_c)))
+                    )
+                conn.commit()
+            except ImportError:
+                # fallback: 无分词直接插入（兼容 store_vfs 不可用场景）
+                conn.execute(
+                    """INSERT INTO memory_chunks_fts (rowid_ref, summary, content)
+                       SELECT CAST(rowid AS TEXT), summary, COALESCE(content, '')
+                       FROM memory_chunks WHERE chunk_state='ACTIVE' AND summary != ''"""
+                )
+                conn.commit()
             new_fts = conn.execute("SELECT COUNT(*) FROM memory_chunks_fts").fetchone()[0]
             r.passed = True
             r.fix_applied = True
