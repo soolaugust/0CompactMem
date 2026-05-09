@@ -1628,7 +1628,8 @@ def _is_quality_chunk(summary: str) -> bool:
     # 数据驱动（2026-05-08）：6 条 ac=0 噪声逃逸，前缀分别为：
     #   "量化："(非"量化预期")、"附带发现："、"修复：阈值按 ac 分级"。
     #   这些是迭代器固定模板输出，用户真实知识不以此开头。
-    if re.match(r'^(?:量化[：:]|附带发现[：:]|修复[：:](?:阈值|在|补充|同步|最后))', s):
+    # iter1369: expand "附带发现" → "附带" — "附带：清理 2 条零访问 thin chunk" 也是迭代器自操作日志
+    if re.match(r'^(?:量化[：:]|附带[：:]|附带发现[：:]|修复[：:](?:阈值|在|补充|同步|最后))', s):
         return False
     # iter1162: root_cause_internal_gate — "根因：" + retriever 内部概念
     # 数据驱动（2026-05-08）：df756f99 "根因：suppress/cooldown 过严导致 relevance_fallback"
@@ -2835,6 +2836,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if not content_override and re.match(r'^[」」）\)》\]】][^A-Z]', summary.lstrip()):
         return
     if not content_override and re.match(r'^[一-鿿][,，、;；:：]', summary.lstrip()):
+        return
+    # iter1369: bare_colon_prefix_gate — 全角冒号开头 = 从"标题：内容"截取了冒号后半段
+    # 数据驱动（2026-05-10）：315ff97c "：local_sparse..." ac=0，从更长描述截断。
+    if not content_override and summary.lstrip().startswith('：'):
         return
     # iter966: cmdline_fragment_gate — 命令行参数碎片拒绝写入
     # 数据驱动（2026-05-06）：8d3918ac "-in-reply-to=\"<20260429...\"" 逃逸所有 gate。
