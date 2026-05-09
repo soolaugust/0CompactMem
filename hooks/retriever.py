@@ -4073,7 +4073,10 @@ def main():
                 #   design_constraint lifetime>=4 无条件 suppress。
                 def _hd1273_lifetime_ok(c):
                     # iter1281: sparse_lifetime_shield — local_sparse 本地 chunk 跳过 lifetime suppress
-                    if _local_sparse and c.get("project", "") == project:
+                    # iter1337: sparse_global_lifetime_shield — local_sparse 时 global chunk 也跳过
+                    # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local+9 global) 85% 空召回，
+                    #   global chunk 是主要知识源但被 lifetime suppress 封锁（只保护 local）。
+                    if _local_sparse and c.get("project", "") in (project, "global"):
                         return True
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0
@@ -6188,7 +6191,8 @@ def main():
                 # iter1277: lifetime_thresh_tighten — sync FULL path
                 def _sf1273_lifetime_ok(c):
                     # iter1281: sparse_lifetime_shield — local_sparse 本地 chunk 跳过 lifetime suppress
-                    if _local_sparse and c.get("project", "") == project:
+                    # iter1337: sparse_global_lifetime_shield — sync hard_deadline path
+                    if _local_sparse and c.get("project", "") in (project, "global"):
                         return True
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0

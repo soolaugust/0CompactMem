@@ -5264,6 +5264,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                              or _rt663d_7d.get(c[_CI_ID], 0) < _d_micro_cross_7d_cap(c)]
                 # iter1273: lifetime_injection_suppress — daemon suppress_final_gate 同步
                 def _d1273_lifetime_ok(c):
+                    # iter1337: sparse_global_lifetime_shield — sync retriever.py
+                    if _local_sparse_d and (c[_CI_CP] or "") in (project, "global"):
+                        return True
                     _lt_data = _itl_lifetime.get(c[_CI_ID])
                     if not _lt_data:
                         return True
