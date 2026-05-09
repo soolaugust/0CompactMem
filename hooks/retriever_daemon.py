@@ -5536,6 +5536,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                if _fb_cooldown_ok_d(c)
                                and _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d + 2
                                and (c[_CI_AC] or 0) < 7]
+                # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选，跳过 7d/24h cap
+                # 根因（数据驱动，2026-05-10）：local<=3 项目 55% 请求空召回。
+                #   2 local chunks + 9 global = 11 visible，活跃 session 中所有候选 7d/24h 达 ceiling。
+                #   escalate(+2) 仍不够 → _fb_pool=None → 零注入。
+                # 修复：local_sparse 时从 _pre_suppress_top_k 选 ac 最低的候选（最新鲜知识），
+                #   仅保留 cooldown 检查（防 14d 冷冻期内的过饱和 chunk），跳过 7d/24h ceiling。
+                if not _fb_cap and _local_sparse_d:
+                    _fb_cap = sorted(
+                        [(s, c) for s, c in _pre_suppress_top_k if _fb_cooldown_ok_d(c)],
+                        key=lambda x: (x[1][_CI_AC] or 0, -x[0])
+                    )[:2]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
                 _fb_pool = _fb_cap if _fb_cap else None
                 # iter939: fallback_relevance_floor — 低相关性时不强制注入噪声（sync retriever.py）
