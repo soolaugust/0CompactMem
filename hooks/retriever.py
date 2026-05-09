@@ -7519,7 +7519,10 @@ def main():
         #   解决闭包快照 _recent_7d_counts 在 session 内不更新 + 无 session-dedup 的问题。
         if top_k and len(top_k) > 1 and not _micro_db:
             _omf_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-            _omf_ceiling_base = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
+            # iter1335: omf_ceiling_tighten — base ceiling 收紧防低ac chunk周注入过量
+            # 根因（数据驱动，2026-05-09）：70-chunk库 ceiling=6，ac=3 chunk 7d=6 才触发suppress，
+            #   周注入 6 次对用户无增量。收紧至 db<20→5, db<50→4, else→3。
+            _omf_ceiling_base = 5 if _db_chunk_count < 20 else (4 if _db_chunk_count < 50 else 3)
             # iter1173: omf_ac_aware_ceiling — per-chunk ceiling 对齐 suppress 阈值
             # 根因（数据驱动，2026-05-08）：PE分析(ac=7,7d=6) 被 _score_chunk suppress(thresh=2)，
             #   但经 fallback/pair 路径复活后到达 omf，flat ceiling=6 → 6<6 FALSE → 逃逸。
