@@ -2876,6 +2876,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1342: short_title_iter_gate — <=10字纯标题 + 含 memory-os 内部概念 = 噪声
     if len(summary) <= 20 and re.search(r'(?:extractor|retriever|写入质量|注入质量|suppress|chunk)', summary):
         return
+    # iter1343: iter_crud_ops_gate — 迭代器 CRUD 操作记录拦截
+    # 根因（数据驱动，2026-05-10）：086163d3 "删除 4 条 access_count=0 的迭代器自诊断 chunk"
+    #   逃逸原因：不以已拦截前缀开头，但本质是迭代器对 DB 的增删改操作日志。
+    # 修复：检测 "删除/清理/新增/写入 N 条" + memory-os 内部术语共现 → 拒绝。
+    if re.search(r'(?:删除|清理|新增|写入|移除)\s*\d+\s*条', summary) \
+       and re.search(r'(?:chunk|access_count|迭代器|自诊断|zero_access|噪声|ac=|FTS)', summary):
+        return
     # iter1247: injection_stats_narrative_gate — 含注入统计叙事的迭代器量化结论
     # 根因（数据驱动，2026-05-09）：15e53f00(ac=0) "量化效果：过去 7d 的 16 次 global 注入中，
     #   6 次 score<0.25 的低相关性注入将被拦截（37.5% 降噪）"
