@@ -2844,7 +2844,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
     # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
     # iter1233: iter_action_prefix_widen — 扩展前缀覆盖"量化结果/改动/预期效果/修复：/净增"
-    if re.match(r'^(?:量化结果[：:]|量化[：:改预效]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
+    # iter1316: list_prefix_tolerance — 允许可选的 markdown 列表前缀 "- "/"* "/"• "
+    #   根因（数据驱动，2026-05-09）：d5fe4a0e "- 预期效果：ac=3 chunk..." 以列表前缀开头
+    #   绕过 ^预期效果 匹配逃逸写入。迭代器输出常带列表前缀。
+    if re.match(r'^(?:[-•*]\s*)?(?:量化结果[：:]|量化[：:改预效]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
         return
     # iter1247: injection_stats_narrative_gate — 含注入统计叙事的迭代器量化结论
     # 根因（数据驱动，2026-05-09）：15e53f00(ac=0) "量化效果：过去 7d 的 16 次 global 注入中，
