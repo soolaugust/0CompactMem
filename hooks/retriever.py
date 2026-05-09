@@ -2560,7 +2560,14 @@ def main():
             #   global chunk 全是 design_constraint/procedure，agent 已内化，应无条件 cooldown。
             # 修复：global chunk 绕过 _cd_acc_floor 检查，对齐 iter1079 意图。
             _cd_is_global = _cd_chunk_proj == "global"
-            if (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
+            # iter1313: sparse_cooldown_shield — local_sparse 本地 chunk 跳过 cooldown
+            # 根因（数据驱动，2026-05-09）：58c70136(ac=8,local) 在 git:78dc99a5695f(2 local)
+            #   被 cooldown suppress，_local_sparse=True 但 cooldown 路径未对齐 iter1200。
+            #   iter1200 保护了 session suppress，iter1172 保护了 24h/7d，唯独 cooldown 遗漏。
+            #   导致 5/6 凌晨 7 次连续空召回（该项目唯一本地知识被锁死）。
+            # 修复：local_sparse + 本地 chunk → 跳过 cooldown（与 iter1200 对齐）。
+            _sparse_cd_shield = _local_sparse and not _cd_is_cross_project
+            if not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
                 # iter1090: cooldown_db_fallback — timeline GC 后用 last_accessed 兜底
