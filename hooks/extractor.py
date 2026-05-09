@@ -2929,6 +2929,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：summary 含 retriever 统计格式标记 → 直接拦截（不检查 DOMAIN_KW）。
     if re.search(r'(?:\bac[=＝]\d|被.*注入.*\d+\s*次|7d[=＝]\d|周注入\s*\d)', summary):
         return
+    # iter1309: chunk_count_project_stats_gate — "N-chunk 项目/库" 格式是迭代器统计
+    # 根因（数据驱动，2026-05-09）：0647ccd6/bdae9fba(ac=0) "21-chunk kernel 项目 46% 空召回率..."
+    #   含 "kernel" 触发 DOMAIN_KW 豁免 iter1202。但 "\d+-chunk.*项目" 是迭代器统计格式，
+    #   真正的 kernel 技术知识不会以 "N-chunk 项目" 开头描述自己。
+    if re.search(r'\d+-chunk\s*\S*\s*(?:库|项目)', summary):
+        return
     # iter1249: system_self_assessment_gate — 系统自我评估/健康声明拦截
     # 数据驱动（2026-05-09）：f2588920(ac=0) "系统整体健康：87% 7d 覆盖率，cooldown 正常工作，无垄断复发"
     #   全部现有 gate 未能匹配：cooldown 需 escalat 后缀，垄断需 chunk 后缀，覆盖率无 gate。
