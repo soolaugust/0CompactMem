@@ -4070,9 +4070,15 @@ def main():
                     if _local_sparse and c.get("project", "") == project:
                         return True
                     _tl = _injection_timeline.get(c["id"])
+                    _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
+                        # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
+                        if _ac_lt >= 6:
+                            return False
+                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
+                            return False
                         return True
-                    _lt = len(_tl)
+                    _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — 无条件阈值 6→5
                     # 根因（数据驱动，2026-05-09）：368cb071(lifetime=5) 等 7 个 chunk
                     #   因 last_inject > 72h 逃逸条件 suppress，cooldown 到期后将重新垄断。
@@ -6169,9 +6175,15 @@ def main():
                     if _local_sparse and c.get("project", "") == project:
                         return True
                     _tl = _injection_timeline.get(c["id"])
+                    _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
+                        # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
+                        if _ac_lt >= 6:
+                            return False
+                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
+                            return False
                         return True
-                    _lt = len(_tl)
+                    _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — sync FULL path
                     if _lt >= 5:
                         return False
