@@ -2440,14 +2440,16 @@ def main():
                     and chunk.get("chunk_type") != "design_constraint"):
                 score *= 0.55
 
-            # ── iter1302: thin_content_penalty — content==summary 零增量降权 ──
-            # 根因（数据驱动，2026-05-09）：21/55 ACTIVE chunk 的 content 完全等于 summary，
-            #   注入时占 injection slot 但用户获得的信息量=0（LLM 已从 summary 知道全部内容）。
-            #   让信息密度更高的 chunk 优先进入 top_k。
-            # 修复：content 长度 <= summary 长度 + 5 → score *= 0.5（半数降权，不硬 suppress）。
+            # ── iter1303: thin_content_hard_suppress — content==summary 极短碎片硬拦截 ──
+            # 数据驱动（2026-05-09）：20 个 content≈summary chunk 中，<60字的 9 个全为
+            #   无上下文断言（"两个fix都是必要的"、"KCSAN集成到selftest runner"），
+            #   注入后用户获得信息量=0。>=60字的保留降权（含部分有用因果链）。
+            # 修复：<60字硬suppress，60-100字降权0.5。
             _c_content = chunk.get("content", "") or ""
             _c_summary = chunk.get("summary", "") or ""
-            if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 80:
+            if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 100:
+                if len(_c_content) < 60:
+                    return 0.0
                 score *= 0.5
 
             # ── iter482: Confidence Threshold Filter ────────────────────────
