@@ -3880,11 +3880,15 @@ def main():
                     #   (score=0)后经 dead_zone_fallback 以 importance 排序重新注入。ac<30 过宽。
                     #   跨项目/global ac>=7 已被所有主路径 suppress(thresh=2)，fallback 不应绕过。
                     # 修复：跨项目/global ac>=7 排除出 fallback 候选；本项目知识保留兜底能力。
+                    # iter1318: global_fallback_ac5 — global chunk fallback 排除门槛 7→5
+                    # 根因（数据驱动，2026-05-09）：93cbc985(ac=6,global,"memory验证路径")
+                    #   在 kernel 项目 7d 被注入 2 次，因 ac=6 < 7 逃逸 fallback 排除。
+                    #   ac>=5 global chunk 已被用户多次内化，fallback 中不应再兜底注入。
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if (c.get("access_count", 0) or 0) < 30
                                    and not ((c.get("project", "") != project and c.get("project", "") != "global"
                                              or c.get("project", "") == "global")
-                                            and (c.get("access_count", 0) or 0) >= 7)]
+                                            and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         positive = [(_sef_hd_best[0] * 0.1, _sef_hd_best[1])]
@@ -3920,7 +3924,7 @@ def main():
                                      and (c.get("access_count", 0) or 0) < 30
                                      and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                      and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                              and (c.get("access_count", 0) or 0) >= 7)]
+                                              and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
                 if _fb_pair_hd_cands:
                     _fb_pair_hd_best = max(_fb_pair_hd_cands, key=lambda x: x[0])
                     if _fb_pair_hd_best[0] >= 0.3:
@@ -4296,7 +4300,7 @@ def main():
                                       and _session_injection_counts.get(c.get("id", ""), 0) == 0
                                       and not ((c.get("project", "") != project and c.get("project", "") != "global"
                                                 or c.get("project", "") == "global")
-                                               and (c.get("access_count", 0) or 0) >= 7)]
+                                               and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
                 if _pebf_cands_hd:
                     _pebf_best_hd = max(_pebf_cands_hd, key=lambda x: x[0])
                     _pebf_score_hd = _pebf_best_hd[0]
@@ -5174,7 +5178,7 @@ def main():
                 _sef_by_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                if (c.get("access_count", 0) or 0) < 30
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                        and (c.get("access_count", 0) or 0) >= 7)]
+                                        and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     positive = [(_sef_best[0] * 0.1, _sef_best[1])]
@@ -5208,7 +5212,7 @@ def main():
                               # iter1027: fallback_24h_align — global ac>=4 阈值=1
                               and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)
                               and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                       and (c.get("access_count", 0) or 0) >= 7)]
+                                       and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
             if _fb_pair_cands:
                 _fb_pair_best = max(_fb_pair_cands, key=lambda x: x[0])
                 if _fb_pair_best[0] >= 0.3:
@@ -5743,7 +5747,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) == 0
                                    and not ((c.get("project", "") != project and c.get("project", "") != "global"
                                              or c.get("project", "") == "global")
-                                            and (c.get("access_count", 0) or 0) >= 7)]
+                                            and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
                 if _pebf_cands:
                     _pebf_best = max(_pebf_cands, key=lambda x: x[0])
                     _pebf_score = _pebf_best[0]
