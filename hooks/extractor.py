@@ -2788,6 +2788,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 数据驱动（2026-05-09）：15f2c1cf "用，不是 Agent 自驱。飞轮需要：..." ac=0
     #   以单字+标点开头，表明从更长文本中间截取。
     # 修复：以 CJK单字+标点 或 纯标点 开头 → 截断碎片 → 拒绝。
+    # iter1300: closing_quote_fragment — 右引号/括号开头也是截断碎片
+    #   数据驱动（2026-05-09）：fc51691c "」作为占位..." ac=0，从引号句中间截取。
+    if not content_override and re.match(r'^[」」）\)》\]】][^A-Z]', summary.lstrip()):
+        return
     if not content_override and re.match(r'^[一-鿿][,，、;；:：]', summary.lstrip()):
         return
     # iter966: cmdline_fragment_gate — 命令行参数碎片拒绝写入

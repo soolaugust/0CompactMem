@@ -2216,6 +2216,11 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
     #   summary 本身是 FTS 索引的，content 如无增量只浪费存储+检索噪声。
     if _content_973 and _content_973 == _summary_973:
         return
+    # iter1300: vfs_closing_quote_fragment — 右引号/括号开头=截断碎片
+    # 数据驱动（2026-05-09）：fc51691c "」作为占位..." 绕过 extractor 写入 DB。
+    import re as _re1300
+    if _summary_973 and _re1300.match(r'^[」」）\)》\]】][^A-Z]', _summary_973):
+        return
     # ── iter973b: vfs_ephemeral_type_gate — 对齐 extractor 的 _EPHEMERAL_TYPES ──
     # 根因（数据驱动，2026-05-06）：writer.py 直接调用 insert_chunk 绕过 _write_chunk 的
     #   _EPHEMERAL_TYPES 检查，5 条 conversation_summary 碎片经此路径写入 DB。
