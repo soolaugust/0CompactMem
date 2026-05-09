@@ -3884,11 +3884,19 @@ def main():
                     # 根因（数据驱动，2026-05-09）：93cbc985(ac=6,global,"memory验证路径")
                     #   在 kernel 项目 7d 被注入 2 次，因 ac=6 < 7 逃逸 fallback 排除。
                     #   ac>=5 global chunk 已被用户多次内化，fallback 中不应再兜底注入。
+                    # iter1319: dc_fallback_ac4 — design_constraint global chunk fallback 排除 5→4
+                    # 根因（数据驱动，2026-05-09）：feishu CLI(ac=4,design_constraint,global)
+                    #   ac=4 < 5 逃逸 fallback 排除→被 dead_zone_fallback 兜底注入。
+                    #   design_constraint 是固化硬规则，4 次内化已充分，与 iter1277 lifetime 对齐。
+                    # 修复：design_constraint global chunk 排除门槛 5→4；其他 global 保持 5。
+                    def _fb_ac_thresh_hd(c):
+                        if c.get("project", "") == "global":
+                            return 4 if c.get("chunk_type") == "design_constraint" else 5
+                        return 7
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if (c.get("access_count", 0) or 0) < 30
-                                   and not ((c.get("project", "") != project and c.get("project", "") != "global"
-                                             or c.get("project", "") == "global")
-                                            and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
+                                   and not ((c.get("project", "") != project or c.get("project", "") == "global")
+                                            and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         positive = [(_sef_hd_best[0] * 0.1, _sef_hd_best[1])]
@@ -5175,10 +5183,15 @@ def main():
                 _sef_full_max = _sef_full[0]
                 _DEAD_ZONE_MIN_FULL = 0.05
                 # iter1166: fallback_cooldown_align — sync FULL dead_zone_fallback
+                # iter1319: dc_fallback_ac4 — sync FULL path
+                def _fb_ac_thresh_full(c):
+                    if c.get("project", "") == "global":
+                        return 4 if c.get("chunk_type") == "design_constraint" else 5
+                    return 7
                 _sef_by_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                if (c.get("access_count", 0) or 0) < 30
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                        and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
+                                        and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     positive = [(_sef_best[0] * 0.1, _sef_best[1])]
