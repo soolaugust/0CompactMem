@@ -1207,6 +1207,10 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         summary
     ))
     if hits < 2:
+        # iter1282: short_single_hit_selfref — 极短文本(<30字)+单hit=纯迭代器噪声
+        if hits == 1 and len(summary) < 30 and not re.search(
+                r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|commit|git\b)', summary, re.I):
+            return True
         return False
     # iter1212: selfref_high_hits_override — hits>=3 时外部锚点大概率是偶然命中
     # 数据驱动（2026-05-08）："MCP direct 写入路径绕过 extractor gate（daemon 进程未热加载）"
