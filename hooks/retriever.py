@@ -6467,9 +6467,10 @@ def main():
                 # 根因（数据驱动，2026-05-06）：54% 单条注入。decision 占库 52%，
                 #   chunk_type != top1_type 排除过半候选 → 配对失败。
                 _dp895_exclude = f"'{_dp895_top1_id}'"
+                # iter1371: pair_global_include — 包含 global chunk（同步 iter868）
                 _dp895_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
-                    f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                     f"AND id NOT IN ({_dp895_exclude}) "
                     f"ORDER BY importance DESC, access_count ASC LIMIT 5",
                     (project,)
@@ -6484,9 +6485,11 @@ def main():
                 #   6/13 高频 chunk 全经 pair 注入(single=0,pair=4)。回退对齐 daemon(3/4/5)。
                 _dp895_small = _sf663_small_db if '_sf663_small_db' in dir() else (_db_chunk_count < 100)
                 _dp895_lim = 3 if _dp895_tiny else (4 if _dp895_small else 5)
+                # iter1371: global pair 候选排除高内化 design_constraint（同步 iter868）
                 _dp895_ok = [r for r in _dp895_rows
                              if _dp895_7d.get(r[0], 0) < _dp895_lim
-                             and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh]
+                             and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh
+                             and not (r[3] == "design_constraint" and r[5] >= 5)]
                 # iter1086: pair_relaxed_fallback — 全被 7d 过滤时选 7d 最低的一条
                 # 根因（数据驱动，2026-05-07）：22-chunk 库 64% chunk 7d>=3 → pair 候选全灭
                 #   → 44% 单条注入。pair 是辅助上下文，不应被 suppress 完全阻断。
@@ -7315,15 +7318,22 @@ def main():
                     _now_ts = _dt1035.now(_tz1035.utc).isoformat()
                 import sqlite3 as _f868_sql
                 _f868_conn = _f868_sql.connect(str(STORE_DB))
+                # iter1371: pair_global_include — 包含 global chunk 扩大 pair 候选池
+                # 根因（数据驱动，2026-05-10）：abspath:7e3095aef7a6（1 local chunk）、
+                #   git:78dc99a5695f（1 local）排除 top1 后本项目候选=0 → pair 永远失败。
+                #   _db_chunk_count 已含 global（line 1738），pair 查询应一致。
+                # 修复：SQL 加 OR project='global'，使 9 个 global chunk 可作为 pair 候选。
                 _f868_rows = _f868_conn.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
-                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "FROM memory_chunks WHERE (project = ? OR project = 'global') AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? "
                     "ORDER BY access_count ASC, importance DESC LIMIT 6",
                     (project, _f868_top1_id)).fetchall()
                 _f868_conn.close()
+                # iter1371: global pair 候选排除高内化 chunk（ac>=6 已见 6+ 次，零增量）
                 _f868_cands = [r for r in _f868_rows
-                               if _session_injection_counts.get(r[0], 0) < (_sysctl("retriever.session_dedup_threshold") or 2)]
+                               if _session_injection_counts.get(r[0], 0) < (_sysctl("retriever.session_dedup_threshold") or 2)
+                               and not (r[3] == "design_constraint" and r[5] >= 5)]
                 if _f868_cands:
                     # 轮转选择：用分钟数 % len 避免总选同一条
                     _f868_idx = int(_now_ts[14:16]) % len(_f868_cands) if len(_now_ts) > 16 else 0
