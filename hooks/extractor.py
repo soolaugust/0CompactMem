@@ -863,6 +863,9 @@ def _extract_from_tool_outputs(transcript_path: str, session_id: str,
                     # 这些行含量化数据但没有可复用决策价值
                     if _is_tool_insight_noise(clean):
                         continue
+                    # iter1288: fragment_completeness_gate — 拒绝不完整句子片段
+                    if re.search(r'[,，、;；]\s*$', clean):
+                        continue
                     key = re.sub(r'\s+', '', clean.lower())
                     if key in seen_summaries:
                         continue
