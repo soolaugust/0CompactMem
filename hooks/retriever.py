@@ -2845,6 +2845,22 @@ def main():
                 if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
+                # iter1270: min_injection_gap — 最近注入 <30min 的 ac>=2 chunk suppress
+                # 根因（数据驱动，2026-05-09）：import-90139(ac=3) 5/4 在 8-30min 内被 3 session 注入，
+                #   6h count 需累积到阈值才 suppress，并发 TOCTOU 使前 N-1 次逃逸。
+                # 修复：不依赖 count，检查最近注入时间戳。30min 内有注入 + ac>=2 → suppress。
+                #   ac<2 新知识首次注入后可能同 session 合理再召回，不限制。
+                #   micro_db/local_sparse 跳过（唯一知识源不可 suppress）。
+                if not _hard_suppressed and not _micro_db and not _sparse_global_relax and _injection_timeline:
+                    _mg_ac = chunk.get("access_count", 0) or 0
+                    if _mg_ac >= 2:
+                        _mg_list = _injection_timeline.get(chunk.get("id", ""), [])
+                        if _mg_list:
+                            _mg_last = max(_mg_list)
+                            _mg_cutoff = (_now647 - _td647(minutes=30)).isoformat()
+                            if _mg_last > _mg_cutoff:
+                                score = 0.0
+                                _hard_suppressed = True
                 # iter806: small_db_suppress_tighten — 收紧 small_db 24h 阈值
                 # 根因（数据驱动，2026-05-05）：35 chunk 库 import-90139 24h 内被
                 #   3 个不同 session 注入（score>=0.5），阈值=4 恰好逃逸。
