@@ -1207,7 +1207,11 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1278: iterator_stats_report_gate — 迭代器统计报告/效果描述逃逸
         r'top.?\d+.*(?:share|占比?|降)|[Zz]ero.access|'
         r'(?:释放|残留).{0,15}(?:注入位|chunk|知识)|注入\s*\d+%|空召回率|'
-        r'\d+%\s*[\(（].*→\s*\d+%)',
+        r'\d+%\s*[\(（].*→\s*\d+%|'
+        # iter1306: effect_prediction_gate — 迭代器效果预测/垄断度量逃逸
+        r'预期效果.{0,10}(?:垄断|注入|suppress)|垄断.{0,10}[→>]\s*[<\d]|'
+        r'\d+\.?\d*%\s*→\s*[<>]?\s*\d+\.?\d*%|'
+        r'rs\[:\d+\]|截取.{0,5}token)',
         summary
     ))
     if hits < 2:
