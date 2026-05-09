@@ -2405,6 +2405,15 @@ def main():
                         _acc_ee = chunk.get("access_count", 0) or 0
                     if _acc_ee >= 12:  # iter981: 15→12 对齐主路径
                         return 0.0
+                    # iter1362: global_irrelevant_saturated_gate — global + 极低相关 + 已内化 → suppress
+                    # 根因（数据驱动，2026-05-10）：feishu CLI(imp=0.95,ac=4)、memory验证(imp=0.88,ac=6)
+                    #   等 global constraint 在 kernel 项目中 relevance<0.005（FTS5 零匹配），
+                    #   但以 importance*0.1≈0.09 持续进入 top_k（小库候选不足时占满注入位）。
+                    #   7d suppress 因跨项目分散计数（per-proj<=2）不触发。ac>=4 已见 4+ 次。
+                    # 修复：global + ac>=4 + 极低 relevance → 零信息增量，直接返回 0。
+                    #   不影响 relevance>=0.005 的正常匹配路径（真正相关时仍注入）。
+                    if chunk.get("project", "") == "global" and _acc_ee >= 4:
+                        return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
