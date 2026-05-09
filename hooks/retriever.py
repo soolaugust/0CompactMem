@@ -3012,8 +3012,15 @@ def main():
                     #   高分 base=6, iter1242 max(3,6-1)=5 仍过宽→7d=6 逃逸。
                     #   ac=3 用户已看 3 次，7d 内 2 次后边际信息≈0。
                     # 修复：直接 cap thresh=3（不依赖 base），7d 第 3 次即 suppress。
+                    # iter1305: ac3_7d_cap_tighten — ac>=3 cap 3→2
+                    # 根因（数据驱动，2026-05-09）：import-9(ac=3,procedure) 128 次召回中
+                    #   被注入 11 次(8.6%)，是全库最大垄断者。72h cooldown+48h jitter
+                    #   实际保护仅~24h，thresh=3 允许 7d 内注入 2 次仍不 suppress。
+                    #   ac=3 用户已看 3 次，7d 内 1 次后边际价值已极低。
+                    # 修复：cap 3→2，7d 第 2 次即 suppress。配合 72h cooldown，
+                    #   7d 最多 2 次（首次正常+触发 suppress 前的 TOCTOU=1）。
                     elif _l_ac >= 3:
-                        _suppress_7d_thresh = min(_suppress_7d_thresh, 3)
+                        _suppress_7d_thresh = min(_suppress_7d_thresh, 2)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
