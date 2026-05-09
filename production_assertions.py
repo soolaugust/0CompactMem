@@ -558,7 +558,9 @@ def check_test_pollution(conn: sqlite3.Connection, fix: bool = False) -> Asserti
         test_traces = conn.execute(
             """SELECT COUNT(*) FROM recall_traces
                WHERE session_id LIKE '%test%'
-               OR session_id LIKE '%pytest%'"""
+               OR session_id LIKE '%pytest%'
+               OR (LENGTH(session_id) < 8 AND session_id != '')
+               OR session_id LIKE 'smoke_%'"""
         ).fetchone()[0]
 
         total_pollution = test_chunks + test_traces
@@ -581,7 +583,9 @@ def check_test_pollution(conn: sqlite3.Connection, fix: bool = False) -> Asserti
                 conn.execute(
                     """DELETE FROM recall_traces
                        WHERE session_id LIKE '%test%'
-                       OR session_id LIKE '%pytest%'"""
+                       OR session_id LIKE '%pytest%'
+                       OR (LENGTH(session_id) < 8 AND session_id != '')
+                       OR session_id LIKE 'smoke_%'"""
                 )
                 deleted_traces = test_traces
             conn.commit()

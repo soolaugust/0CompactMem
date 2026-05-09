@@ -1842,6 +1842,8 @@ CHUNK_VERSION_FILE = os.path.join(MEMORY_OS_DIR, ".chunk_version")
 # 修复：进程内 set 跟踪已注入 session，未注入的 session 不走 hash/TLB 缓存快捷路径。
 # 内存安全：session UUID 36B × 1000 sessions ≈ 36KB，daemon 重启自然清空。
 _sessions_with_injection: set = set()
+_SESSION_INJECTED_FILE = os.path.join(MEMORY_OS_DIR, ".session_injected")
+_sessions_written_to_file: set = set()  # iter1267: dedup file writes
 # iter807: daemon_inmem_suppress — 消除 writeback 竞争导致的 suppress 逃逸
 # 根因（数据驱动，2026-05-05）：daemon writeback 异步，final_gate 查 DB 时前一次 trace
 #   未 commit → 24h suppress 计数滞后 → 连续注入逃逸（如 38 分钟内同 chunk 注入 3 次）。
@@ -4562,6 +4564,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # Output is valid JSON regardless; Claude Code parses \uXXXX → correct Unicode str.
                     sys.stdout.write(_OUTPUT_HEADER + json.dumps(context_text, ensure_ascii=True) + "}}\n")
                     _sessions_with_injection.add(session_id)  # iter804
+                    # iter1267: daemon_session_file_sync — 写入 .session_injected 供 retriever.py 读取
+                    if session_id not in _sessions_written_to_file:
+                        try:
+                            _existing = set()
+                            if os.path.exists(_SESSION_INJECTED_FILE):
+                                with open(_SESSION_INJECTED_FILE, encoding="utf-8") as _sif:
+                                    _existing = set(_sif.read().strip().split("\n"))
+                            _existing.add(session_id)
+                            with open(_SESSION_INJECTED_FILE, 'w', encoding="utf-8") as _sif:
+                                _sif.write("\n".join(list(_existing)[-50:]) + "\n")
+                            _sessions_written_to_file.add(session_id)
+                        except Exception:
+                            pass
                     # iter807: daemon_inmem_suppress — 记录注入到进程内存
                     _now_ts = time.time()
                     for _iid807 in top_k_ids:
@@ -6074,6 +6089,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter228: ensure_ascii=True saves ~0.977us (C encoder skips UTF-8 path, outputs \uXXXX)
         sys.stdout.write(_OUTPUT_HEADER + json.dumps(context_text, ensure_ascii=True) + "}}\n")
         _sessions_with_injection.add(session_id)  # iter804
+        # iter1267: daemon_session_file_sync — 写入 .session_injected 供 retriever.py 读取
+        if session_id not in _sessions_written_to_file:
+            try:
+                _existing = set()
+                if os.path.exists(_SESSION_INJECTED_FILE):
+                    with open(_SESSION_INJECTED_FILE, encoding="utf-8") as _sif:
+                        _existing = set(_sif.read().strip().split("\n"))
+                _existing.add(session_id)
+                with open(_SESSION_INJECTED_FILE, 'w', encoding="utf-8") as _sif:
+                    _sif.write("\n".join(list(_existing)[-50:]) + "\n")
+                _sessions_written_to_file.add(session_id)
+            except Exception:
+                pass
         # iter807: daemon_inmem_suppress — 记录注入到进程内存
         # iter873: inmem_suppress_realign — 用 accessed_ids（suppress 后）替代 top_k_ids（suppress 前）
         # 根因（数据驱动，2026-05-05）：top_k_ids 在 suppress_final_gate 之前计算（line 4780），
