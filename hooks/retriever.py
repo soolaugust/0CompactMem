@@ -3161,7 +3161,14 @@ def main():
                     _ctype = chunk.get("chunk_type", "")
                     # design_constraint 需要更低相关性才触发惩罚（它有更广泛通用价值）
                     _relevance_gate = 0.40 if _ctype == "design_constraint" else 0.25
-                    if relevance < _relevance_gate:
+                    # iter1284: global_hard_irrelevance_gate — 极低相关性直接归零
+                    # 根因（数据驱动，2026-05-09）：feishu CLI/memory验证路径 在 kernel 项目
+                    #   relevance≈0.05-0.10，B10 打 50% 折扣后 score≈0.19 仍为最高分进入 top-K。
+                    #   候选池被其他 suppress 机制清空后，低分 global constraint 作为幸存者被注入。
+                    # 修复：relevance < 0.15 → score=0.0（等效 hard suppress），阻止零语义关联注入。
+                    if relevance < 0.15:
+                        score = 0.0
+                    elif relevance < _relevance_gate:
                         score *= 0.50
                 # iter1128: cross_project_relevance_gate — 非 global 跨项目 chunk 相关性门槛
                 # 根因（数据驱动，2026-05-08）：7d 内 12 次非 global 跨项目注入，
