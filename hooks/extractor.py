@@ -1219,7 +1219,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1329: recall_behavior_gate — memory-os 检索行为讨论术语
         r'无法被召回|恢复路径|注入资格|召回路径|知识库可达性|可达性\s*\d+%|'
         # iter1346: internal_maintenance_gate — FTS5/index 维护 + 效果量化描述逃逸
-        r'orphan|self.heal|index.修复|重建$|检索竞争力|importance\s*[+\-])',
+        r'orphan|self.heal|index.修复|重建$|检索竞争力|importance\s*[+\-]|'
+        # iter1348: sql_diag_gate — 内部 SQL 诊断/rowid 操作逃逸
+        r'rowid\s+NOT\s+IN|DELETE\s+FROM\s+memory|INSERT\s+INTO\s+memory|清空了.*表)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
@@ -1519,8 +1521,20 @@ def _is_quality_chunk(summary: str) -> bool:
                 #   "chunk 在同一 session 的 gate 部署前写入（时序问题）" — 内部时序描述
                 #   逃逸原因："量化：" prefix gate 只匹配 "量化[：:]" 紧跟特定后缀，
                 #   "gate 部署" 不在 noise_kw 列表中。
-                "PA 10/10", "gate 部署", "HEALTHY"]
+                "PA 10/10", "gate 部署", "HEALTHY",
+                # iter1348: iterator_pa_report_noise — 迭代器 PA 报告通用拦截
+                # 数据驱动（2026-05-10）：e28920cd "量化：检索能力 0%→100%，噪声率 8%→4%，PA 14/14 pass"
+                #   逃逸原因："PA 10/10" 只精确匹配 10/10 不拦 14/14；"量化：" prefix 未覆盖。
+                # 修复：用 "PA " + 数字 pattern 覆盖所有 PA 报告；"rowid NOT IN" 拦截 SQL 片段。
+                "PA 14/14", "PA 12/12", "PA 13/13", "PA 15/15", "PA 16/16",
+                "rowid NOT IN",
+                # iter1348: 通用 "量化：" + 度量指标组合 — 迭代器自评快照
+                "检索能力", "噪声率"]
     if any(kw in s for kw in noise_kw):
+        return False
+    # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）
+    import re as _re_ng
+    if _re_ng.search(r'PA \d+/\d+', s):
         return False
     # iter1026: iterator_combo_gate — memory-os 运行时术语组合检测
     # 数据驱动（2026-05-07）：9 个 ac=0 噪声逃逸所有单关键词 gate，根因是含外部领域词
