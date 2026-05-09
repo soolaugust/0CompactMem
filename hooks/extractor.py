@@ -2904,7 +2904,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'iter\d{3,4}|hard.?cap|session.?inj|7d.?(?:阈值|thresh|注入)|'
         r'24h.?(?:burst|阈值)|_score_chunk|_write_chunk|extractor.*gate|'
         r'recall_count|bw_window|anti.?monopoly|注入配额|注入频次|注入\s*slot|释放.*注入|'
-        r'FTS5?\s*(?:噪声|命中率)|'
+        r'FTS5?\s*(?:噪声|命中率|candidate)|candidate\s*池|'
         r'zero.?access|注入.*比例|注入率|注入仅\s*\d|注入\s*score|单条注入|diversity.?pair|production_assertions|'
         r'HEALTHY|chunk.*阈值.*触发|inject.*cap|cooldown.*escalat|'
         r'垄断\s*chunk|低频高价值|预期效果.*(?:注入|suppress|召回)|'
