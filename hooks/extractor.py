@@ -2847,6 +2847,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
            and re.search(r'\d', summary) \
            and not re.search(r'(?:根因|原因|所以|因此|说明|表明|意味着|证明|意味|导致)', summary):
             return
+    # iter1336: truncated_fragment_gate — 截断碎片拦截（sync extractor_pool.py）
+    # 根因（数据驱动，2026-05-09）：f125367a content="ng（50+ chunk 库从..."
+    #   以小写字母开头=前文被截断的碎片，零信息增量。
+    _stripped_summ = re.sub(r'^[-•*]\s*', '', summary)
+    if _stripped_summ and _stripped_summ[0].islower() and _stripped_summ[0].isascii():
+        return
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
     # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
     # iter1233: iter_action_prefix_widen — 扩展前缀覆盖"量化结果/改动/预期效果/修复：/净增"

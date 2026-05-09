@@ -501,6 +501,13 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 if chunk_type == "decision":
                     if not _is_quality_decision(t.strip()):
                         continue
+                # iter1336: truncated_fragment_gate — 截断碎片拦截
+                # 根因（数据驱动，2026-05-09）：f125367a content="ng（50+ chunk 库从..."
+                #   以小写字母开头=前文被截断的碎片，零信息增量。
+                # 修复：去除 bullet 后首字符为小写英文 → 拒绝写入。
+                _stripped_t = _re.sub(r'^[-•*]\s*', '', t)
+                if _stripped_t and _stripped_t[0].islower() and _stripped_t[0].isascii():
+                    continue
                 # iter1193: iter_prefix_hardkill (pool sync)
                 # iter1334: iter_prefix_widen — \b 覆盖 "iter1333 总结：" 变体
                 if _re.match(r'^iter\d{2,4}\b', t):
