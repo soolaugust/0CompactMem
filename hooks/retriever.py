@@ -4073,6 +4073,16 @@ def main():
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
                         # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
+                        # iter1328: stale_lifetime_reactivation — 长期未访问允许重新注入
+                        # 根因（数据驱动，2026-05-09）：ac=8/12 chunk last_accessed=4/30，
+                        #   timeline GC 后 ac_lifetime_floor 永久封锁，但距今 9+ 天
+                        #   用户可能已遗忘（人类工作记忆 ~7d 衰减）。
+                        #   永久封锁违背"按需召回"原则：知识该在需要时出现。
+                        # 修复：last_accessed < _cutoff_14d 时跳过 ac_lifetime_floor，
+                        #   允许重新注入 1 次（注入后 timeline 重建，回到正常 suppress 流程）。
+                        _la = c.get("last_accessed") or ""
+                        if _la and _la < _cutoff_14d:
+                            return True
                         if _ac_lt >= 6:
                             return False
                         if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
@@ -6178,6 +6188,10 @@ def main():
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
                         # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
+                        # iter1328: stale_lifetime_reactivation — sync FULL path
+                        _la = c.get("last_accessed") or ""
+                        if _la and _la < _cutoff_14d:
+                            return True
                         if _ac_lt >= 6:
                             return False
                         if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
