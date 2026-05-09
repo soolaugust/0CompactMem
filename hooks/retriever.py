@@ -2616,7 +2616,11 @@ def main():
             #   但此处 session_injection suppress 未对齐，local chunk 仍被过杀。
             # 修复：条件加入 _sparse_shield_cd（local_sparse + 本地 chunk），与 24h/7d 路径对齐。
             _sparse_shield_cd = _local_sparse and not _cd_is_cross_project
-            if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 5:
+            # iter1262: session_suppress_floor_align — session suppress floor 5→3
+            # 根因（数据驱动，2026-05-09）：import-90139(ac=3) 5/4 同 session 30min 内注入 3 次，
+            #   因 session suppress floor=5 > ac=3，跨 session cooldown(iter1251)无法阻止同 session 密集注入。
+            # 修复：floor 5→3 对齐 cooldown floor(iter1251)，ac>=3 同 session 内仅注入 1 次。
+            if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 3:
                 if _session_injection_counts.get(chunk.get("id", ""), 0) >= 1:
                     score = 0.0
                     _hard_suppressed = True
