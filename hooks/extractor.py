@@ -1217,7 +1217,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'\d+\.?\d*%\s*→\s*[<>]?\s*\d+\.?\d*%|'
         r'rs\[:\d+\]|截取.{0,5}token|'
         # iter1329: recall_behavior_gate — memory-os 检索行为讨论术语
-        r'无法被召回|恢复路径|注入资格|召回路径|知识库可达性|可达性\s*\d+%)',
+        r'无法被召回|恢复路径|注入资格|召回路径|知识库可达性|可达性\s*\d+%|'
+        # iter1346: internal_maintenance_gate — FTS5/index 维护 + 效果量化描述逃逸
+        r'orphan|self.heal|index.修复|重建$|检索竞争力|importance\s*[+\-])',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
