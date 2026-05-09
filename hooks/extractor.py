@@ -2975,7 +2975,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             r'(?:覆盖|gate|suppress|zero_access|passed|HEALTHY|precision|一致性|'
             r'exempt|tighten|豁免|收紧|放宽|阈值|thresh)', summary):
         return
-    if re.search(r'(?:zero_access|chunk_count|tests?\s*passed|FTS5?\s*索引|一致性\s*\d+%)\s*\d?', summary):
+    if re.search(r'(?:zero_access|chunk_count|tests?\s*passed|FTS5?\s*(?:索引|有效率)|一致性\s*\d+%|Active\s*pool)', summary):
         return
     # iter1311: quantification_summary_gate — "量化：X% → Y%" 格式必为迭代器执行结果
     if re.match(r'^\s*量化[：:]', summary):
