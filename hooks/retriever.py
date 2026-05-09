@@ -4115,14 +4115,17 @@ def main():
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — 无条件阈值 6→5
-                    # 根因（数据驱动，2026-05-09）：368cb071(lifetime=5) 等 7 个 chunk
-                    #   因 last_inject > 72h 逃逸条件 suppress，cooldown 到期后将重新垄断。
-                    #   5 次注入(21d窗口)已充分内化，边际信息≈0。
-                    if _lt >= 5:
+                    # iter1359: tiny_db_lifetime_relax — tiny_db(<50) 阈值 5→8
+                    # 根因（数据驱动，2026-05-10）：27-chunk 库中 15/32 tracked chunk
+                    #   lifetime>=4，阈值=5 导致大部分知识被永久封锁→47% 空召回。
+                    #   小库 chunk 经人工审核保留，5 次注入不代表"已内化"。
+                    _lt_thresh = 8 if _hd_tiny_db else 5
+                    _lt_dc_thresh = 6 if _hd_tiny_db else 4
+                    if _lt >= _lt_thresh:
                         return False
-                    if c.get("chunk_type") == "design_constraint" and _lt >= 4:
+                    if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
                         return False
-                    if _lt >= 4 and _tl[-1] > _cutoff_7d:
+                    if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
                     return True
                 top_k = [(s, c) for s, c in top_k
@@ -6229,11 +6232,14 @@ def main():
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — sync FULL path
-                    if _lt >= 5:
+                    # iter1359: tiny_db_lifetime_relax — sync FULL path
+                    _lt_thresh = 8 if _tiny_db else 5
+                    _lt_dc_thresh = 6 if _tiny_db else 4
+                    if _lt >= _lt_thresh:
                         return False
-                    if c.get("chunk_type") == "design_constraint" and _lt >= 4:
+                    if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
                         return False
-                    if _lt >= 4 and _tl[-1] > _cutoff_7d:
+                    if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
                     return True
                 if _db_chunk_count > 5:
