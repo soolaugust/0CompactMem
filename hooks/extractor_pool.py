@@ -113,8 +113,11 @@ def _seal_check_reject(text: str) -> bool:
         return True
     # iter525 新增：裸小写词片段 + 紧跟下划线 — 无 () 的截断标识符
     # 排除合法函数引用如 "sleep_consolidate() ..."
+    # iter1274: 排除 "term_name 动词..." 完整句式（len>=20 且含空格后中文主体）
     if _re.match(r'^[a-z]{2,}_', text) and '()' not in text[:30]:
-        return True
+        # 如果标识符后有空格+中文动词+后续内容 → 完整句子（如 "sched_ext 允许..."）
+        if not (len(text) >= 20 and _re.match(r'^[a-z]\w+\s+[一-鿿]', text)):
+            return True
     # _is_quality_chunk 核心规则
     if _re.match(r'^[\[\]\-|]', text):
         return True
@@ -192,6 +195,23 @@ def _seal_check_reject(text: str) -> bool:
            and not _re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', text) \
            and not _re.search(r'`[^`]+`', text):
             return True
+    # iter1274: iterator_fix_narration_gate — 拦截迭代器修复/量化叙事
+    # 根因（数据驱动，2026-05-09）：12/30 零访问 chunk 是迭代 agent 的修复决策描述
+    #   (如 "修复：直接检查 timeline..."、"量化预期：PE chunk 5/4 的 30min burst...")
+    #   含 iter\d+ 或修复动词但无用户领域关键词 → 纯实现叙事，零检索价值。
+    _DOMAIN_ANCHORS = ('kernel', 'sched', 'android', 'cpu', 'patch', 'driver',
+                       'feishu', 'api', 'prompt', 'llm', 'react', 'vue',
+                       'docker', 'k8s', 'rust', 'golang', 'java', 'sql')
+    if _re.search(r'iter\d{3,}', _tl) and not any(d in _tl for d in _DOMAIN_ANCHORS):
+        return True
+    # 含修复/量化叙事动词 + 内部术语 → 迭代器实现决策
+    if _re.search(r'(?:修复[：:]|量化预期|做的事[：:]|价值点|实现的价值)', text) \
+       and any(k in _tl for k in ('suppress', 'inject', 'chunk', 'timeline', 'burst', 'ac=')):
+        return True
+    # iter1274: subtask_result_selfref — 子任务结果含内部术语
+    # 根因：task_result_collector 写入 [子任务结果] 但内容是 memory-os 自身分析
+    if text.startswith('[子任务结果]') and any(k in _tl for k in ('fts5', 'retriever', 'p50', 'extractor', 'store.db')):
+        return True
     return False
 
 
