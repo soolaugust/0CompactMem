@@ -7336,13 +7336,29 @@ def main():
                 #   全灭时 fallback 保留最高分 1 条（score=0.06~0.11）与用户上下文无关，
                 #   注入 kernel/PE 知识到 memory-os Python 开发 session 纯属噪声。
                 # 修复：全灭直接 skip，不强制注入无关知识。用户不看到噪声 > 少看到 1 条。
-                _sf_best = max(top_k, key=lambda x: x[0])
-                _deferred.log(DMESG_DEBUG, "retriever",
-                              f"iter1043_floor_gate_skip: all {len(top_k)} below "
-                              f"floor={_score_floor}, best={_sf_best[0]:.3f} "
-                              f"id={_sf_best[1].get('id','')[:12]}, skipping injection",
-                              session_id=session_id, project=project)
-                top_k = []
+                # iter1358: floor_gate_local_preserve — 同项目 chunk 在小库时保留
+                # 根因（数据驱动，2026-05-10）：46% 空召回率。db_ultimate_fallback 恢复的
+                #   同项目 chunk(score=0.001) 被 floor_gate 二次清空。小库(<=30)中同项目知识
+                #   即使 BM25 低分仍有上下文价值（词汇不重叠≠语义不相关）。
+                # 修复：<=30 chunk 库中保留最高分同项目 chunk；跨项目仍清空。
+                _sf_local = [(s, c) for s, c in top_k
+                             if c.get("project", "") == project] if _db_chunk_count <= 30 else []
+                if _sf_local:
+                    _sf_best_local = max(_sf_local, key=lambda x: x[0])
+                    top_k = [_sf_best_local]
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1358_floor_gate_local_preserve: kept local "
+                                  f"{_sf_best_local[1].get('id','')[:12]} s={_sf_best_local[0]:.3f} "
+                                  f"db_size={_db_chunk_count}",
+                                  session_id=session_id, project=project)
+                else:
+                    _sf_best = max(top_k, key=lambda x: x[0])
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1043_floor_gate_skip: all {len(top_k)} below "
+                                  f"floor={_score_floor}, best={_sf_best[0]:.3f} "
+                                  f"id={_sf_best[1].get('id','')[:12]}, skipping injection",
+                                  session_id=session_id, project=project)
+                    top_k = []
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）
