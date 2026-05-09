@@ -4354,6 +4354,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _min_thresh = _gb_nt
             # iter620: zero_score_absolute_gate — hard_suppressed chunk 绝对不入选
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+            # iter1368: sparse_cross_floor_tighten — daemon hard_deadline sync
+            _cross_floor_d = 0.18 if _local_sparse_d else 0.25
+            positive = [(s, c) for s, c in positive
+                        if (c[_CI_CP] or "") in ("", project) or s >= _cross_floor_d]
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
@@ -4717,6 +4721,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _min_thresh = _gb_nt
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+        # iter1368: sparse_cross_floor_tighten — daemon FULL path sync
+        _cross_floor_f2 = 0.18 if _local_sparse_d else 0.25
+        positive = [(s, c) for s, c in positive
+                    if (c[_CI_CP] or "") in ("", project) or s >= _cross_floor_f2]
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]

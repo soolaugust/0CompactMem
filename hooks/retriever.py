@@ -3850,7 +3850,10 @@ def main():
             # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local chunks) 本地 chunk 被
             #   cooldown suppress 后，global chunk 也被 0.25 floor 剔除 → 连续 6 次空召回。
             #   sparse 项目依赖跨项目知识作为主要补充源，0.25 门槛过高。
-            _cross_floor = 0.10 if _local_sparse else 0.25
+            # iter1368: sparse_cross_floor_tighten — 0.10→0.18 拦截低相关跨项目噪声
+            # 数据驱动（2026-05-10）：abspath:7e3095aef7a6(1 local chunk) 被注入 5 条
+            #   kernel/PE chunk（score≈0.10-0.15），用户在非 kernel 项目中无价值。
+            _cross_floor = 0.18 if _local_sparse else 0.25
             positive = [(s, c) for s, c in positive
                         if c.get("project", "") in ("", project) or s >= _cross_floor]
             # iter826: single_result_pair_inject (hard_deadline path)
@@ -5072,7 +5075,8 @@ def main():
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
         # iter1245: cross_project_relevance_floor (FULL path sync)
         # iter1246: sparse_cross_project_floor_relax (FULL path sync)
-        _cross_floor_f = 0.10 if _local_sparse else 0.25
+        # iter1368: sparse_cross_floor_tighten (FULL path sync)
+        _cross_floor_f = 0.18 if _local_sparse else 0.25
         positive = [(s, c) for s, c in positive
                     if c.get("project", "") in ("", project) or s >= _cross_floor_f]
         # iter843: pair_dedup_aware — 配对候选预过滤 dedup threshold
