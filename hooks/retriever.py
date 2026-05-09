@@ -7064,7 +7064,15 @@ def main():
                             _fb_lite_hash = hashlib.md5(_fb_lite[1].get("id", "").encode()).hexdigest()[:8]
                             if _fb_lite_hash == _last_hash_lite:
                                 _fb_lite = _fb_lite_sorted[1]
-                        top_k = [_fb_lite]
+                        # iter1331: fallback_pair_inject — LITE path sync HD/FULL
+                        # 根因（数据驱动，2026-05-09）：52% injection 为 single-chunk。
+                        #   HD(line 4273) 和 FULL(line 6529) 已有 pair inject，LITE 遗漏。
+                        _fb_lite_pair = [_fb_lite]
+                        if len(_fb_lite_sorted) >= 2:
+                            _fb2_lt = _fb_lite_sorted[1] if _fb_lite is _fb_lite_sorted[0] else _fb_lite_sorted[0]
+                            if _fb2_lt[0] >= _fb_lite[0] * 0.4:
+                                _fb_lite_pair.append(_fb2_lt)
+                        top_k = _fb_lite_pair
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter793_suppress_fallback_lite: all {_pre758} "
                                       f"suppressed, fallback to best={_fb_lite[1].get('id','')[:12]}",
