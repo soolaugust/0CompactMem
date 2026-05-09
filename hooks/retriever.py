@@ -2881,7 +2881,11 @@ def main():
                 #   gap 只需防并发 TOCTOU（<10min 窗口），ac<4 是较新知识不宜限制。
                 if not _hard_suppressed and not _micro_db and not _sparse_global_relax and _injection_timeline:
                     _mg_ac = chunk.get("access_count", 0) or 0
-                    if _mg_ac >= 4:
+                    # iter1314: gap_floor_ac3 — ac>=3 也享受 min_injection_gap 保护
+                    # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) 5/4 在 8-30min 内
+                    #   被 3 session 注入，6h thresh=3 需累积才 suppress，TOCTOU 使全部逃逸。
+                    #   iter1251 已将 cooldown floor 降到 ac=3，gap 应对齐。
+                    if _mg_ac >= 3:
                         _mg_list = _injection_timeline.get(chunk.get("id", ""), [])
                         if _mg_list:
                             _mg_last = max(_mg_list)
