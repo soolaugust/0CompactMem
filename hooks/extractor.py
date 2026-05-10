@@ -1351,14 +1351,15 @@ def _is_quality_chunk(summary: str) -> bool:
     # 特征：单个拉丁小写字母 + 空格 + 中文/标点 = 句子中间截断
     if re.match(r'^[a-z]\s', s):
         return False
-    # iter791: 多字母截断碎片拦截
-    # 数据驱动：659be6cd "eshold 注入 0% useful rate" — "threshold" 被截断只剩 "eshold"
-    # 特征：以小写拉丁词开头 + 空格 + 中文字符 = 英文单词尾部截断后拼接中文
-    # 正常英文开头的知识 chunk 不会紧跟中文（如 "BPF 程序" 以大写开头）
-    # iter792: 长度豁免 — 合法知识如 "memory 引用前必须用..." (60字) 误杀。
-    #   截断碎片通常 <40 字（截取自长句中间），合法知识有完整句子结构。
-    if len(s) < 40 and re.match(r'^[a-z]{2,}\s+[\u4e00-\u9fff]', s):
-        return False
+    # iter791+1415: 多字母截断碎片拦截
+    # 原 iter791："eshold 注入..." — threshold 截断尾部+中文=碎片。
+    # iter1415 修正：cgroup/memory/task_rq 等合法术语被 <40 字条件误杀。
+    #   截断碎片首 word 非完整术语；合法术语在豁免列表中。
+    _trunc_m = re.match(r'^([a-z][a-z_]*)\s+[\u4e00-\u9fff]', s)
+    if len(s) < 40 and _trunc_m:
+        _first_w = _trunc_m.group(1)
+        if not re.match(r'(?:memory|kernel|sched|task|scx|cpu|bpf|cgroup|mutex|futex|rcu|pid|git|mm)', _first_w):
+            return False
     # ── iter B12：JSON 键值对碎片过滤 ──────────────────────────────────
     # 以双引号开头 = JSON 字符串值（"recommended_action": "..."、"if_wrong": "..."）
     # 这些是从包含 JSON 格式输出的 assistant 回复中误提取的片段，无法被自然语言检索命中
@@ -2928,12 +2929,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
            and re.search(r'\d', summary) \
            and not re.search(r'(?:根因|原因|所以|因此|说明|表明|意味着|证明|意味|导致)', summary):
             return
-    # iter1336: truncated_fragment_gate — 截断碎片拦截（sync extractor_pool.py）
-    # 根因（数据驱动，2026-05-09）：f125367a content="ng（50+ chunk 库从..."
-    #   以小写字母开头=前文被截断的碎片，零信息增量。
+    # iter1336+1415: truncated_fragment_gate — 截断碎片拦截
+    # 原 iter1336 用 "小写 ascii 开头" 判断截断，误杀 cgroup/task_rq_lock/git/memory 等合法术语。
+    # iter1415 修正：截断碎片特征=小写开头且首 token<3 字符（如 "ng（"/"ed "），完整单词不拦截。
     _stripped_summ = re.sub(r'^[-•*]\s*', '', summary)
     if _stripped_summ and _stripped_summ[0].islower() and _stripped_summ[0].isascii():
-        return
+        _first_token = re.match(r'[a-z_]+', _stripped_summ)
+        if _first_token and len(_first_token.group()) < 3:
+            return
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
     # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
     # iter1233: iter_action_prefix_widen — 扩展前缀覆盖"量化结果/改动/预期效果/修复：/净增"
