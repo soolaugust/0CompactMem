@@ -6324,12 +6324,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _enrich_map = {}
                         try:
                             _ph = ",".join("?" for _ in _accessed_ids)
-                            _wconn.execute(f"SELECT id, summary, chunk_type FROM memory_chunks WHERE id IN ({_ph})", tuple(_accessed_ids))
-                            for _r in _wconn.fetchall():
+                            _cur = _wconn.execute(f"SELECT id, summary, chunk_type FROM memory_chunks WHERE id IN ({_ph})", tuple(_accessed_ids))
+                            for _r in _cur.fetchall():
                                 _enrich_map[_r[0]] = {"summary": _r[1] or "", "chunk_type": _r[2] or ""}
                         except Exception:
                             pass
-                        _effective_top_k = [{"id": cid, "summary": _enrich_map.get(cid, {}).get("summary", ""), "chunk_type": _enrich_map.get(cid, {}).get("chunk_type", "")} for cid in _accessed_ids]
+                        _effective_top_k = [{"id": cid, "summary": _enrich_map.get(cid, {}).get("summary", ""), "score": 0.0, "chunk_type": _enrich_map.get(cid, {}).get("chunk_type", "")} for cid in _accessed_ids]
                     else:
                         _effective_top_k = list(_top_k_data or ())
                 # iter721: trace_injected_fix — 用 _top_k_len 决定 injected 标志
@@ -6354,7 +6354,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     import json as _json_chk
                     _chk_json = _json_chk.dumps(_effective_top_k, ensure_ascii=False)
                     if _chk_json == '[]' or _chk_json == 'null':
-                        _effective_top_k = [{"id": cid} for cid in _accessed_ids]
+                        _effective_top_k = [{"id": cid, "score": 0.0} for cid in _accessed_ids]
                         dmesg_log(_wconn, DMESG_WARN, "retriever",
                                   f"iter881_json_empty_guard: top_k serialized empty, "
                                   f"rebuilt from accessed_ids={len(_accessed_ids)}",
@@ -6371,7 +6371,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _inmem_recent = [cid for cid, ts in _daemon_inject_log
                                      if _wb_now - ts < 30.0]
                     if _inmem_recent:
-                        _effective_top_k = [{"id": cid} for cid in _inmem_recent[-_top_k_len:]]
+                        _effective_top_k = [{"id": cid, "score": 0.0} for cid in _inmem_recent[-_top_k_len:]]
                         dmesg_log(_wconn, DMESG_WARN, "retriever",
                                   f"iter915_inmem_log_fallback: recovered {len(_effective_top_k)} "
                                   f"ids from daemon_inject_log",
