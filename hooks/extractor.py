@@ -1247,7 +1247,12 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1463: effect_prediction_arrow — "预期：X→Y" 百分比箭头是迭代器效果预测
         r'预期[：:].{0,30}→|'
         # iter1475: sparse_internal_var_gate — retriever 内部分级/保护变量逃逸
-        r'_local_sparse|local_sparse|sparse_shield|lifetime\s*suppress|额外保护)',
+        r'_local_sparse|local_sparse|sparse_shield|lifetime\s*suppress|额外保护|'
+        # iter1481: diag_report_gate — 迭代器诊断报告逃逸
+        # 根因（数据驱动，2026-05-11）：2 条 ac=0 chunk "诊断：35 ACTIVE chunks，7d 注入覆盖 62%，
+        #   …suppress 机制已有效控制垄断" hits=0 逃逸。含 ACTIVE chunks/suppress 机制/注入覆盖/控制垄断
+        #   均为 retriever 内部诊断概念，非用户知识。
+        r'ACTIVE\s*chunks?|suppress\s*机制|注入覆盖|控制垄断|分布合理)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
