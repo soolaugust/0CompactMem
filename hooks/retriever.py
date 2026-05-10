@@ -2833,7 +2833,13 @@ def main():
                 #   penalty = 0.7^(个体7d-1)：7d=1→1.0, 7d=2→0.7, 7d=4→0.34, 7d=6→0.17
                 _ct = chunk.get("chunk_type", "")
                 _tc_info = _type_7d_conc.get(_ct)
-                if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2:
+                # iter1455: sparse_type_conc_shield — sparse 项目 local chunk 跳过群体垄断衰减
+                # 根因（数据驱动，2026-05-11）：git:a4ee2fcfacc4(3 local DC, _local_sparse=True)
+                #   3 个 DC chunk 7d=2-3, type_conc>0.30, 0.5^(7d-1) 衰减将 score 打到 0.10-0.14，
+                #   低于 min_thresh(0.18) → cands=59 但 positive=[] → 67% 空召回(10/15 trace)。
+                #   sparse 项目无替代候选，"群体垄断让位新知识"的前提不成立。
+                _is_local_chunk_tc = chunk.get("project", "") == project
+                if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2 and not (_local_sparse and _is_local_chunk_tc):
                     _chunk_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d > 1:
                         # iter1320: dc_type_conc_tighten — design_constraint 群体垄断加速衰减
