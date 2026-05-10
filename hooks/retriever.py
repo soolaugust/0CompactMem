@@ -3092,7 +3092,11 @@ def main():
                     else:
                         _suppress_7d_thresh = 2
                     # iter1227: sparse_global_shield — local_sparse 时 +1
-                    if _sparse_global_relax:
+                    # iter1476: sparse_saturated_no_relax — ac>=4 已内化 global chunk 不再放宽
+                    #   根因（数据驱动，2026-05-11）：93cbc985(ac=6,7d=4)、c9accb7b(ac=4,7d=4)
+                    #   在 sparse 项目中 thresh=3+1=4，7d=3 时不触发 suppress 多注入 1 次。
+                    #   ac>=4 表明 agent 已多次内化该知识，sparse +1 保护不再必要。
+                    if _sparse_global_relax and _g_ac_full < 4:
                         _suppress_7d_thresh += 1
                 # iter1009: local_saturated_suppress — 本项目高 ac chunk 7d 阈值收紧
                 # 根因（数据驱动，2026-05-06）：25-chunk 库中 PE分析(ac=7,7d=6)、
@@ -4164,9 +4168,10 @@ def main():
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync hard_deadline
                         # iter1473: global_monopoly_ac_cap — ac>=4 thresh 3, 其余 4
+                        # iter1476: sparse_saturated_no_relax — ac>=4 不再 +1
                         _g_ac = c.get("access_count", 0) or 0
                         if _local_sparse and _cp == "global":
-                            return 4 if _g_ac >= 4 else 5
+                            return 3 if _g_ac >= 4 else 5
                         if _hd_small_db:
                             return 3 if _g_ac >= 4 else 4
                         return 2
