@@ -2445,17 +2445,7 @@ def main():
                     # 修复：去掉 `not _local_sparse` 条件。global+ac>=4+relevance<0.005 无条件 suppress。
                     if chunk.get("project", "") == "global" and _acc_ee >= 4:
                         return 0.0
-                # iter1435: ee_discovery_boost — early exit 路径也给从未注入的 chunk 加成
-                # 根因（数据驱动，2026-05-10）：61% chunk ac=0 从未被注入。
-                #   大部分 cold chunk FTS5 relevance<0.005 走 early exit 直接返回 imp*0.1，
-                #   discovery_boost(iter1434) 在 line 3333 只对 relevance>=0.01 生效，
-                #   early exit 路径被完全跳过 → 1.8x boost 对 61% 零访问 chunk 无效。
-                # 修复：early exit 也检查 injection_timeline，从未注入的 chunk 返回 imp*0.3
-                #   （3x base），使 cold chunk 0.05→0.15 可竞争衰减后的 veteran(0.10-0.20)。
-                _ee_score = float(chunk.get("importance", 0.5)) * 0.1
-                if not _injection_timeline.get(chunk.get("id", "")):
-                    _ee_score *= 3.0
-                return _ee_score
+                return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
             #   低负载（弱命中）升高 importance 依赖（靠先验筛选）
@@ -2636,12 +2626,7 @@ def main():
             #   iter1200 保护了 session suppress，iter1172 保护了 24h/7d，唯独 cooldown 遗漏。
             #   导致 5/6 凌晨 7 次连续空召回（该项目唯一本地知识被锁死）。
             # 修复：local_sparse + 本地 chunk → 跳过 cooldown（与 iter1200 对齐）。
-            # iter1411: sparse_global_cooldown_shield — global chunk 在 sparse 项目也受 cooldown 保护
-            # 根因（数据驱动，2026-05-10）：abspath:51963532bc1b(1 local + 10 global) 空召回 66%，
-            #   global chunk ac=4-6 被 cooldown suppress，_sparse_cd_shield 只保护 local chunk。
-            #   sparse 项目的 global chunk 是主知识源，不应被 cooldown 锁死。
-            _sparse_cd_shield = _local_sparse and (not _cd_is_cross_project or chunk.get("project") == "global")
-            _never_injected = not _injection_timeline.get(chunk.get("id", ""))
+            _sparse_cd_shield = _local_sparse and not _cd_is_cross_project
             if not _never_injected and not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
@@ -2713,9 +2698,7 @@ def main():
             #   后续 5 次连续空召回。iter1172 _local_sparse 保护了 24h/7d suppress，
             #   但此处 session_injection suppress 未对齐，local chunk 仍被过杀。
             # 修复：条件加入 _sparse_shield_cd（local_sparse + 本地 chunk），与 24h/7d 路径对齐。
-            # iter1411: sparse_global_session_shield — global chunk 在 sparse 项目也受 session suppress 保护
-            # 根因同 iter1411 cooldown shield：sparse 项目 global chunk 是主知识源。
-            _sparse_shield_cd = _local_sparse and (not _cd_is_cross_project or chunk.get("project") == "global")
+            _sparse_shield_cd = _local_sparse and not _cd_is_cross_project
             # iter1262: session_suppress_floor_align — session suppress floor 5→3
             # 根因（数据驱动，2026-05-09）：import-90139(ac=3) 5/4 同 session 30min 内注入 3 次，
             #   因 session suppress floor=5 > ac=3，跨 session cooldown(iter1251)无法阻止同 session 密集注入。
@@ -2808,11 +2791,6 @@ def main():
                         # iter612: linear ramp from 1.0 → 0.0 over [soft_start, hard_cap]
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
-            # iter1428: inject_overdose_penalty — lifetime 注入远超访问的 chunk 衰减
-            _iod_ac = chunk.get("access_count", 0) or 0
-            _iod_rc = _recall_counts.get(chunk.get("id", ""), 0)
-            if _iod_rc >= 4 and _iod_ac > 0 and _iod_rc / _iod_ac >= 2.5:
-                score *= 0.3
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
@@ -3333,48 +3311,6 @@ def main():
                         score *= 0.30
             except Exception:
                 pass
-            # iter1434: discovery_boost — 从未注入的 chunk 在正常评分中获得竞争力加成
-            # 根因（数据驱动，2026-05-10）：76 chunk 中 46 个(60%) ac=0 从未被注入。
-            #   cold_start(iter1433) 仅在 positive 不足或可替换时生效，正常满载时失效。
-            #   _score_chunk 对 ac=0 chunk 无任何加成，veteran(ac>=4) 即使被多层衰减
-            #   仍以 0.15-0.25 胜出，cold chunk 的 base score 0.10-0.18 无法竞争。
-            # 修复：_never_injected + relevance>=0.01(真实 FTS 匹配) → score *= 1.8。
-            #   使 cold chunk 0.10→0.18, 0.15→0.27，可胜过衰减后的 veteran(0.15-0.20)。
-            #   不影响 hard_suppressed chunk（已被归零）；不影响 relevance<0.01 的噪声。
-            if _never_injected and relevance >= 0.001 and score > 0:
-                score *= 3.0
-            elif _acc == 1 and relevance >= 0.001 and score > 0:
-                score *= 2.0
-            # iter1436: saturation_decay — 7d 高频注入 chunk 指数衰减（去垄断）
-            # 根因（数据驱动，2026-05-10）：feishu CLI/memory验证/git SOB 各 7d=4，
-            #   sparse_global_relax 将 suppress 阈值放宽到 5 → 全部逃逸。
-            #   收紧阈值会引发空召回（iter1384 数据证实），陷入调参死循环。
-            # 修复：不改 suppress 阈值，改用 soft decay 使高频 chunk 自然排名下降，
-            #   被 cold/fresh chunk 替代。0.5^(n-2): 7d=3→0.5x, 7d=4→0.25x, 7d=5→0.125x。
-            #   不归零（区别于 hard suppress），空召回时仍可被 fallback 选中。
-            if not _hard_suppressed and score > 0:
-                _sd_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                # iter1438: global_saturation_tighten — global chunk 7d>=2 即衰减
-                # 根因（数据驱动，2026-05-10）：feishu CLI(global) 在 memory-os 项目 7d=3 注入。
-                #   global design_constraint FTS 关键词覆盖广，跨项目匹配度虚高。
-                #   7d>=3 衰减对 global 不够：7d=2 时 score 无衰减仍胜出本地候选。
-                # 修复：global chunk 7d>=2 即衰减（0.5^(n-1)），local 保持 7d>=3。
-                #   global 7d=2→0.5x, 7d=3→0.25x; local 7d=3→0.5x, 7d=4→0.25x。
-                _sd_is_global = chunk.get("project", "") == "global"
-                _sd_thresh = 2 if _sd_is_global else 3
-                if _sd_7d >= _sd_thresh:
-                    _sd_exp = (_sd_7d - 1) if _sd_is_global else (_sd_7d - 2)
-                    score *= 0.5 ** _sd_exp
-            # iter1441: veteran_low_relevance_penalty — 高 ac + 低 FTS 相关性额外衰减
-            # 根因（数据驱动，2026-05-10）：memory-os 项目 25 次注入 100% 为 kernel chunk，
-            #   score 0.07-0.15，ac=3-5，relevance 0.005-0.05（FTS 弱匹配，仅关键词偶然重叠）。
-            #   discovery_boost(3x) 让 cold chunk 0.05→0.15 仍无法稳定胜出 veteran 0.07-0.15。
-            #   saturation_decay 依赖 7d 窗口，GC 后 veteran 满血复活。
-            # 修复：ac>=4 + relevance<0.03（FTS 极弱匹配）→ score *= 0.4。
-            #   使 veteran 0.15→0.06，cold chunk 0.15 可胜出。
-            #   不影响高 relevance 场景（真正相关的 veteran 不受影响）。
-            if not _hard_suppressed and score > 0 and _acc >= 4 and relevance < 0.03:
-                score *= 0.4
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
@@ -3447,8 +3383,7 @@ def main():
             r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|'
             r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|量化[预：:].{0,4}|suppress_final|'
             r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率|'
-            r'penalty|占比|阈值|(?:不)?触发|baseline|搭车|score\s*[=<>≥≤]|concentration|'
-            r'noise.?chunk|domain.?anchor)'
+            r'penalty|占比|阈值|(?:不)?触发|baseline|搭车|score\s*[=<>≥≤]|concentration)'
         )
         _selfref_anchor_re = re.compile(
             r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
@@ -4075,19 +4010,11 @@ def main():
                                    and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                             and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
-                        # iter1440: cold_first_fallback — fallback 优先选从未注入的 chunk
-                        # 根因（数据驱动，2026-05-10）：58% chunk(43/73) ac=0 从未注入，
-                        #   cold chunk injection rate = 0/32。discovery_boost(3x) 不够：
-                        #   base BM25 仅 0.03-0.08，boost 后 0.09-0.24 仍被 threshold 卡。
-                        #   fallback 按 max(importance) 排序时 cold/veteran 平分（均 imp=0.5）。
-                        # 修复：排序键 (1 if ac==0 else 0, importance)，cold chunk 绝对优先。
-                        #   已内化知识无需 fallback 再注入（正常路径 score 高自然胜出）。
-                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
+                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         positive = [(_sef_hd_best[0] * 0.1, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter775_dead_zone_fallback_hd: imp={_sef_hd_best[0]:.2f} "
-                                      f"max_s={_sef_hd_max:.4f} ac={_sef_hd_best[1].get('access_count',0)} "
-                                      f"id={_sef_hd_best[1].get('id','')[:12]}",
+                                      f"max_s={_sef_hd_max:.4f} id={_sef_hd_best[1].get('id','')[:12]}",
                                       session_id=session_id, project=project)
                     # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                     # 根因（数据驱动，2026-05-04）：iter775 只覆盖 [DEAD_ZONE_MIN, noise_floor)，
@@ -4095,7 +4022,7 @@ def main():
                     #   用户 project abspath:51963532bc1b 9 次空召回（cands=10~14）均因此。
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
                     elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0:
-                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
+                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         positive = [(_sef_hd_best[0] * 0.01, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter776_suppress_zero_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -4292,8 +4219,7 @@ def main():
                     #   timeline 7 次中 5 次在 5/4-5/5 两天内（burst density），7d 滑出后将再次注入。
                     #   无条件降低阈值会导致空召回（iter1359 验证），但高密度 burst 应更早 suppress。
                     # 修复：lifetime>=5 且 7d 内注入>=3 次 → suppress（拦截 burst，放行分散使用）。
-                    # iter1423: 扩展到 small_db — 73-chunk 库垄断 chunk lifetime=5-6 逃逸
-                    if (_hd_tiny_db or _hd_small_db) and _lt >= 5:
+                    if _hd_tiny_db and _lt >= 5:
                         _r7d = _recent_7d_counts.get(c["id"], 0)
                         if _r7d >= 3:
                             return False
@@ -5495,17 +5421,15 @@ def main():
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                         and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
-                    # iter1440: cold_first_fallback — sync FULL path
-                    _sef_best = max(_sef_by_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
+                    _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     positive = [(_sef_best[0] * 0.1, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
-                                  f"max_s={_sef_full_max:.4f} ac={_sef_best[1].get('access_count',0)} "
-                                  f"id={_sef_best[1].get('id','')[:12]}",
+                                  f"max_s={_sef_full_max:.4f} id={_sef_best[1].get('id','')[:12]}",
                                   session_id=session_id, project=project)
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
-                    _sef_best = max(_sef_by_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
+                    _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     positive = [(_sef_best[0] * 0.01, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter776_suppress_zero_fallback_full: imp={_sef_best[0]:.2f} "
@@ -5592,18 +5516,17 @@ def main():
         #   打破 cold-start 死锁（cold 不访问 → access_count=0 → LRU 永驻冷端）
         #   memory-os 等价：zero-recall → acc=0 → starvation_boost 无法补偿语义鸿沟
         #   → IWCSI 强制曝光1个最高 imp 的零召回 chunk（打破死锁）
-        # 触发条件：FULL/LITE 模式 + positive 不足 effective_top_k + 未超 soft deadline
-        # iter1433: cold_start_lite — 扩展到 LITE 模式，打破 58% chunk 零访问死锁
-        # 根因（数据驱动，2026-05-10）：70% 检索走 LITE 模式，cold_start 仅 FULL 触发，
-        #   43/73 chunk(58%) 从未被注入。LITE 的 DB 查询（单次 SELECT LIMIT 5）<1ms 不影响 deadline。
+        # 触发条件：FULL 模式 + positive 不足 effective_top_k + 未超 soft deadline
         _cold_start_injected = 0
-        if (priority in ("FULL", "LITE")
+        if (priority == "FULL"
                 and _sysctl("retriever.cold_start_enabled")
+                and len(positive) < effective_top_k
                 and not _check_deadline("cold_start")):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
                 _cs_max = _sysctl("retriever.cold_start_max_inject")
                 _positive_ids = {c["id"] for _, c in positive}
+                # 从 final 候选中筛选：高 imp、零访问、不在 positive 中
                 _cold_candidates = [
                     (imp_val, c) for s, c in final
                     if c.get("id", "") not in _positive_ids
@@ -5611,73 +5534,21 @@ def main():
                     and float(c.get("importance", 0) or 0) >= _cs_imp_threshold
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
-                # iter1427: cold_start_db_fallback — FTS5 未命中 ac=0 chunk 时直查 DB
-                # iter1430: cold_start_rotate — RANDOM() 轮转 + LIMIT 扩大
-                # 根因（数据驱动，2026-05-10）：db_fallback ORDER BY created_at DESC LIMIT 3
-                #   每次返回同 3 个最新 chunk，41 个 ac=0 chunk 中 38 个永远无法曝光。
-                # 修复：ORDER BY importance DESC, RANDOM() LIMIT 5，每次会话曝光不同 chunk。
-                if not _cold_candidates:
-                    try:
-                        import sqlite3 as _cs_sql
-                        _cs_conn = _cs_sql.connect(str(STORE_DB))
-                        _cs_rows = _cs_conn.execute(
-                            "SELECT id, summary, content, chunk_type, importance, tags, access_count "
-                            "FROM memory_chunks WHERE chunk_state='ACTIVE' AND access_count=0 "
-                            "AND (project=? OR project='global') AND importance>=? "
-                            "ORDER BY importance DESC, RANDOM() LIMIT 5",
-                            (project, _cs_imp_threshold)
-                        ).fetchall()
-                        _cs_conn.close()
-                        for _r in _cs_rows:
-                            if _r[0] not in _positive_ids:
-                                _cold_candidates.append((_r[4], {
-                                    "id": _r[0], "summary": _r[1], "content": _r[2],
-                                    "chunk_type": _r[3], "importance": _r[4],
-                                    "tags": _r[5], "access_count": 0,
-                                }))
-                    except Exception:
-                        pass
                 if _cold_candidates:
+                    # 按 importance 降序，取 top _cs_max 个
                     _cold_candidates.sort(key=lambda x: x[0], reverse=True)
-                    _cs_slots = effective_top_k - len(positive)
-                    # iter1426: cold_start_saturated_replace — positive 已满时
-                    # 替换 7d≥3 的饱和 chunk，为新知识腾出曝光位。
-                    if _cs_slots <= 0 and positive:
-                        _sat_indices = [
-                            i for i, (s, c) in enumerate(positive)
-                            if _recent_7d_counts.get(c.get("id", ""), 0) >= 3
-                        ]
-                        if _sat_indices:
-                            _cs_slots = min(_cs_max, len(_sat_indices))
-                            for _ri in sorted(_sat_indices[-_cs_slots:], reverse=True):
-                                positive.pop(_ri)
-                        # iter1431: cold_start_score_replace — 7d 饱和替换失败时
-                        # 替换 score 最低 + ac>=3（已内化）的条目，为 cold chunk 腾曝光位。
-                        # 根因（数据驱动，2026-05-10）：42/72 chunk ac=0，cold_start 仅在
-                        #   positive 未满或 7d>=3 可替换时生效。正常 session positive 通常满
-                        #   且 7d<3（suppress 已控住频率），cold_start 实质失效。
-                        # 条件：ac>=3 确保不替换首次曝光的新知识；取 score 最低减少信息损失。
-                        if not _sat_indices and len(positive) >= effective_top_k:
-                            _cs_repl = [(i, s, c) for i, (s, c) in enumerate(positive)
-                                        if (c.get("access_count", 0) or 0) >= 3]
-                            if _cs_repl:
-                                _cs_repl.sort(key=lambda x: x[1])
-                                _cs_slots = min(_cs_max, len(_cs_repl))
-                                for _ri in sorted([x[0] for x in _cs_repl[:_cs_slots]], reverse=True):
-                                    positive.pop(_ri)
-                    for _cold_imp, _cold_chunk in _cold_candidates[:max(_cs_slots, 0)]:
+                    for _cold_imp, _cold_chunk in _cold_candidates[:_cs_max]:
+                        # 注入分数 = importance（让其能进入 positive，但不垫底也不顶替高分）
                         positive.append((_cold_imp, _cold_chunk))
                         _positive_ids.add(_cold_chunk["id"])
                         _cold_start_injected += 1
                     if _cold_start_injected > 0:
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"cold_start: injected={_cold_start_injected} "
-                                      f"imp>={_cs_imp_threshold:.2f} replaced_saturated={_cs_slots if _cs_slots > 0 else 0}",
+                                      f"imp>={_cs_imp_threshold:.2f}",
                                       session_id=session_id, project=project)
-            except Exception as _cs_err:
-                _deferred.log(DMESG_WARN, "retriever",
-                              f"cold_start_error: {type(_cs_err).__name__}: {_cs_err}",
-                              session_id=session_id, project=project)
+            except Exception:
+                pass  # cold_start 失败不阻塞主流程
 
         if _sysctl("retriever.drr_enabled") and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)
@@ -6523,9 +6394,8 @@ def main():
                         return False
                     if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
-                    # iter1370+1423: density_aware_lifetime — sync FULL path
-                    # iter1423: 扩展到 small_db
-                    if (_tiny_db or _small_db) and _lt >= 5:
+                    # iter1370: density_aware_lifetime — sync FULL path
+                    if _tiny_db and _lt >= 5:
                         _r7d = _rt663_7d.get(c["id"], 0)
                         if _r7d >= 3:
                             return False
@@ -6608,27 +6478,6 @@ def main():
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter887_closure_fallback_suppress: filtered "
                               f"{_pre887 - len(top_k)} chunks (closure 6h/24h/7d)",
-                              session_id=session_id, project=project)
-        # ── iter1437: full_path_suppress_fallback — suppress 全灭后从快照恢复 ──
-        # 根因（数据驱动，2026-05-10）：FULL 路径 75% 空召回（15/20 traces top_k=0）。
-        #   suppress_final_gate + closure_fallback 清空 top_k 后无恢复逻辑。
-        #   hard_deadline 有 iter670/677 从 _pre_suppress_top_k_hd 恢复，FULL 缺失。
-        # 修复：从 _pre_suppress_top_k 中选 ac 最低 + 7d 最低的 1 条恢复。
-        #   优先 never_injected（打破 cold chunk 死锁），次选 7d=0 的低 ac chunk。
-        if not top_k and _pre_suppress_top_k:
-            _fpsf_cands = sorted(
-                _pre_suppress_top_k,
-                key=lambda x: (x[1].get("access_count", 0) or 0,
-                               _recent_7d_counts.get(x[1].get("id", ""), 0),
-                               -float(x[1].get("importance", 0) or 0))
-            )
-            _fpsf_best = _fpsf_cands[0] if _fpsf_cands else None
-            if _fpsf_best and _fpsf_best[0] > 0:
-                top_k = [_fpsf_best]
-                _deferred.log(DMESG_WARN, "retriever",
-                              f"iter1437_full_suppress_fallback: restored "
-                              f"id={_fpsf_best[1].get('id','')[:12]} ac={_fpsf_best[1].get('access_count',0)} "
-                              f"score={_fpsf_best[0]:.4f}",
                               session_id=session_id, project=project)
         # ── iter832: post_suppress_pair_inject — suppress 后单条时从快照补配对 ──
         # 根因（数据驱动，2026-05-05）：FULL 路径 44% 输出单条。iter826 pair_inject
@@ -7472,14 +7321,6 @@ def main():
                     "ORDER BY importance DESC, access_count ASC LIMIT 5",
                     (project, *_dbuf_lite_exclude)
                 ).fetchall()
-                # iter1432: fallback_uncap_lite — ceiling 排除后全空时去掉排除重查
-                if not _dbuf_lite_rows and _dbuf_lite_exclude:
-                    _dbuf_lite_rows = conn.execute(
-                        "SELECT id, summary, content, chunk_type, importance "
-                        "FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
-                        "ORDER BY access_count ASC, importance DESC LIMIT 3",
-                        (project,)
-                    ).fetchall()
                 if _dbuf_lite_rows:
                     import time as _dbuf_lite_time
                     _dbuf_lite_idx = int(_dbuf_lite_time.time() // 60) % len(_dbuf_lite_rows)
