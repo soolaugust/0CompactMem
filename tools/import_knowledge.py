@@ -166,6 +166,11 @@ def extract_wiki_knowledge():
 
         if len(sections) > 1:
             # 多节文件：每 ## section 独立 chunk
+            # iter1420: per_doc_chunk_cap — 单文档最多 3 chunk
+            # 根因：8-section 文档拆出 8 chunk，仅 1 个被检索命中，其余 7 个零访问（70% 死库存）
+            # 修复：先过滤碎片，再按 body 长度 top-3（长内容信息密度高、FTS5 可区分度强）
+            _MAX_CHUNKS_PER_DOC = 3
+            _candidates = []
             for i, sec in enumerate(sections[1:], 1):
                 sec_lines = sec.strip().split("\n")
                 sec_title = sec_lines[0].strip().rstrip("#").strip()
@@ -173,10 +178,11 @@ def extract_wiki_knowledge():
                 if len(sec_body) < 20:
                     continue
                 # iter650: import_quality_gate — 碎片子章节过滤
-                # 根因：wiki 按 ## 切分后，索引性子章节（"参考链接"、"相关文件"）
-                # 无独立检索价值，产出 zero-access chunk 占比 23%。
                 if _is_index_fragment(sec_title, sec_body):
                     continue
+                _candidates.append((i, sec_title, sec_body))
+            _candidates.sort(key=lambda x: len(x[2]), reverse=True)
+            for i, sec_title, sec_body in _candidates[:_MAX_CHUNKS_PER_DOC]:
                 sec_summary = f"[{rel.parent.name}] {title} > {sec_title}"[:120]
                 tags = [str(rel.parent.name), md_file.stem, f"sec{i}"]
                 chunks.append(make_chunk(chunk_type, sec_summary, sec_body,
