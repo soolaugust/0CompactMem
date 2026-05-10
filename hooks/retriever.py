@@ -3835,6 +3835,12 @@ def main():
             # iter1191: micro_db_threshold_relax — sync hard_deadline path
             if _db_chunk_count <= 5 and not _is_generic_knowledge_query(query):
                 _min_thresh = min(_min_thresh, 0.10)
+            # iter1403: generic_tinydb_relax — 小库 generic query 阈值 0.5→0.30
+            # 根因（数据驱动，2026-05-10）：32 次空召回 100% 有候选(10-59)但被 scorer 全灭。
+            #   小库(<50 chunk) generic_query_min_threshold=0.5 过高：BM25 归一化后
+            #   top2+ 分数难超 0.5 → generic 判定即全灭。误注入风险低（库小=知识稀疏）。
+            if _db_chunk_count < 50 and _is_generic_knowledge_query(query):
+                _min_thresh = min(_min_thresh, 0.30)
             # iter578: mremap — hard deadline 路径也应用自适应地板
             if (final and _sysctl("retriever.adaptive_floor_enabled")
                     and not _is_generic_knowledge_query(query)):
@@ -5107,6 +5113,9 @@ def main():
         # iter1191: micro_db_threshold_relax — <=5 chunk 库 BM25 IDF 偏差修正
         if _db_chunk_count <= 5 and not _is_generic_knowledge_query(query):
             _min_thresh = min(_min_thresh, 0.10)
+        # iter1403: generic_tinydb_relax (FULL path) — sync hard_deadline
+        if _db_chunk_count < 50 and _is_generic_knowledge_query(query):
+            _min_thresh = min(_min_thresh, 0.30)
         # ── iter578: mremap — Adaptive Score Floor ────────────────────────
         # OS 类比：Linux mremap() (Linus Torvalds, 1995, mm/mremap.c)
         #   固定 VMA 大小浪费虚拟地址空间或导致 OOM，mremap 动态调整映射大小。
