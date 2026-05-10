@@ -1830,7 +1830,7 @@ def _is_quality_chunk(summary: str) -> bool:
     #   逃逸所有已有 gate（_internal_var_hits=1, noise_kw 无覆盖）。
     #   特征：迭代器 commit message 标题被 conversation_summary 提取器捕获。
     #   iter\d+[：:] 开头 100% 是迭代器版本标识，不含用户知识。
-    _ITER_PREFIX = re.compile(r'^iter\d+[：:_]', re.I)
+    _ITER_PREFIX = re.compile(r'^iter\d+[：:_\s]', re.I)
     if (_ITER_METRIC_CHANGE.search(s) or _ITER_OPS_REPORT.search(s)
             or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)
             or _ITER_PREFIX.match(s)):
