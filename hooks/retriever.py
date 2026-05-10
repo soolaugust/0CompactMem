@@ -7383,6 +7383,14 @@ def main():
                     "ORDER BY importance DESC, access_count ASC LIMIT 5",
                     (project, *_dbuf_lite_exclude)
                 ).fetchall()
+                # iter1432: fallback_uncap_lite — ceiling 排除后全空时去掉排除重查
+                if not _dbuf_lite_rows and _dbuf_lite_exclude:
+                    _dbuf_lite_rows = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance "
+                        "FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
+                        "ORDER BY access_count ASC, importance DESC LIMIT 3",
+                        (project,)
+                    ).fetchall()
                 if _dbuf_lite_rows:
                     import time as _dbuf_lite_time
                     _dbuf_lite_idx = int(_dbuf_lite_time.time() // 60) % len(_dbuf_lite_rows)
