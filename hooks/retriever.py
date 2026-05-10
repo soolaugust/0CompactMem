@@ -2418,7 +2418,14 @@ def main():
                     # 修复：global + ac>=4 + 极低 relevance → 零信息增量，直接返回 0。
                     #   不影响 relevance>=0.005 的正常匹配路径（真正相关时仍注入）。
                     # iter1364: sparse_shield — local<=3 项目豁免（唯一知识源不应被 suppress）
-                    if chunk.get("project", "") == "global" and _acc_ee >= 4 and not _local_sparse:
+                    # iter1385: sparse_global_irrelevant_unseal — sparse_shield 不保护 global+irrelevant
+                    #   根因（数据驱动，2026-05-10）：git:a4ee2fcfacc4(4 local+9 global,sparse)
+                    #   feishu CLI(ac=4,imp=0.95)、memory验证(ac=6) 等 global chunk relevance<0.005
+                    #   但 _local_sparse=True 豁免 iter1362 → 以 imp*0.1≈0.09 占满 top_k，
+                    #   挤掉 relevance>0 的 local chunk。sparse_shield 本意保护 local 唯一知识源，
+                    #   global+irrelevant 不是本项目知识源，不应受保护。
+                    # 修复：去掉 `not _local_sparse` 条件。global+ac>=4+relevance<0.005 无条件 suppress。
+                    if chunk.get("project", "") == "global" and _acc_ee >= 4:
                         return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
