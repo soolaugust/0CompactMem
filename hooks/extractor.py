@@ -3059,7 +3059,17 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'migration|thermal|uclamp|内存|进程|线程|设备|用户|产品|API|接口|函数)',
         re.IGNORECASE)
     _iter_match = _ITER_IMPL_KW.search(summary)
-    if _iter_match and not _DOMAIN_KW.search(summary):
+    # iter1450: domain_kw_density_override — domain_kw 豁免在 memory-os 术语密度≥3 时失效
+    # 数据驱动（2026-05-11）：4 条 ac=0 噪声含 "barrier/on_cpu/find_proxy"（domain_kw）
+    #   同时含 "suppress/注入位/去重/垄断/top_k/chunk"（memory-os 术语）。
+    #   根因：1 个 domain_kw match 即可豁免，但内容主体是 memory-os 实现分析。
+    # 修复：memory-os 术语 ≥3 个时 domain_kw 不再豁免。
+    _MOS_DENSITY_TERMS = re.compile(
+        r'(?:suppress|注入位|去重|垄断|top.k|注入.*阈值|chunk.*(?:保留|丢弃|上限)|'
+        r'per.chunk|session.suppress|anti.monopoly|空召回|cooldown)',
+        re.IGNORECASE)
+    _mos_density = len(_MOS_DENSITY_TERMS.findall(summary))
+    if _iter_match and (_mos_density >= 3 or not _DOMAIN_KW.search(summary)):
         return
     # iter1269: memory_os_file_selfref_gate — 含 memory-os 源文件名的自引用强制拦截
     # 根因（数据驱动，2026-05-09）：4 条 ac=0 噪声含 "retriever.py"/"config.py" + memory-os
@@ -3068,6 +3078,15 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if re.search(r'(?:retriever\.py|retriever_daemon|extractor\.py|config\.py)', summary) \
        and re.search(r'(?:tunable|session_inject|oversample|_sessions_with|same_hash|TLB.*保护|'
                      r'daemon.*崩溃|零知识注入|hook.*崩溃|chunk_recall|recall_trace)', summary):
+        return
+    # iter1450: chunk_mgmt_strategy_gate — 拦截讨论 chunk 去重/管理策略的迭代器分析
+    # 数据驱动（2026-05-11）：832c22a9/566287c9 含 "[pe_analysis]" domain_kw 豁免 iter1202，
+    #   但内容是 "强制 1 条去重导致用户查询...单一维度知识"——讨论 topic_dedup 策略。
+    # 修复：chunk + 去重/dedup/上限/保留/垄断 策略词 ≥2 共现 → 拒绝。
+    _CHUNK_MGMT = re.compile(
+        r'(?:去重|dedup|上限\s*\d|保留.*最高|垄断.*注入|注入位|chunk.*轮番|per.chunk|同主题|单一维度)',
+        re.IGNORECASE)
+    if re.search(r'chunk', summary, re.IGNORECASE) and len(_CHUNK_MGMT.findall(summary)) >= 2:
         return
     # iter1210: iterator_meta_narrative_gate — 迭代器自身 bug/fix 元叙述即使含领域词也拦截
     if _iter_match and re.search(r'(?:迭代器.*(?:逃逸|自记录|假阳性)|让迭代器|iterator.*gate.*逃)', summary):
