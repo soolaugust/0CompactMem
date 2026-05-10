@@ -2443,7 +2443,12 @@ def main():
                     #   挤掉 relevance>0 的 local chunk。sparse_shield 本意保护 local 唯一知识源，
                     #   global+irrelevant 不是本项目知识源，不应受保护。
                     # 修复：去掉 `not _local_sparse` 条件。global+ac>=4+relevance<0.005 无条件 suppress。
-                    if chunk.get("project", "") == "global" and _acc_ee >= 4:
+                    # iter1454: global_irrelevant_zero_ac — ac 阈值 4→0
+                    #   根因（数据驱动，2026-05-11）：41 个 import-* global chunk(ac=0,imp=0.50)
+                    #   在非 kernel 项目中 relevance<0.005 但以 imp*0.1=0.05 占满候选池，
+                    #   因 ac<4 逃逸 iter1362 gate。global+零 FTS5 匹配=零信息增量，无论 ac。
+                    # 修复：去掉 ac 条件。global+relevance<0.005 无条件 suppress。
+                    if chunk.get("project", "") == "global":
                         return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
