@@ -288,7 +288,7 @@ def test_sysctl_params_registered():
     """验证 iter334 的三个 sysctl 参数已注册到 config.py。"""
     assert sysctl("retriever.cold_start_enabled") == True
     assert sysctl("retriever.cold_start_imp_threshold") == 0.50
-    assert sysctl("retriever.cold_start_max_inject") == 1
+    assert sysctl("retriever.cold_start_max_inject") == 2
 
 
 # ──────────────────────────────────────────────────────────────────────

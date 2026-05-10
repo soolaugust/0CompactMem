@@ -5546,9 +5546,10 @@ def main():
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
                 # iter1427: cold_start_db_fallback — FTS5 未命中 ac=0 chunk 时直查 DB
-                # 根因（数据驱动，2026-05-10）：41/70(58%) chunk ac=0 全为今日批量导入，
-                #   但 FTS5 query 与这些知识无语义交集 → final 不含 ac=0 → cold_start 死锁。
-                # 修复：_cold_candidates 为空时，从 DB 查本项目最新 ac=0 chunk 作为候选。
+                # iter1430: cold_start_rotate — RANDOM() 轮转 + LIMIT 扩大
+                # 根因（数据驱动，2026-05-10）：db_fallback ORDER BY created_at DESC LIMIT 3
+                #   每次返回同 3 个最新 chunk，41 个 ac=0 chunk 中 38 个永远无法曝光。
+                # 修复：ORDER BY importance DESC, RANDOM() LIMIT 5，每次会话曝光不同 chunk。
                 if not _cold_candidates:
                     try:
                         import sqlite3 as _cs_sql
@@ -5557,7 +5558,7 @@ def main():
                             "SELECT id, summary, content, chunk_type, importance, tags, access_count "
                             "FROM memory_chunks WHERE chunk_state='ACTIVE' AND access_count=0 "
                             "AND (project=? OR project='global') AND importance>=? "
-                            "ORDER BY created_at DESC LIMIT 3",
+                            "ORDER BY importance DESC, RANDOM() LIMIT 5",
                             (project, _cs_imp_threshold)
                         ).fetchall()
                         _cs_conn.close()

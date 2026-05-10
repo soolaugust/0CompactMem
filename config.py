@@ -2530,8 +2530,8 @@ _REGISTRY: dict = {
         "是否启用 IWCSI 冷启动注入（FULL 模式 + positive 不足时强制曝光高 imp 零召回 chunk）"),
     "retriever.cold_start_imp_threshold": (0.50, float, 0.3, 1.0, None,
         "IWCSI 触发的 importance 下限：只强制曝光 importance >= 此值的零召回 chunk"),
-    "retriever.cold_start_max_inject": (1, int, 1, 3, None,
-        "IWCSI 每次最多强制注入的 chunk 数量（默认1，避免挤占其他类型）"),
+    "retriever.cold_start_max_inject": (2, int, 1, 3, None,
+        "IWCSI 每次最多强制注入的 chunk 数量（默认2，加速新导入知识曝光）"),
     # ── iter376: Emotional Salience Retrieval Boost ──────────────────────────
     # OS 类比：Linux OOM Score 情绪加权 — 高情绪显著性记忆优先保留，类比 oom_adj=-800
     # 认知科学依据：McGaugh (2000) 情绪增强记忆巩固（amygdala-hippocampus interaction）
