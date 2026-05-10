@@ -2681,12 +2681,14 @@ _REGISTRY: dict = {
     #   score *= (1 - ior_penalty × exp(-ior_decay_rate × turns_since_inject))
     "retriever.ior_enabled": (True, bool, None, None, None,
         "是否启用 IOR 返回抑制（最近注入的 chunk 获得短暂的分数惩罚，iter391）"),
-    "retriever.ior_penalty": (0.20, float, 0.0, 0.5, None,
-        "IOR 峰值惩罚系数：刚被注入的 chunk 分数 × (1 - ior_penalty)（iter391，默认 0.20）"),
-    "retriever.ior_decay_turns": (3, int, 1, 20, None,
-        "IOR 半衰期（检索轮次）：经过此轮次后惩罚衰减到一半（iter391，默认 3 轮）"),
-    "retriever.ior_exempt_types": ("design_constraint", str, None, None, None,
-        "IOR 豁免的 chunk_type（逗号分隔，这些类型不受返回抑制影响，iter391）"),
+    "retriever.ior_penalty": (0.35, float, 0.0, 0.5, None,
+        "IOR 峰值惩罚系数：刚被注入的 chunk 分数 × (1 - ior_penalty)（iter1451: 0.20→0.35，"
+        "小库垄断 chunk 0.80×0.9=0.72 仍胜出，需 0.65×0.9=0.585 才让位）"),
+    "retriever.ior_decay_turns": (5, int, 1, 20, None,
+        "IOR 半衰期（检索轮次）：经过此轮次后惩罚衰减到一半（iter1451: 3→5，延长抑制窗口）"),
+    "retriever.ior_exempt_types": ("", str, None, None, None,
+        "IOR 豁免的 chunk_type（逗号分隔；iter1451: 移除 design_constraint 豁免——"
+        "豁免导致高 ac constraint 垄断注入位，6h/24h/7d suppress 已够保护 constraint 不被遗忘）"),
 
     # ── iter393：Semantic Distance Decay in Spreading Activation ──
     # 认知科学：Collins & Loftus (1975) Spreading Activation Theory —
