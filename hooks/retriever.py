@@ -3082,7 +3082,15 @@ def main():
                     # iter1462: small_db_global_7d_relax — <100 库 global 阈值 2→4
                     #   根因（数据驱动，2026-05-11）：66-chunk 库 5/8 global chunk 被 7d>=2 封杀，
                     #   高价值约束（git author/feishu CLI/memory验证）整周不可见。
-                    _suppress_7d_thresh = 4 if _small_db else 2
+                    # iter1473: global_monopoly_ac_cap — ac>=4 已内化 global chunk 阈值收紧
+                    #   根因（数据驱动，2026-05-11）：feishu CLI(ac=4,7d=4)、memory验证(ac=6,7d=4)
+                    #   iter1462 放宽到 4 后，ac>=4 chunk 一周注入 4 次仍不 suppress。
+                    #   ac>=4 已多次内化，thresh=3 允许 7d 最多 2 次注入（TOCTOU 最差 +1）。
+                    _g_ac_full = chunk.get("access_count", 0) or 0
+                    if _small_db:
+                        _suppress_7d_thresh = 3 if _g_ac_full >= 4 else 4
+                    else:
+                        _suppress_7d_thresh = 2
                     # iter1227: sparse_global_shield — local_sparse 时 +1
                     if _sparse_global_relax:
                         _suppress_7d_thresh += 1
@@ -4155,13 +4163,12 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync hard_deadline
-                        # iter1462: small_db_global_7d_relax — <100 库 4, sparse +1
-                        # iter1465: global_saturated_ac6_tighten — ac>=6 阈值 4→3
+                        # iter1473: global_monopoly_ac_cap — ac>=4 thresh 3, 其余 4
                         _g_ac = c.get("access_count", 0) or 0
                         if _local_sparse and _cp == "global":
-                            return 4 if _g_ac >= 6 else 5
+                            return 4 if _g_ac >= 4 else 5
                         if _hd_small_db:
-                            return 3 if _g_ac >= 6 else 4
+                            return 3 if _g_ac >= 4 else 4
                         return 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
