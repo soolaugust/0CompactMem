@@ -1551,7 +1551,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1374: iterator_selfdiag_noise — 迭代器自诊断结论/量化快照逃逸
                 # 数据驱动（2026-05-10）：97e5ea9a "量化：zero_access 4/37→3/37"(ac=0)
                 #   0b39e8e4 "关键诊断结论：痛点描述已过时"(ac=0) — 迭代器自评记录。
-                "诊断结论", "痛点描述", "zero_access"]
+                "诊断结论", "痛点描述", "zero_access",
+                # iter1389: iterator_change_log_noise — "改动：" 前缀是迭代器修改记录
+                # 数据驱动（2026-05-10）：ee83725a "改动：extractor.py 1 行 < 80 → <= 80"(ac=0)
+                #   逃逸原因："改动 +"只匹配加号形式，"改动："冒号形式漏网。
+                "改动：", "extractor.py"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）
