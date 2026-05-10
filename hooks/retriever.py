@@ -2524,6 +2524,10 @@ def main():
             if (_conf < 0.15
                     and chunk.get("chunk_type") != "design_constraint"):
                 score = 0.0
+            # iter1405: disputed_hard_suppress — 用户标记 wrong 的 chunk 不应再注入
+            if chunk.get("verification_status") == "disputed":
+                score = 0.0
+                _hard_suppressed = True
 
             # 迭代300：info_class 路由权重调整
             # ephemeral chunk 降权 0.3，避免临时状态挤掉 world/operational 知识
@@ -3403,7 +3407,8 @@ def main():
                 if _is_selfref_noise(chunk.get("summary", "")):
                     continue
                 relevance = chunk["fts_rank"] / max_rank
-                _pre_score_relevance.append((relevance, chunk))
+                if chunk.get("verification_status") != "disputed":
+                    _pre_score_relevance.append((relevance, chunk))
                 score = _score_chunk(chunk, relevance)
                 final.append((score, chunk))
                 fts_ids.add(chunk.get("id", ""))
@@ -3788,7 +3793,8 @@ def main():
                             and chunk.get("project", "") == "global"
                             and _bm25_global_discount < 1.0):
                         relevance = relevance * _bm25_global_discount
-                    _pre_score_relevance_hd.append((relevance, chunk))
+                    if chunk.get("verification_status") != "disputed":
+                        _pre_score_relevance_hd.append((relevance, chunk))
                     score = _score_chunk(chunk, relevance)
                     final.append((score, chunk))
             # else: use_fts=True (TOT activated) — final/candidates_count already set above
