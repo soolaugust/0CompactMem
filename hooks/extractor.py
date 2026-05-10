@@ -1241,7 +1241,11 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'writeback|trace.*标记|pollut|污染.*(?:count|统计)|'
         r'scoring\s*崩溃|traces\b.*\d+/\d+|'
         # iter1429: cold_start_selfref_gate — cold_start/零访问/曝光死锁 逃逸
-        r'cold_start|零访问|曝光死锁|首次曝光|候选池)',
+        r'cold_start|零访问|曝光死锁|首次曝光|候选池|'
+        # iter1463: lite_full_path_gate — "LITE/FULL 路径" 是 retriever 内部概念
+        r'LITE\s*路径|FULL\s*路径|hard_deadline\s*路径|'
+        # iter1463: effect_prediction_arrow — "预期：X→Y" 百分比箭头是迭代器效果预测
+        r'预期[：:].{0,30}→)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
