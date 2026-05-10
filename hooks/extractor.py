@@ -2993,6 +2993,18 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if re.search(r'(?:删除|清理|新增|写入|移除)\s*\d+\s*条', summary) \
        and re.search(r'(?:chunk|access_count|迭代器|自诊断|zero_access|噪声|ac=|FTS)', summary):
         return
+    # iter1447: scoring_phase_iter_gate — 评分/suppress 阶段描述 + 内部指标 = 迭代器实现细节
+    if re.match(r'^(?:[-•*]\s*)?(?:\d+[.、]\s*)?(?:评分阶段|suppress 阶段|scoring)', summary) \
+       and re.search(r'(?:relevance|score|chunk|suppress|注入|gate|→)', summary):
+        return
+    # iter1447: expectation_iter_gate — "预期：" + 系统指标 = 迭代器预期结论
+    if re.match(r'^(?:[-•*]\s*)?预期[：:]', summary) \
+       and re.search(r'(?:注入|chunk|suppress|score|降至|召回|gate|daemon|7d|24h|ac[>=])', summary):
+        return
+    # iter1447: iter_ref_prefix_gate — rNNNN/ 迭代引用前缀 = 迭代器因果链
+    if re.match(r'^r\d{3,4}[/,]', summary) \
+       and re.search(r'(?:gate|suppress|注入|chunk|irrelevance|daemon|score)', summary):
+        return
     # iter1247: injection_stats_narrative_gate — 含注入统计叙事的迭代器量化结论
     # 根因（数据驱动，2026-05-09）：15e53f00(ac=0) "量化效果：过去 7d 的 16 次 global 注入中，
     #   6 次 score<0.25 的低相关性注入将被拦截（37.5% 降噪）"
