@@ -3116,8 +3116,9 @@ def main():
                     #   ac=3 用户已看 3 次，7d 内 1 次后边际价值已极低。
                     # 修复：cap 3→2，7d 第 2 次即 suppress。配合 72h cooldown，
                     #   7d 最多 2 次（首次正常+触发 suppress 前的 TOCTOU=1）。
+                    # iter1402: ac3_7d_tinydb_relax — tiny_db cap 2→3
                     elif _l_ac >= 3:
-                        _suppress_7d_thresh = min(_suppress_7d_thresh, 2)
+                        _suppress_7d_thresh = min(_suppress_7d_thresh, 3 if _tiny_db else 2)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
