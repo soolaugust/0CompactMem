@@ -6574,7 +6574,8 @@ def main():
                 # 数据驱动（2026-05-06）：pair 7d 放宽(5/5/6)使 suppress_final_gate(3/4/5)失效，
                 #   6/13 高频 chunk 全经 pair 注入(single=0,pair=4)。回退对齐 daemon(3/4/5)。
                 _dp895_small = _sf663_small_db if '_sf663_small_db' in dir() else (_db_chunk_count < 100)
-                _dp895_lim = 3 if _dp895_tiny else (4 if _dp895_small else 5)
+                # iter1398: pair_7d_tinydb_relax — 小库 7d=3 不构成垄断(10% util)，允许进入 pair
+                _dp895_lim = 4 if _dp895_tiny else (4 if _dp895_small else 5)
                 # iter1371: global pair 候选排除高内化 design_constraint（同步 iter868）
                 _dp895_ok = [r for r in _dp895_rows
                              if _dp895_7d.get(r[0], 0) < _dp895_lim
