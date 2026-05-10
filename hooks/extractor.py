@@ -2823,14 +2823,19 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 根因：调用方未传 content_override，_write_chunk 自动生成 "[type] summary"，
     #   但 summary 本身是句子碎片（<15字），无法被 FTS 有效检索。
     # 阈值 15 字：生产中最短合法 chunk summary 为 19 字（test），wiki import 有 content_override 不受影响。
-    if not content_override and len(summary) < 15:
+    # iter1377: echo_aware — content_override==summary 时视同无 override
+    _co_is_echo = content_override and content_override.strip() == summary.strip()
+    if (not content_override or _co_is_echo) and len(summary) < 15:
         return
     # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
     # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
     #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
     #   design_constraint 除外（天然短句但有明确约束语义）。
+    # iter1377: echo_aware_episodic_gate — content_override==summary 时不豁免
+    #   数据驱动（2026-05-10）：ba436dc5 reasoning_chain 36字 content==summary ac=0。
     _EPISODIC_SHORT_TYPES = {"causal_chain", "reasoning_chain", "decision", "excluded_path", "conversation_summary"}
-    if not content_override and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) < 80:
+    _episodic_has_rich = content_override and content_override.strip() != summary.strip()
+    if not _episodic_has_rich and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) < 80:
         return
     # iter844: table_fragment_gate — 表格行碎片拒绝写入
     # 数据驱动（2026-05-05）：e0bd5a39 content="| extractor gate 覆盖 | ... |"
