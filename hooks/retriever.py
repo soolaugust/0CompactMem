@@ -5528,13 +5528,11 @@ def main():
         _cold_start_injected = 0
         if (priority == "FULL"
                 and _sysctl("retriever.cold_start_enabled")
-                and len(positive) < effective_top_k
                 and not _check_deadline("cold_start")):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
                 _cs_max = _sysctl("retriever.cold_start_max_inject")
                 _positive_ids = {c["id"] for _, c in positive}
-                # 从 final 候选中筛选：高 imp、零访问、不在 positive 中
                 _cold_candidates = [
                     (imp_val, c) for s, c in final
                     if c.get("id", "") not in _positive_ids
@@ -5543,17 +5541,27 @@ def main():
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
                 if _cold_candidates:
-                    # 按 importance 降序，取 top _cs_max 个
                     _cold_candidates.sort(key=lambda x: x[0], reverse=True)
-                    for _cold_imp, _cold_chunk in _cold_candidates[:_cs_max]:
-                        # 注入分数 = importance（让其能进入 positive，但不垫底也不顶替高分）
+                    _cs_slots = effective_top_k - len(positive)
+                    # iter1426: cold_start_saturated_replace — positive 已满时
+                    # 替换 7d≥3 的饱和 chunk，为新知识腾出曝光位。
+                    if _cs_slots <= 0 and positive:
+                        _sat_indices = [
+                            i for i, (s, c) in enumerate(positive)
+                            if _recent_7d_counts.get(c.get("id", ""), 0) >= 3
+                        ]
+                        if _sat_indices:
+                            _cs_slots = min(_cs_max, len(_sat_indices))
+                            for _ri in sorted(_sat_indices[-_cs_slots:], reverse=True):
+                                positive.pop(_ri)
+                    for _cold_imp, _cold_chunk in _cold_candidates[:max(_cs_slots, 0)]:
                         positive.append((_cold_imp, _cold_chunk))
                         _positive_ids.add(_cold_chunk["id"])
                         _cold_start_injected += 1
                     if _cold_start_injected > 0:
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"cold_start: injected={_cold_start_injected} "
-                                      f"imp>={_cs_imp_threshold:.2f}",
+                                      f"imp>={_cs_imp_threshold:.2f} replaced_saturated={_cs_slots if _cs_slots > 0 else 0}",
                                       session_id=session_id, project=project)
             except Exception:
                 pass  # cold_start 失败不阻塞主流程

@@ -2528,7 +2528,7 @@ _REGISTRY: dict = {
     #   但语义鸿沟导致 FTS5 永不命中 → IWCSI 是 cold-start SNR 修复机制
     "retriever.cold_start_enabled": (True, bool, None, None, None,
         "是否启用 IWCSI 冷启动注入（FULL 模式 + positive 不足时强制曝光高 imp 零召回 chunk）"),
-    "retriever.cold_start_imp_threshold": (0.75, float, 0.5, 1.0, None,
+    "retriever.cold_start_imp_threshold": (0.50, float, 0.3, 1.0, None,
         "IWCSI 触发的 importance 下限：只强制曝光 importance >= 此值的零召回 chunk"),
     "retriever.cold_start_max_inject": (1, int, 1, 3, None,
         "IWCSI 每次最多强制注入的 chunk 数量（默认1，避免挤占其他类型）"),
