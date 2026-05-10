@@ -4210,7 +4210,17 @@ def main():
                     # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local+9 global) 85% 空召回，
                     #   global chunk 是主要知识源但被 lifetime suppress 封锁（只保护 local）。
                     if _local_sparse and c.get("project", "") in (project, "global"):
-                        return True
+                        # iter1468: sparse_saturated_dc_pierce — 高饱和 global dc 不豁免
+                        # 根因（数据驱动，2026-05-11）：a4ee(3 local) _local_sparse=True，
+                        #   93cbc985(memory验证,ac=6,lt=4),c9accb7b(feishu CLI,ac=4,lt=4) 全部逃逸
+                        #   lifetime suppress。这些是通用工具约束，ac>=4+lifetime>=4 已充分内化。
+                        #   47 个 global chunk 中只有 3-5 个触发此条件，不会导致空召回。
+                        _sp_ac = c.get("access_count", 0) or 0
+                        _sp_tl = _injection_timeline.get(c["id"])
+                        _sp_lt = max(len(_sp_tl), _sp_ac) if _sp_tl else 0
+                        if not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint"
+                                and _sp_ac >= 4 and _sp_lt >= 4):
+                            return True
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
@@ -6432,7 +6442,13 @@ def main():
                     # iter1281: sparse_lifetime_shield — local_sparse 本地 chunk 跳过 lifetime suppress
                     # iter1337: sparse_global_lifetime_shield — sync hard_deadline path
                     if _local_sparse and c.get("project", "") in (project, "global"):
-                        return True
+                        # iter1468: sparse_saturated_dc_pierce — sync hard_deadline path
+                        _sp_ac = c.get("access_count", 0) or 0
+                        _sp_tl = _injection_timeline.get(c["id"])
+                        _sp_lt = max(len(_sp_tl), _sp_ac) if _sp_tl else 0
+                        if not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint"
+                                and _sp_ac >= 4 and _sp_lt >= 4):
+                            return True
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
