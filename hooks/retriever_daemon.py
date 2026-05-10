@@ -1664,7 +1664,7 @@ def _load_all_modules():
             " COALESCE(mc.lru_gen, 0), COALESCE(mc.project, ''),"
             " mc.verification_status, mc.confidence_score"
             " FROM memory_chunks_fts"
-            " JOIN memory_chunks mc ON mc.id = memory_chunks_fts.id"
+            " JOIN memory_chunks mc ON mc.rowid = memory_chunks_fts.rowid_ref"
             " WHERE memory_chunks_fts MATCH ?"
             " AND mc.chunk_state = 'ACTIVE'"
             " AND mc.summary != ''"
