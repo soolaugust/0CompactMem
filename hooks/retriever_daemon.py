@@ -3814,9 +3814,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress — 唯一知识不可 suppress
             # iter1049: micro_db_cross_project_suppress — 跨项目 chunk 不享受 micro_db 免疫
             # iter1227: sparse_local_shield_daemon — local_sparse 时本地 chunk 等同 micro_db 保护
-            _is_local_d = (chunk.get("project", "") == project)
+            _is_local_d = (_cp == project)
             _sparse_shield_d = _local_sparse_d and _is_local_d
-            if not (_s672_micro or _sparse_shield_d) or (chunk.get("project", "") != project and chunk.get("project", "") != "global"):
+            if not (_s672_micro or _sparse_shield_d) or (_cp != project and _cp != "global"):
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter865: 6h_tighten_tiny — tiny_db 3→2（数据驱动：6h=3 逃逸导致垄断）
