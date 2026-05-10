@@ -383,3 +383,92 @@ def test_db_fallback_when_fts_misses():
         assert _cold_candidates[0][0] == 0.8
     finally:
         _ret_mod.STORE_DB = _saved
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 14. iter1431: cold_start_score_replace — positive 满且无 7d 饱和时替换低分已内化 chunk
+# ──────────────────────────────────────────────────────────────────────
+
+def _run_cold_start_with_score_replace(positive, final, effective_top_k,
+                                       max_inject=2, imp_threshold=0.50,
+                                       recent_7d_counts=None):
+    """复现 iter1431 的 score_replace 逻辑。"""
+    if recent_7d_counts is None:
+        recent_7d_counts = {}
+    _positive_ids = {c["id"] for _, c in positive}
+    _cold_candidates = [
+        (float(c.get("importance", 0) or 0), c) for s, c in final
+        if c.get("id", "") not in _positive_ids
+        and (c.get("access_count", 0) or 0) == 0
+        and float(c.get("importance", 0) or 0) >= imp_threshold
+    ]
+    if not _cold_candidates:
+        return positive, 0
+    _cold_candidates.sort(key=lambda x: x[0], reverse=True)
+    _cs_slots = effective_top_k - len(positive)
+    if _cs_slots <= 0 and positive:
+        _sat_indices = [
+            i for i, (s, c) in enumerate(positive)
+            if recent_7d_counts.get(c.get("id", ""), 0) >= 3
+        ]
+        if _sat_indices:
+            _cs_slots = min(max_inject, len(_sat_indices))
+            for _ri in sorted(_sat_indices[-_cs_slots:], reverse=True):
+                positive.pop(_ri)
+        # iter1431: score_replace fallback
+        if not _sat_indices and len(positive) >= effective_top_k:
+            _cs_repl = [(i, s, c) for i, (s, c) in enumerate(positive)
+                        if (c.get("access_count", 0) or 0) >= 3]
+            if _cs_repl:
+                _cs_repl.sort(key=lambda x: x[1])
+                _cs_slots = min(max_inject, len(_cs_repl))
+                for _ri in sorted([x[0] for x in _cs_repl[:_cs_slots]], reverse=True):
+                    positive.pop(_ri)
+    injected = 0
+    for _cold_imp, _cold_chunk in _cold_candidates[:max(_cs_slots, 0)]:
+        positive.append((_cold_imp, _cold_chunk))
+        injected += 1
+    return positive, injected
+
+
+def test_score_replace_when_positive_full_no_saturated():
+    """iter1431: positive 满、无 7d>=3 饱和 chunk、但有 ac>=3 低分 chunk → 替换并注入 cold chunk。"""
+    # positive 全满（3 个），都 7d<3（不触发 sat_indices），但 ac>=3
+    existing = [
+        _make_chunk("c_old1", importance=0.7, access_count=5),
+        _make_chunk("c_old2", importance=0.8, access_count=4),
+        _make_chunk("c_new", importance=0.9, access_count=1),  # ac<3 不可替换
+    ]
+    positive = [(0.20, existing[0]), (0.50, existing[1]), (0.80, existing[2])]
+    # cold candidate in final
+    cold = _make_chunk("c_cold", importance=0.85, access_count=0)
+    final = [(0.0, cold)]
+
+    result, injected = _run_cold_start_with_score_replace(
+        positive, final, effective_top_k=3, max_inject=1,
+        recent_7d_counts={}  # all 7d=0
+    )
+    assert injected == 1, f"should inject 1 cold chunk, got {injected}"
+    result_ids = [c["id"] for _, c in result]
+    assert "c_cold" in result_ids, f"cold chunk should be injected: {result_ids}"
+    # score 最低的 c_old1(score=0.20, ac=5) 应被替换
+    assert "c_old1" not in result_ids, f"lowest score ac>=3 should be replaced: {result_ids}"
+    assert "c_new" in result_ids, f"ac<3 chunk should be kept: {result_ids}"
+
+
+def test_score_replace_skips_low_ac():
+    """iter1431: positive 中无 ac>=3 的 chunk → 不替换，不注入。"""
+    existing = [
+        _make_chunk("c1", importance=0.9, access_count=1),
+        _make_chunk("c2", importance=0.8, access_count=2),
+    ]
+    positive = [(0.60, existing[0]), (0.50, existing[1])]
+    cold = _make_chunk("c_cold", importance=0.85, access_count=0)
+    final = [(0.0, cold)]
+
+    result, injected = _run_cold_start_with_score_replace(
+        positive, final, effective_top_k=2, max_inject=1,
+        recent_7d_counts={}
+    )
+    assert injected == 0, f"no ac>=3 means no replacement, got {injected}"
+    assert len(result) == 2

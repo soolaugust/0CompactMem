@@ -5585,6 +5585,20 @@ def main():
                             _cs_slots = min(_cs_max, len(_sat_indices))
                             for _ri in sorted(_sat_indices[-_cs_slots:], reverse=True):
                                 positive.pop(_ri)
+                        # iter1431: cold_start_score_replace — 7d 饱和替换失败时
+                        # 替换 score 最低 + ac>=3（已内化）的条目，为 cold chunk 腾曝光位。
+                        # 根因（数据驱动，2026-05-10）：42/72 chunk ac=0，cold_start 仅在
+                        #   positive 未满或 7d>=3 可替换时生效。正常 session positive 通常满
+                        #   且 7d<3（suppress 已控住频率），cold_start 实质失效。
+                        # 条件：ac>=3 确保不替换首次曝光的新知识；取 score 最低减少信息损失。
+                        if not _sat_indices and len(positive) >= effective_top_k:
+                            _cs_repl = [(i, s, c) for i, (s, c) in enumerate(positive)
+                                        if (c.get("access_count", 0) or 0) >= 3]
+                            if _cs_repl:
+                                _cs_repl.sort(key=lambda x: x[1])
+                                _cs_slots = min(_cs_max, len(_cs_repl))
+                                for _ri in sorted([x[0] for x in _cs_repl[:_cs_slots]], reverse=True):
+                                    positive.pop(_ri)
                     for _cold_imp, _cold_chunk in _cold_candidates[:max(_cs_slots, 0)]:
                         positive.append((_cold_imp, _cold_chunk))
                         _positive_ids.add(_cold_chunk["id"])
