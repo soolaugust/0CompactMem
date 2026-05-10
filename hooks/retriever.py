@@ -4760,6 +4760,10 @@ def main():
                             _pic(accessed_ids, project)
                         except Exception:
                             pass
+                        # iter1394: hd_trace_rebuild — 对齐 FULL 路径 iter1344
+                        # 根因：L4486 生成 top_k_data 后，suppress/filter 修改 top_k 但未重建
+                        #   → trace 记录与实际注入不一致 → chunk_recall_counts 统计偏差。
+                        top_k_data = [{"id": c["id"], "summary": c.get("summary", ""), "score": round(s, 4), "chunk_type": c.get("chunk_type", "")} for s, c in top_k]
                         _write_trace(session_id, project, prompt_hash, candidates_count,
                                      top_k_data, 1, reason, duration_ms, conn=wconn)
                         _deferred.flush(wconn)
