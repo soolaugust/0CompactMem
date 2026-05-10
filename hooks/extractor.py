@@ -1557,7 +1557,9 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1389: iterator_change_log_noise — "改动：" 前缀是迭代器修改记录
                 # 数据驱动（2026-05-10）：ee83725a "改动：extractor.py 1 行 < 80 → <= 80"(ac=0)
                 #   逃逸原因："改动 +"只匹配加号形式，"改动："冒号形式漏网。
-                "改动：", "extractor.py"]
+                "改动：", "extractor.py",
+                # iter1410: iterator_result_report_noise — "Result:"量化报告 + orphan 诊断逃逸
+                "orphaned references", "orphaned entries"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）
@@ -1650,6 +1652,9 @@ def _is_quality_chunk(summary: str) -> bool:
     # iter1069: quantitative_forecast_gate — "量化预期"开头 = 迭代器效果预测
     # 数据驱动：用户真实知识从不以"量化预期"开头，这是迭代器自评模板。
     if s.startswith('量化预期'):
+        return False
+    # iter1410: result_prefix_gate — "Result:" + chunks/zero_access 是迭代器量化输出
+    if re.match(r'^Result\s*[:：]', s) and re.search(r'(?:chunk|zero.access|PA\s)', s):
         return False
     # iter1144: iterator_prefix_gate — 迭代器自评/修复/附带发现模板前缀拦截
     # 数据驱动（2026-05-08）：6 条 ac=0 噪声逃逸，前缀分别为：
