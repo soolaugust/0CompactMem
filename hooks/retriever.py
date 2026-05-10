@@ -4114,22 +4114,12 @@ def main():
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
-                        # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
-                        # iter1328: stale_lifetime_reactivation — 长期未访问允许重新注入
-                        # 根因（数据驱动，2026-05-09）：ac=8/12 chunk last_accessed=4/30，
-                        #   timeline GC 后 ac_lifetime_floor 永久封锁，但距今 9+ 天
-                        #   用户可能已遗忘（人类工作记忆 ~7d 衰减）。
-                        #   永久封锁违背"按需召回"原则：知识该在需要时出现。
-                        # 修复：last_accessed < _cutoff_14d 时跳过 ac_lifetime_floor，
-                        #   允许重新注入 1 次（注入后 timeline 重建，回到正常 suppress 流程）。
-                        _la = c.get("last_accessed") or ""
-                        if _la and _la < _cutoff_14d:
-                            return True
-                        if _ac_lt >= 6:
-                            return False
-                        # iter1375: ac_lifetime_dc_floor_align — 对齐 _lt_dc_thresh=4
-                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 4:
-                            return False
+                        # iter1376: no_timeline_allow_first_inject
+                        # 根因（数据驱动，2026-05-10）：sem_c4531bbda935(ac=12) 和 58c70136(ac=8)
+                        #   从未被自动注入但 ac 高（来自 memory_lookup 手动检索），
+                        #   ac_lifetime_floor 错将手动检索等同于被动内化 → 永久封锁。
+                        #   timeline 为空 = 从未注入 = 应允许首次注入（注入后 timeline 建立，
+                        #   后续正常 suppress）。14d 过期 chunk 同理：用户可能已遗忘。
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — 无条件阈值 6→5
@@ -6292,16 +6282,7 @@ def main():
                     _tl = _injection_timeline.get(c["id"])
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
-                        # iter1327: ac_lifetime_floor — timeline GC 后用 access_count 兜底
-                        # iter1328: stale_lifetime_reactivation — sync FULL path
-                        _la = c.get("last_accessed") or ""
-                        if _la and _la < _cutoff_14d:
-                            return True
-                        if _ac_lt >= 6:
-                            return False
-                        # iter1375: ac_lifetime_dc_floor_align — 对齐 _lt_dc_thresh=4
-                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 4:
-                            return False
+                        # iter1376: no_timeline_allow_first_inject — sync FULL path
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — sync FULL path
