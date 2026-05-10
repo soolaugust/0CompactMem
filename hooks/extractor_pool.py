@@ -534,6 +534,10 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # 根因（数据驱动，2026-05-06）：extractor_pool 路径缺少 already_exists/merge_similar，
                 #   导致同一 session 内相同内容重复写入（实测 3 条重复 conversation_summary）。
                 _summ950 = t[:120]
+                # iter1483: content_echo_write_gate (pool sync)
+                # content==summary 时零信息增量，design_constraint 除外。
+                if t.strip() == _summ950.strip() and chunk_type != "design_constraint":
+                    continue
                 if already_exists(conn, _summ950, chunk_type=chunk_type):
                     continue
                 if merge_similar(conn, _summ950, chunk_type, imp, project=project):

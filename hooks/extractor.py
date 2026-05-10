@@ -2899,6 +2899,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     _co_is_echo = content_override and content_override.strip() == summary.strip()
     if (not content_override or _co_is_echo) and len(summary) < 15:
         return
+    # iter1483: content_echo_write_gate — content==summary 源头拦截
+    # 数据驱动（2026-05-11）：3 条 ac=0 噪声 content==summary（64-119字），
+    #   占 ACTIVE 池 8%（3/38）。retriever 端 suppress 只是降权，仍占 FTS/候选池。
+    # 修复：content_override==summary 的非 design_constraint chunk 直接拒绝写入。
+    if _co_is_echo and chunk_type != "design_constraint":
+        return
     # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
     # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
     #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
