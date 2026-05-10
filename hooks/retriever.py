@@ -2400,7 +2400,12 @@ def main():
                     # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
                     # iter796: 同步 tiny_db 放宽
                     _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                    _ee_7d_thresh = 8 if _db_chunk_count < 50 else 5 if _db_chunk_count < 100 else 3  # iter818: 30→40
+                    # iter1386: ee_7d_thresh_tighten — <50 库 8→6 对齐主路径 ac3 cap
+                    # 根因（数据驱动，2026-05-10）：主路径 ac>=3 cap=2，但 early exit 阈值=8
+                    #   允许低 relevance chunk 7d=7 仍以 imp*0.1 进入候选池。
+                    #   37-chunk 库中 7d=8 才 suppress → chunk 可占 7d 注入的 ~30% 不被拦。
+                    # 修复：<50 库 8→6，缩小与主路径的 gap（完全对齐会导致 fallback 枯竭）。
+                    _ee_7d_thresh = 6 if _db_chunk_count < 50 else 5 if _db_chunk_count < 100 else 3
                     if _r7d_ee >= _ee_7d_thresh:
                         return 0.0
                     # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
