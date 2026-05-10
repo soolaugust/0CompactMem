@@ -5248,9 +5248,15 @@ def main():
         #   relevance>=0.25 + importance>=0.3 + 7d/24h/session 过滤的最佳候选配对。
         if len(positive) == 1 and _pre_score_relevance:
             _top1_id_rp = positive[0][1].get("id", "")
+            # iter1395: rp_small_db_relax — 小库 relevance_pair 阈值放宽
+            # 根因（数据驱动，2026-05-10）：37-chunk 库 62% 注入仅 1 条(36/58)，
+            #   pair_inject(s>0.12)/imp_pair(s>=min_thresh) 均失败后，
+            #   relevance_pair 的 rel>=0.25 仍过滤掉有效候选（小库 BM25 relevance 偏低）。
+            # 修复：<50 chunks 阈值 0.25→0.15，允许中低 relevance 配对。
+            _rp_rel_floor = 0.15 if _db_chunk_count < 50 else 0.25
             _rp_cands = [(rel, c) for rel, c in _pre_score_relevance
                          if c.get("id", "") != _top1_id_rp
-                         and rel >= 0.25
+                         and rel >= _rp_rel_floor
                          and float(c.get("importance", 0) or 0) >= 0.3
                          and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                          and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
