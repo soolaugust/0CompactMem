@@ -3912,8 +3912,10 @@ def main():
                     return min(_hd_pair_7d_ceiling, 3)  # iter1167: 4→3 对齐后期 pair
                 return _hd_pair_7d_ceiling
             if len(positive) == 1 and len(final) >= 3:
+                # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
+                _pair_floor_hd = 0.08 if _db_chunk_count < 50 else 0.12
                 _pair_cands_hd = [(s, c) for s, c in final
-                                  if s > 0.12 and s < _min_thresh
+                                  if s > _pair_floor_hd and s < _min_thresh
                                   and c.get("id") != positive[0][1].get("id")
                                   and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)]
@@ -5211,8 +5213,10 @@ def main():
                     _cap = min(_cap, max(2, _pair_7d_ceiling - 1))
             return _cap
         if len(positive) == 1 and len(final) >= 3:
+            # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
+            _pair_floor = 0.08 if _db_chunk_count < 50 else 0.12
             _pair_candidates = [(s, c) for s, c in final
-                                if s > 0.12 and s < _min_thresh
+                                if s > _pair_floor and s < _min_thresh
                                 and c.get("id") != positive[0][1].get("id")
                                 and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                                 and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
