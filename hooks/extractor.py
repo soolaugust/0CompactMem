@@ -1844,9 +1844,13 @@ def _is_quality_chunk(summary: str) -> bool:
     #   特征：迭代器 commit message 标题被 conversation_summary 提取器捕获。
     #   iter\d+[：:] 开头 100% 是迭代器版本标识，不含用户知识。
     _ITER_PREFIX = re.compile(r'^iter\d+[：:_\s]', re.I)
+    _ITER_FIX_DESC = re.compile(
+        r'^修复[：:].*(?:\.py|阈值|cap\b|suppress|双路径|代码路径|cooldown|threshold|gate|从\s*\d+.*[到→])',
+        re.I
+    )
     if (_ITER_METRIC_CHANGE.search(s) or _ITER_OPS_REPORT.search(s)
             or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)
-            or _ITER_PREFIX.match(s)):
+            or _ITER_PREFIX.match(s) or _ITER_FIX_DESC.match(s)):
         return False
     # ── iter896: iter_table_and_prediction_gate — 迭代器表格行/公式对比/预期效果 ──
     # 根因（数据驱动，2026-05-05）：10 个噪声 chunk(ac=0-1)逃逸现有 gate：
