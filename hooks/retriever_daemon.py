@@ -5304,12 +5304,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             return False
                         return True
                     _lt_cnt, _lt_last = _lt_data
-                    if _lt_cnt >= 7:
+                    # iter1423: lifetime_thresh_align — 对齐 retriever.py: tiny=8, non-tiny=5
+                    _lt_thresh_d = 8 if _sf663d_tiny_db else 5
+                    if _lt_cnt >= _lt_thresh_d:
                         return False
                     if _lt_cnt >= 5 and _lt_last > _cutoff_72h:
                         return False
-                    # iter1370: density_aware_lifetime — tiny_db lifetime>=5 + 7d>=3 suppress
-                    if _sf663d_tiny_db and _lt_cnt >= 5:
+                    # iter1370+1423: density_aware_lifetime — lifetime>=5 + 7d>=3 suppress
+                    # iter1423: 扩展到 small_db — 73-chunk 库垄断 chunk lifetime=5-6 逃逸
+                    if (_sf663d_tiny_db or _sf663d_small_db) and _lt_cnt >= 5:
                         if _rt663d_7d.get(c[_CI_ID], 0) >= 3:
                             return False
                     return True

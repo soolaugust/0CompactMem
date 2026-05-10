@@ -4226,7 +4226,8 @@ def main():
                     #   timeline 7 次中 5 次在 5/4-5/5 两天内（burst density），7d 滑出后将再次注入。
                     #   无条件降低阈值会导致空召回（iter1359 验证），但高密度 burst 应更早 suppress。
                     # 修复：lifetime>=5 且 7d 内注入>=3 次 → suppress（拦截 burst，放行分散使用）。
-                    if _hd_tiny_db and _lt >= 5:
+                    # iter1423: 扩展到 small_db — 73-chunk 库垄断 chunk lifetime=5-6 逃逸
+                    if (_hd_tiny_db or _hd_small_db) and _lt >= 5:
                         _r7d = _recent_7d_counts.get(c["id"], 0)
                         if _r7d >= 3:
                             return False
@@ -6401,8 +6402,9 @@ def main():
                         return False
                     if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
-                    # iter1370: density_aware_lifetime — sync FULL path
-                    if _tiny_db and _lt >= 5:
+                    # iter1370+1423: density_aware_lifetime — sync FULL path
+                    # iter1423: 扩展到 small_db
+                    if (_tiny_db or _small_db) and _lt >= 5:
                         _r7d = _rt663_7d.get(c["id"], 0)
                         if _r7d >= 3:
                             return False
