@@ -2797,6 +2797,11 @@ def main():
                         # iter612: linear ramp from 1.0 → 0.0 over [soft_start, hard_cap]
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
+            # iter1428: inject_overdose_penalty — lifetime 注入远超访问的 chunk 衰减
+            _iod_ac = chunk.get("access_count", 0) or 0
+            _iod_rc = _recall_counts.get(chunk.get("id", ""), 0)
+            if _iod_rc >= 4 and _iod_ac > 0 and _iod_rc / _iod_ac >= 2.5:
+                score *= 0.3
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
