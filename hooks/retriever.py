@@ -2846,8 +2846,15 @@ def main():
                 #   3 个 DC chunk 7d=2-3, type_conc>0.30, 0.5^(7d-1) 衰减将 score 打到 0.10-0.14，
                 #   低于 min_thresh(0.18) → cands=59 但 positive=[] → 67% 空召回(10/15 trace)。
                 #   sparse 项目无替代候选，"群体垄断让位新知识"的前提不成立。
+                # iter1471: sparse_global_type_conc_shield — shield 扩展到 global ac<4 chunk
+                #   根因（数据驱动，2026-05-11）：a4ee(3 local) 中 41/47 global chunk ac=0，
+                #   从未被注入但因同类型 DC 群体垄断被衰减→score<min_thresh→空召回 67%。
+                #   ac<4 = 未充分内化，不应因群体垄断惩罚。ac>=4 仍正常衰减防止真垄断。
                 _is_local_chunk_tc = chunk.get("project", "") == project
-                if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2 and not (_local_sparse and _is_local_chunk_tc):
+                _is_sparse_global_fresh = (_local_sparse
+                    and chunk.get("project", "") == "global"
+                    and (chunk.get("access_count", 0) or 0) < 4)
+                if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2 and not (_local_sparse and _is_local_chunk_tc) and not _is_sparse_global_fresh:
                     _chunk_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d > 1:
                         # iter1320: dc_type_conc_tighten — design_constraint 群体垄断加速衰减
@@ -7213,7 +7220,14 @@ def main():
                         # iter1194: global_unified_thresh — sync LITE path
                         # iter1462: small_db_global_7d_relax
                         # iter1470: global_monopoly_cap — sync FULL path
+                        # iter1472: lite_sparse_global_relax — sync HD path iter1462
+                        #   根因（数据驱动，2026-05-11）：a4ee(3 local+46 global) LITE 路径
+                        #   global ac>=4 → 7d 阈值=2，但 HD 路径 _local_sparse → 阈值=4/5。
+                        #   11/17 空召回发生在 LITE（PSI downgrade），sparse 项目 global 知识
+                        #   被过度 suppress。HD 已有 iter1462 放宽，LITE 遗漏。
                         _g_ac = c.get("access_count", 0) or 0
+                        if _local_sparse:
+                            return 4 if _g_ac >= 6 else 5
                         if _g_ac >= 4:
                             return 2
                         return 3 if _sf758_small_db else 2
@@ -7241,8 +7255,9 @@ def main():
                     elif _a >= 7:
                         return max(1, _b - 1)
                     # iter1023: global_24h_saturated_cap — sync FULL path
+                    # iter1472: lite_sparse_global_relax — 24h 路径同步
                     if c.get("project") == "global" and _a >= 4:
-                        return 1
+                        return 2 if _local_sparse else 1
                     return _b
                 # iter1142: micro_db_cross_saturated — LITE 路径同步 hard_deadline
                 # 根因（数据驱动，2026-05-08）：micro_db bypass 跳过整个 LITE final_gate，
@@ -7263,7 +7278,11 @@ def main():
                     # iter1042+1047: saturated_6h_cap — LITE 路径同步
                     def _lt1042_6h_thresh(c):
                         _a6 = (c.get("access_count", 0) or 0)
-                        return 1 if (_a6 >= 7 or (c.get("chunk_type") == "design_constraint" and _a6 >= 5) or (c.get("project") == "global" and _a6 >= 4)) else 2
+                        _t6 = 1 if (_a6 >= 7 or (c.get("chunk_type") == "design_constraint" and _a6 >= 5) or (c.get("project") == "global" and _a6 >= 4)) else 2
+                        # iter1472: lite_sparse_global_relax — 6h 路径同步 HD iter1384
+                        if _local_sparse and c.get("project") == "global":
+                            _t6 = max(_t6, 2)
+                        return _t6
                     # iter1092: lite_cooldown_gate — LITE final_gate 补充 cooldown 检查
                     # 根因（数据驱动，2026-05-07）：93cbc985(ac=6,"memory验证路径") 同 session
                     #   56min 内注入 2 次（5/6 01:37→02:33）。_score_chunk cooldown 设 score=0，
@@ -8171,7 +8190,17 @@ def main():
                 _is_global = _c1372.get("project") == "global"
                 _c_ac = _c1372.get("access_count", 0) or 0
                 _7d_thresh = 2 if _is_global else (3 if _c_ac >= 4 else 5)
-                if _cnt_48h >= 3 or _cnt_7d >= _7d_thresh:
+                # iter1471: lifetime_cooldown — 高饱和 global chunk 7d 衰减后周期性逃逸修复
+                #   根因（数据驱动，2026-05-11）：0aff0d67(git commit,ac=4,total=5),
+                #   c9accb7b(feishu CLI,ac=4,total=4),93cbc985(memory验证,ac=6,total=4)
+                #   7d 窗口滑动后 cnt_7d 衰减到 0→再次通过 gate→7 天周期震荡。
+                #   ac>=4 + timeline>=4 = 已充分内化，14d 冷却期防止周期性垄断。
+                _lifetime_suppress = False
+                if _is_global and _c_ac >= 4 and len(_tl) >= 4:
+                    _cut_14d = (_now_1372 - _td1372(days=14)).isoformat()
+                    if any(t > _cut_14d for t in _tl):
+                        _lifetime_suppress = True
+                if _cnt_48h >= 3 or _cnt_7d >= _7d_thresh or _lifetime_suppress:
                     _monopoly_dropped.append(_c1372["id"][:12])
                 else:
                     _monopoly_filtered.append((_s1372, _c1372))
