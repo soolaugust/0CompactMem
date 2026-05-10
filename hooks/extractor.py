@@ -3052,7 +3052,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'[+\-]\d+\s*行.{0,10}[+\-]\d+\s*行|'
         r'迭代器.*(?:逃逸|自记录|gate)|_DOMAIN_KW|_ITER_IMPL|iterator_impl|'
         r'碎片.*逃逸.*gate|\w+_gate\s*[（(]|ACTIVE\s*\d+\s*→\s*\d+|PA\s*\d+/\d+|'
-        r'gate.*(?:部署|覆盖|deploy)|时序问题.*(?:gate|写入))',
+        r'gate.*(?:部署|覆盖|deploy)|时序问题.*(?:gate|写入)|'
+        r'IOR.*豁免|豁免.*(?:注入|降分|suppress)|不降分|注入垄断.*根因)',
         re.IGNORECASE)
     _DOMAIN_KW = re.compile(
         r'(?:kernel|sched|cpu|proxy|\bPE\b|binder|Android|飞书|feishu|git(?![:r]oot:|:[0-9a-f])|patch|commit|'
@@ -3066,7 +3067,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：memory-os 术语 ≥3 个时 domain_kw 不再豁免。
     _MOS_DENSITY_TERMS = re.compile(
         r'(?:suppress|注入位|去重|垄断|top.k|注入.*阈值|chunk.*(?:保留|丢弃|上限)|'
-        r'per.chunk|session.suppress|anti.monopoly|空召回|cooldown)',
+        r'per.chunk|session.suppress|anti.monopoly|空召回|cooldown|'
+        r'IOR|豁免|不降分|注入垄断)',
         re.IGNORECASE)
     _mos_density = len(_MOS_DENSITY_TERMS.findall(summary))
     if _iter_match and (_mos_density >= 3 or not _DOMAIN_KW.search(summary)):
