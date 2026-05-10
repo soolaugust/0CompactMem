@@ -4307,12 +4307,23 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 return
             relevance_scores = normalize(raw_scores)
             final = []
+            _iter1446_rel_map = {}  # iter1446: relevance map for fallback gate
             for i, chunk in enumerate(chunks):
                 relevance = relevance_scores[i]
                 if (project != "global" and chunk.get("project", "") == "global"
                         and _bm25_global_discount < 1.0):
                     relevance = relevance * _bm25_global_discount
                 score = _score_chunk_dict(chunk, relevance)  # iter235: dict path
+                # iter1446: daemon_global_irrelevance_gate — sync retriever.py iter1284/1360+iter1128
+                _cp_d = chunk.get("project", "") or ""
+                if project != "global":
+                    if _cp_d == "global" and relevance < 0.20:
+                        score = 0.0
+                    elif _cp_d == "global" and relevance < 0.40:
+                        score *= 0.50
+                    elif _cp_d and _cp_d != "global" and _cp_d != project and relevance < 0.30:
+                        score *= 0.30
+                _iter1446_rel_map[chunk.get("id", "")] = relevance
                 final.append((score, _gc_dict_to_ci(chunk)))  # iter235: uniform _CI_* tuple
 
         # Hard deadline post-scoring
@@ -5554,8 +5565,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         # iter1252: cooldown_5d_to_3d
                         _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_72h)
                     return _fts <= _fcut
+                # iter1446: daemon_fallback_relevance_gate — sync retriever.py iter1363
+                def _fb_rel_ok_d(c):
+                    if c.get("project", "") != "global" or project == "global":
+                        return True
+                    return _iter1446_rel_map.get(c[_CI_ID], 1.0) >= 0.20
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_cooldown_ok_d(c)
+                           and _fb_rel_ok_d(c)
                            and _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d_fn(c)
                            and _fb_24h_d.get(c[_CI_ID], 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
                 # iter1032: fallback_relax_24h — sync retriever.py
@@ -5564,6 +5581,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if not _fb_cap:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                                if _fb_cooldown_ok_d(c)
+                               and _fb_rel_ok_d(c)
                                and _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d_fn(c)]
                 # iter1038: fallback_ceiling_escalate — small_db 全灭时放宽 ceiling +2 兜底
                 # 根因（数据驱动，2026-05-07）：24-chunk 库 11/24 chunk 7d>=4，
@@ -5574,6 +5592,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if not _fb_cap and _db_chunk_count < 100:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                                if _fb_cooldown_ok_d(c)
+                               and _fb_rel_ok_d(c)
                                and _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d + 2
                                and (c[_CI_AC] or 0) < 7]
                 # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选，跳过 7d/24h cap
