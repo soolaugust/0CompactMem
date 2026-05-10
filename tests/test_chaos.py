@@ -309,7 +309,8 @@ class TestCRIUVersionCheck:
         ensure_schema(conn)
         # 插入一个 chunk
         chunk = MemoryChunk(project="test-proj", chunk_type="decision",
-                            content="test content hash", summary="test summary")
+                            content="test content hash for checkpoint validation",
+                            summary="checkpoint dump should include content hash field")
         cid = chunk.id
         insert_chunk(conn, chunk.to_dict())
         conn.commit()
@@ -329,7 +330,7 @@ class TestCRIUVersionCheck:
 
         assert snap is not None, "快照中应包含插入的 chunk"
         assert "content_hash" in snap, "快照应包含 content_hash 字段"
-        expected_hash = hashlib.md5("test content hash".encode()).hexdigest()[:8]
+        expected_hash = hashlib.md5("test content hash for checkpoint validation".encode()).hexdigest()[:8]
         assert snap["content_hash"] == expected_hash, "content_hash 应与实际内容匹配"
         conn.close()
 
@@ -348,7 +349,8 @@ class TestCRIUVersionCheck:
 
         ensure_schema(conn)
         chunk = MemoryChunk(project="test-proj", chunk_type="decision",
-                            content="original content", summary="summary")
+                            content="original content for stale snapshot detection test",
+                            summary="restore should detect stale snapshot after content update")
         cid = chunk.id
         insert_chunk(conn, chunk.to_dict())
         conn.commit()
@@ -359,7 +361,7 @@ class TestCRIUVersionCheck:
 
         # 更新 chunk content（模拟 chunk 被修改）
         conn.execute("UPDATE memory_chunks SET content=? WHERE id=?",
-                     ("updated content after dump", cid))
+                     ("updated content after dump for stale detection", cid))
         conn.commit()
 
         # Restore 应检测到版本漂移

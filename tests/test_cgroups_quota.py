@@ -31,8 +31,8 @@ def _make_chunk(project: str, chunk_type: str = "decision",
         project=project,
         source_session="test",
         chunk_type=chunk_type,
-        content=f"test content {uuid.uuid4().hex[:8]}",
-        summary=summary or f"test summary {uuid.uuid4().hex[:8]}",
+        content=f"test content for cgroups quota validation {uuid.uuid4().hex[:8]}",
+        summary=summary or f"test chunk summary for quota validation {uuid.uuid4().hex[:8]}",
         importance=importance,
         last_accessed=now.isoformat(),
         created_at=now.isoformat(),
@@ -69,10 +69,10 @@ def test_1_get_project_chunk_count():
 def test_2_evict_lowest_retention():
     """测试按 importance+recency 淘汰最低价值 chunk"""
     conn = setup()
-    old_low = _make_chunk(PROJECT_A, importance=0.3, age_days=30, summary="old_low")
-    old_mid = _make_chunk(PROJECT_A, importance=0.5, age_days=20, summary="old_mid")
-    new_high = _make_chunk(PROJECT_A, importance=0.9, age_days=0, summary="new_high")
-    recent_low = _make_chunk(PROJECT_A, importance=0.3, age_days=1, summary="recent_low")
+    old_low = _make_chunk(PROJECT_A, importance=0.3, age_days=30, summary="old low importance chunk for eviction test")
+    old_mid = _make_chunk(PROJECT_A, importance=0.5, age_days=20, summary="old mid importance chunk for eviction test")
+    new_high = _make_chunk(PROJECT_A, importance=0.9, age_days=0, summary="new high importance chunk for eviction test")
+    recent_low = _make_chunk(PROJECT_A, importance=0.3, age_days=1, summary="recent low importance chunk for eviction test")
 
     for c in [old_low, old_mid, new_high, recent_low]:
         insert_chunk(conn, c)
@@ -92,7 +92,7 @@ def test_2_evict_lowest_retention():
         (PROJECT_A,)
     ).fetchall()
     remaining_summaries = [r[0] for r in remaining]
-    assert "new_high" in remaining_summaries, f"new_high 应保留，剩余: {remaining_summaries}"
+    assert any("new high" in s for s in remaining_summaries), f"new_high 应保留，剩余: {remaining_summaries}"
     conn.close()
     print(f"  ✓ 淘汰最低价值：evicted={len(evicted)}, remaining={remaining_summaries}")
 
