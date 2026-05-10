@@ -6529,7 +6529,11 @@ def main():
                 elif _is_global:
                     # iter1194: global_unified_thresh — sync closure_fallback
                     # iter1462: small_db_global_7d_relax
-                    return 4 if _sf663_small_db else 2
+                    # iter1470: global_monopoly_cap — small_db 4→3, ac>=4 global→2
+                    _g_ac = c.get("access_count", 0) or 0
+                    if _g_ac >= 4:
+                        return 2
+                    return 3 if _sf663_small_db else 2
                 # iter1009: local_saturated_suppress — sync closure_fallback
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync closure_fallback
@@ -7208,7 +7212,11 @@ def main():
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync LITE path
                         # iter1462: small_db_global_7d_relax
-                        return 4 if _sf758_small_db else 2
+                        # iter1470: global_monopoly_cap — sync FULL path
+                        _g_ac = c.get("access_count", 0) or 0
+                        if _g_ac >= 4:
+                            return 2
+                        return 3 if _sf758_small_db else 2
                     # iter1021: lite_local_saturated_suppress — sync FULL/hd iter1009
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync LITE path
