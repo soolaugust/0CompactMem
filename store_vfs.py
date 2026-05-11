@@ -2064,6 +2064,12 @@ def _vfs_write_protect(summary: str) -> bool:
     #   迭代器记录自身 bug 调试结论，含 session_id=/trace/误判 等内部术语，对用户零价值。
     if _re_vfs.search(r"session_id\s*=\s*['\"]", s) and len(s) < 100:
         return True
+    # iter1536: metric_snapshot_gate — 纯度量快照碎片（ACTIVE N→M/存活率/逃逸路径/空召回）
+    # 根因（数据驱动，2026-05-11）：4 条 ac=0 噪声经 direct 路径绕过 iter1231 gate
+    #   （daemon 缓存旧代码）。补充 VFS 末端兜底：短碎片含迭代器度量且无外部领域锚点。
+    if len(s) < 80 and _re_vfs.search(r'ACTIVE\s+\d+|存活率|逃逸路径|堵住|ac<\d', s) and not _re_vfs.search(
+            r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|PE\b|scx)', s):
+        return True
     return False
 
 
