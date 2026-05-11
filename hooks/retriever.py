@@ -4028,7 +4028,8 @@ def main():
                 return _hd_pair_7d_ceiling
             if len(positive) == 1 and len(final) >= 3:
                 # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
-                _pair_floor_hd = 0.08 if _db_chunk_count < 50 else 0.12
+                # iter1541: sync tiny_db pair_floor
+                _pair_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > _pair_floor_hd and s < _min_thresh
                                   and c.get("id") != positive[0][1].get("id")
@@ -4640,7 +4641,8 @@ def main():
                 #   adaptive_floor+gap_bridge 可将 _min_thresh 降到 0.10，fallback/pair 注入无下限。
                 # 修复：复用 FULL 路径逻辑——低于 floor 的过滤，全灭时保留最佳 1 条。
                 # iter1512: sync iter1507 small_db_score_floor_relax — <50 库 0.12→0.08
-                _sf_hd = 0.08 if _db_chunk_count < 50 else 0.12
+                # iter1541: sync tiny_db_score_floor_relax — <20 库 0.08→0.05
+                _sf_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                 if _db_chunk_count > 5:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
@@ -5423,7 +5425,8 @@ def main():
             return _cap
         if len(positive) == 1 and len(final) >= 3:
             # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
-            _pair_floor = 0.08 if _db_chunk_count < 50 else 0.12
+            # iter1541: sync tiny_db pair_floor
+            _pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
             _pair_candidates = [(s, c) for s, c in final
                                 if s > _pair_floor and s < _min_thresh
                                 and c.get("id") != positive[0][1].get("id")
@@ -6750,7 +6753,8 @@ def main():
         # iter1234: full_pair_score_floor — FULL pair 候选加 score 门槛对齐 LITE iter1197
         # 根因（数据驱动，2026-05-09）：FULL pair 只要求 s>0，65% pair 注入 score<0.15，
         #   低相关 chunk 被配对注入占用用户 context 无信息增量。LITE 已有 adaptive floor。
-        _full_pair_floor = 0.08 if _db_chunk_count <= 5 else (0.12 if _db_chunk_count < 50 else 0.15)
+        # iter1541: sync tiny_db pair_floor
+        _full_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.15)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1].get("id", "")
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
@@ -7623,7 +7627,8 @@ def main():
             #   LITE 路径只要求 s>0 → 跨项目低相关 chunk 逃逸。
             # 修复：pair 候选增加 s>=0.15 硬底（对齐 iter1130 adaptive_floor 最低值）。
             # iter1200: adaptive_relevance_floor (LITE pair sync)
-            _lt_pair_floor = 0.08 if _db_chunk_count <= 5 else (0.12 if _db_chunk_count < 50 else 0.20)
+            # iter1541: sync tiny_db pair_floor
+            _lt_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.20)
             _ps_lite_cands = [(s, c) for s, c in _pre_suppress_top_k_lite
                               if c.get("id", "") != _ps_lite_top1_id and s >= _lt_pair_floor
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
@@ -7728,7 +7733,11 @@ def main():
         # 数据驱动（2026-05-11）：35-chunk 库 BM25 分数天然偏低（vocabulary 有限→IDF 偏差），
         #   import-901d6(PE/sched_ext, imp=0.84) score=0.0912 被 floor=0.12 拦截→空召回。
         #   对用户核心知识产生 false negative。>=50 库保持 0.12（足够 vocab 覆盖）。
-        _score_floor = 0.08 if _db_chunk_count < 50 else 0.12
+        # iter1541: tiny_db_score_floor_relax — <20 库 floor 0.08→0.05
+        # 数据驱动（2026-05-11）：53/76 空召回有候选但 score<floor 未注入。
+        #   多数项目 _db_chunk_count=7~24（1-18 local + 6 global），BM25 vocab 极有限
+        #   导致 max_score 天然 0.05~0.09。0.08 floor 拦截 >60% 有效候选。
+        _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。

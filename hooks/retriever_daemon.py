@@ -5488,7 +5488,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             except NameError:
                 return True
         # iter1234: full_pair_score_floor — daemon pair 候选加 score 门槛对齐 LITE iter1197
-        _full_pair_floor_d = 0.08 if _db_chunk_count <= 5 else (0.12 if _db_chunk_count < 50 else 0.15)
+        # iter1541: sync tiny_db pair_floor
+        _full_pair_floor_d = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.15)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1][_CI_ID]
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
@@ -5932,7 +5933,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-06）：73% 注入 score<0.15，useful feedback 最低=0.15。
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
         # iter1517: daemon_small_db_floor_sync — 同步 retriever.py iter1507
-        _score_floor = 0.08 if _db_chunk_count < 50 else 0.12
+        # iter1541: tiny_db_score_floor_relax — sync retriever.py
+        _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
