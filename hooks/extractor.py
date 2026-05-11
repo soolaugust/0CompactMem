@@ -2212,7 +2212,8 @@ def _is_quality_decision(summary: str) -> bool:
         r'|注入.*[降升→].*(?:次|条|%)|注入体积|inject.*[降升]'
         r'|posttool_guard|output_compressor|thrashing_detector'
         r'|X5.*gate|预期效果.*chunk|fallback.*(?:兜底|逃逸)|注入位.*(?:释放|给)'
-        r'|disputed.*chunk|hard_suppress)'
+        r'|disputed.*chunk|hard_suppress'
+        r'|score_floor|BM25|max_score|ACTIVE\s*\d|chunk\s*库|空召回|逃逸路径|存活率)'
     )
     if _SELF_IMPL_KW.search(s) and not re.search(r'[\u4e00-\u9fff]{8,}', s.split('：')[0] if '：' in s else ''):
         # 含系统关键词，且冒号前无 >=8 个连续中文（有中文业务上下文则放行）
