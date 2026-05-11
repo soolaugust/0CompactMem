@@ -2934,13 +2934,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
-    # iter1518: thin_content_write_gate — 写入时拦截过短内容
-    # 数据驱动（2026-05-11）：3 条 ACTIVE chunk content<60字 ac=0，
-    #   retriever thin_content_hard_suppress 永远不会注入它们，
-    #   但仍占 FTS5 索引位。对齐 retriever 阈值，源头拦截。
-    #   豁免有 content_override 或 raw_snippet 的——它们有 rich content。
+    # iter1518→1519: thin_content_write_gate — 写入时拦截过短内容
+    # iter1519 数据驱动（2026-05-11）：60→100。今日 14 条 content==summary 60-100字
+    #   全部被 GC 到 DEAD；ACTIVE 池 0 条 content==summary。
+    #   提升阈值减少无效写入+GC 负担，零误杀风险。
     _has_rich = (content_override and content_override.strip() != summary.strip()) or bool(raw_snippet)
-    if not _has_rich and len(summary) < 60:
+    if not _has_rich and len(summary) < 100:
         return
     # iter1495: interrogative_causal_gate — 问句形式的因果链/推理链拒绝写入
     # 数据驱动（2026-05-11）：16 条 ac=0 causal_chain 中 5 条是对话追问/讨论：
