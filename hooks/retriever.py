@@ -6990,6 +6990,13 @@ def main():
                         _fb2 = _fb_sorted[1] if _fb is _fb_sorted[0] else _fb_sorted[0]
                         if _fb2[0] >= _fb[0] * 0.4:
                             _fb_pair.append(_fb2)
+                    # iter1553: fallback_protected_propagation — suppress_fallback 继承 _fallback_protected
+                    # 根因（数据驱动，2026-05-12）：58% 空召回率。dead_zone_fallback 设 _fallback_protected，
+                    #   但 suppress_final_gate 清除该 chunk 后，iter670 从 _pre_suppress_top_k 重建 top_k
+                    #   未继承标记 → floor_gate 以 score<0.12 全灭 → 空召回。
+                    # 修复：suppress_fallback 重建的 top_k 继承 _fallback_protected。
+                    for _, _fbpc in _fb_pair:
+                        _fbpc["_fallback_protected"] = True
                     top_k = _fb_pair
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
