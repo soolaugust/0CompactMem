@@ -7574,12 +7574,30 @@ def main():
                 _dbuf_lite_exclude = [cid for cid, cnt in _dbuf_lite_7d.items() if cnt >= _dbuf_lite_ceiling]
                 _dbuf_lite_ph = ','.join(['?'] * len(_dbuf_lite_exclude)) if _dbuf_lite_exclude else ''
                 _dbuf_lite_where = f" AND id NOT IN ({_dbuf_lite_ph})" if _dbuf_lite_exclude else ''
-                _dbuf_lite_rows = conn.execute(
-                    "SELECT id, summary, content, chunk_type, importance "
-                    f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_dbuf_lite_where} "
-                    "ORDER BY importance DESC, access_count ASC LIMIT 5",
-                    (project, *_dbuf_lite_exclude)
-                ).fetchall()
+                # iter1548: sparse_local_first_ult — sparse 项目优先选本地 chunk
+                # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 local + 6 global)
+                #   db_ultimate_fallback 按 imp DESC 选中 global DC(imp=0.95)，
+                #   被 saturated_floor(global+DC+ac>=4) 评为 0.0。虽 _fallback_protected
+                #   保护不被 floor_gate 清空，但注入的是无关 global 约束而非本地核心知识
+                #   (58c70136, imp=0.85, ac=8, 从未被 FTS5 命中)。
+                # 修复：_local_sparse 时先查本地 chunk；无本地再 fallback 原逻辑。
+                _dbuf_lite_rows = None
+                if _local_sparse:
+                    _dbuf_lite_local = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance "
+                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_dbuf_lite_where} "
+                        "ORDER BY importance DESC LIMIT 1",
+                        (project, *_dbuf_lite_exclude)
+                    ).fetchall()
+                    if _dbuf_lite_local:
+                        _dbuf_lite_rows = _dbuf_lite_local
+                if not _dbuf_lite_rows:
+                    _dbuf_lite_rows = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance "
+                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_dbuf_lite_where} "
+                        "ORDER BY importance DESC, access_count ASC LIMIT 5",
+                        (project, *_dbuf_lite_exclude)
+                    ).fetchall()
                 if not _dbuf_lite_rows:
                     _dbuf_lite_rows = conn.execute(
                         "SELECT id, summary, content, chunk_type, importance "

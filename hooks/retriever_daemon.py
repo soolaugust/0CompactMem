@@ -5709,13 +5709,26 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 try:
                     # iter938: ultimate_fallback_rotation — 分钟级轮转（同步 retriever.py）
                     # iter969: fallback_include_global — 包含 global chunks 避免小库空召回
-                    _dbuf_rows = conn.execute(
-                        "SELECT id, summary, content, chunk_type, importance, "
-                        "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
-                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_ult_where} "
-                        "ORDER BY importance DESC, access_count ASC LIMIT 5",
-                        (project, *_ult_exclude)
-                    ).fetchall()
+                    # iter1548: sparse_local_first_ult — sparse 项目优先选本地 chunk（同步 retriever.py）
+                    _dbuf_rows = None
+                    if _local_sparse_d:
+                        _dbuf_local = conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance, "
+                            "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
+                            f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_ult_where} "
+                            "ORDER BY importance DESC LIMIT 1",
+                            (project, *_ult_exclude)
+                        ).fetchall()
+                        if _dbuf_local:
+                            _dbuf_rows = _dbuf_local
+                    if not _dbuf_rows:
+                        _dbuf_rows = conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance, "
+                            "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
+                            f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_ult_where} "
+                            "ORDER BY importance DESC, access_count ASC LIMIT 5",
+                            (project, *_ult_exclude)
+                        ).fetchall()
                     if _dbuf_rows:
                         import time as _dbuf_time
                         _dbuf_idx = int(_dbuf_time.time() // 60) % len(_dbuf_rows)
