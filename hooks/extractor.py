@@ -2922,6 +2922,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
+    # iter1495: interrogative_causal_gate — 问句形式的因果链/推理链拒绝写入
+    # 数据驱动（2026-05-11）：16 条 ac=0 causal_chain 中 5 条是对话追问/讨论：
+    #   "这个 timing race 是否真实存在"、"好问题。上一个PR..."、"所以问题是：..."
+    #   问句是对话过程而非可重用因果推理，写入只增噪。
+    if chunk_type in ("causal_chain", "reasoning_chain") and not content_override:
+        if re.search(r'[？?]\s*$', summary.rstrip()) or re.match(r'^(?:好问题|所以问题是)', summary.lstrip()):
+            return
     # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
     # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
     #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
