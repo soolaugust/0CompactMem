@@ -2934,7 +2934,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'|ac=\d+\s*rate|production\s*assertions?\s*\d+/\d+|ac=0\s*(?:chunk|比例)'
         r'|^\s*\|.*\|\s*\d+[\d.]*%.*\|'
         r'|_fallback_protected_ids|floor_gate|daemon\s*floor|score[<>=]\d|suppress_fallback'
-        r'|PA\s*\d+/\d+[，,]|修复\s*\d+\s*处.*\+\d+\s*行|空召回.*修复',
+        r'|PA\s*\d+/\d+[，,（(]|修复\s*\d+\s*处.*\+\d+\s*行|空召回.*修复'
+        r'|MMR\s*无法|sim_threshold|diversity.penalty|Jaccard.{0,6}相似|注入位\s*\d+%|_cross_proj_floor'
+        r'|量化[：:]\s*(?:PA|预期|ACTIVE|zero)',
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
