@@ -3205,8 +3205,14 @@ def main():
                     #   max(3,thresh-1)=4 允许注入 3 次，top10 占 7d 注入 38%。
                     #   ac>=4 已内化 4+ 次，第 3 次注入零边际信息。
                     # 修复：ac>=4 统一 max(2, thresh-2)，与 ac>=5/design_constraint 对齐。
+                    # iter1549: ac4_tiny_db_7d_cap2 — tiny_db ac>=4 阈值 3→2
+                    # 根因（数据驱动，2026-05-12）：43-chunk 库 12 个 ac>=4 chunk 各 7d=3，
+                    #   tiny_db thresh=max(2,5-2)=3 使 7d=2 不触发 suppress，TOCTOU 逃逸到 3 次。
+                    #   ac>=4 已内化 4+ 次，7d 第 2 次注入边际信息≈0。28% 注入位为多余重复。
+                    # 修复：tiny_db ac>=4 直接 thresh=2，非 tiny 保持原逻辑。
+                    #   配合 cooldown(3d)，7d 最多 2 次（首次+TOCTOU 1）。sparse shield 保护不变。
                     elif _l_ac >= 4:
-                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - 2)
+                        _suppress_7d_thresh = 2 if _tiny_db else max(2, _suppress_7d_thresh - 2)
                     # iter1256: ac3_7d_direct_cap3 — ac>=3 直接 cap thresh=3
                     # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) small_db
                     #   高分 base=6, iter1242 max(3,6-1)=5 仍过宽→7d=6 逃逸。

@@ -3899,7 +3899,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _7d_base = max(2, _7d_base - 2)  # iter1152: local_mid_saturated_tighten
                         elif _l_ac_d >= 4:
                             # iter1225: constraint_7d_sync — design_constraint ac>=4 用 -2 对齐 retriever.py iter1171
-                            _7d_base = max(2, _7d_base - 2) if chunk[_CI_CT] == "design_constraint" else max(3, _7d_base - 1)
+                            # iter1549: ac4_tiny_db_7d_cap2 — tiny_db ac>=4 统一 thresh=2 对齐 retriever.py
+                            _7d_base = 2 if _s672_tiny else (max(2, _7d_base - 2) if chunk[_CI_CT] == "design_constraint" else max(3, _7d_base - 1))
                         # iter1402: ac3_7d_tinydb_relax — tiny_db cap 2→3
                         elif _l_ac_d >= 3:
                             _7d_base = min(_7d_base, 3 if _s672_tiny else 2)
@@ -4093,7 +4094,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         elif _l_ac_d2 >= 5:
                             _7d_base_d2 = max(2, _7d_base_d2 - 2)  # iter1152: local_mid_saturated_tighten
                         elif _l_ac_d2 >= 4:
-                            _7d_base_d2 = max(3, _7d_base_d2 - 1)
+                            # iter1549: ac4_tiny_db_7d_cap2 — sync dict path
+                            _7d_base_d2 = 2 if _s672_tiny else max(3, _7d_base_d2 - 1)
                         # iter1402: ac3_7d_tinydb_relax — tiny_db cap (dict path)
                         elif _l_ac_d2 >= 3:
                             _7d_base_d2 = min(_7d_base_d2, 3 if _s672_tiny else 2)
@@ -5310,8 +5312,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     elif _lac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143+1460: sync retriever.py iter1276 — ac>=4 max(3,_t-1)→max(2,_t-2)
+                    # iter1549: ac4_tiny_db_7d_cap2 — sync ceiling path
                     elif _lac >= 4:
-                        return max(2, _t - 2)
+                        return 2 if _s672_tiny else max(2, _t - 2)
                     # iter1402+1460: sync retriever.py iter1457 — ac>=3 cap
                     elif _lac >= 3:
                         return min(_t, 3 if _db_chunk_count < 50 else 2)
@@ -5598,6 +5601,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return 2
                     elif _lac >= 5:
                         return max(2, _fb_ceiling_d - 2)  # iter1152: local_mid_saturated_tighten
+                    # iter1549: ac4_tiny_db_7d_cap2 — sync fallback ceiling path
+                    elif _lac >= 4:
+                        return 2 if _s672_tiny else max(2, _fb_ceiling_d - 2)
                     return _fb_ceiling_d
                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
                 # iter1093: daemon_fallback_cooldown — fallback 也必须检查 cooldown
