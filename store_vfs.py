@@ -2065,9 +2065,10 @@ def _vfs_write_protect(summary: str) -> bool:
     if _re_vfs.search(r"session_id\s*=\s*['\"]", s) and len(s) < 100:
         return True
     # iter1536: metric_snapshot_gate — 纯度量快照碎片（ACTIVE N→M/存活率/逃逸路径/空召回）
-    # 根因（数据驱动，2026-05-11）：4 条 ac=0 噪声经 direct 路径绕过 iter1231 gate
-    #   （daemon 缓存旧代码）。补充 VFS 末端兜底：短碎片含迭代器度量且无外部领域锚点。
-    if len(s) < 80 and _re_vfs.search(r'ACTIVE\s+\d+|存活率|逃逸路径|堵住|ac<\d', s) and not _re_vfs.search(
+    # iter1537: 放宽 80→120 + 覆盖 "GC N 条" 模式
+    #   根因（数据驱动，2026-05-11）：8cf2e920 "GC 4 条 ac=0 迭代器噪声 chunk（ACTIVE 36→32...）"
+    #   85 字逃逸 <80 限制。同时 "GC.*chunk" 是典型迭代器操作记录，无用户价值。
+    if len(s) < 120 and _re_vfs.search(r'ACTIVE\s+\d+|存活率|逃逸路径|堵住|ac<\d|GC\s*\d+\s*条', s) and not _re_vfs.search(
             r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|PE\b|scx)', s):
         return True
     return False
