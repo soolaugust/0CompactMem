@@ -2031,7 +2031,12 @@ def _vfs_write_protect(summary: str) -> bool:
         'selfref', '_gate', 'cooldown', 'traces', '_noise', 'gate 覆盖',
         # iter1299: iterator_impl_terms — 迭代器实现描述术语
         '信息增量', 'FTS5 索引',
+        # iter1492: retriever_debug_terms — retriever 调试/运行状态术语逃逸
+        'hook_input', '零记忆注入', '零注入', 'prompt 提取', 'query 始终空',
     ) if _t in s)
+    # iter1492: scan_status_report — intraday-scan 等 skill 运行状态报告无知识价值
+    if _re_vfs.search(r'(?:残留进程|intraday.scan|命中\s*\d+\s*只|无信号发送)', s):
+        _mos_hits += 3
     if _mos_hits >= 3:
         return True
     # iter1238: ac_ops_strong_signal — access_count/zero_access 是强迭代器信号，2 个即拒绝
