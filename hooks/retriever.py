@@ -4063,6 +4063,7 @@ def main():
                                             and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
+                        _sef_hd_best[1]["_fallback_protected"] = True
                         positive = [(_sef_hd_best[0] * 0.1, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter775_dead_zone_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -4075,6 +4076,7 @@ def main():
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
                     elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
+                        _sef_hd_best[1]["_fallback_protected"] = True
                         positive = [(_sef_hd_best[0] * 0.01, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter776_suppress_zero_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -5527,6 +5529,7 @@ def main():
                                         and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
+                    _sef_best[1]["_fallback_protected"] = True
                     positive = [(_sef_best[0] * 0.1, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
@@ -5535,6 +5538,7 @@ def main():
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
+                    _sef_best[1]["_fallback_protected"] = True
                     positive = [(_sef_best[0] * 0.01, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter776_suppress_zero_fallback_full: imp={_sef_best[0]:.2f} "

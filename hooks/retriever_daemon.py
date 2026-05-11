@@ -4846,6 +4846,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter770: fallback_noise_gate — 硬性下限防止低分垃圾注入
         # iter771: tiny_db_fallback_relax — 小库降至 0.15
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
+        _fallback_protected_ids = set()
         _FALLBACK_NOISE_FLOOR_FULL = 0.15 if _db_chunk_count < 50 else 0.25
         if not top_k and final:
             _sef_full = max(final, key=_SORT_KEY)
@@ -4864,6 +4865,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                if (c[_CI_AC] or 0) < 30]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
+                    _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     top_k = [(_sef_best[0] * 0.1, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
@@ -4872,6 +4874,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
+                    _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     top_k = [(_sef_best[0] * 0.01, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter776_suppress_zero_fallback: imp={_sef_best[0]:.2f} "
@@ -5934,17 +5937,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
             else:
                 # iter1043: floor_gate_skip — 全部低于阈值时不注入
-                # 根因（数据驱动，2026-05-07）：24h 内 88% 注入 score<0.2，7/11 traces 全灭。
-                #   全灭时 fallback 保留最高分 1 条（score=0.06~0.11）与用户上下文无关，
-                #   注入 kernel/PE 知识到 memory-os Python 开发 session 纯属噪声。
-                # 修复：全灭直接 skip，不强制注入无关知识。用户不看到噪声 > 少看到 1 条。
-                _sf_best = max(top_k, key=lambda x: x[0])
-                _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                              f"iter1043_floor_gate_skip: all {len(top_k)} below "
-                              f"floor={_score_floor}, best={_sf_best[0]:.3f} "
-                              f"id={_sf_best[1][_CI_ID][:12]}, skipping injection",
-                              session_id=session_id, project=project)
-                top_k = []
+                # iter1506: fallback_protected bypass — fallback 恢复的 chunk 不被 floor_gate 二次清空
+                _sf_protected = [(s, c) for s, c in top_k
+                                 if (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) in _fallback_protected_ids]
+                if _sf_protected:
+                    top_k = _sf_protected
+                else:
+                    _sf_best = max(top_k, key=lambda x: x[0])
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter1043_floor_gate_skip: all {len(top_k)} below "
+                                  f"floor={_score_floor}, best={_sf_best[0]:.3f} "
+                                  f"id={_sf_best[1][_CI_ID][:12]}, skipping injection",
+                                  session_id=session_id, project=project)
+                    top_k = []
 
         # ── iter975: output_monopoly_filter — 最终输出前去垄断（single control point）──
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。
