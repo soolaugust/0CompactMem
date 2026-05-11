@@ -4919,7 +4919,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
-                    top_k = [(_sef_best[0] * 0.1, _sef_best[1])]
+                    # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
+                    top_k = [(max(_sef_best[0] * 0.1, _score_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
                                   f"max_s={_sef_full_max:.4f} id={_sef_best[1][_CI_ID][:12]}",
@@ -4928,7 +4929,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
-                    top_k = [(_sef_best[0] * 0.01, _sef_best[1])]
+                    # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
+                    top_k = [(max(_sef_best[0] * 0.01, _score_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter776_suppress_zero_fallback: imp={_sef_best[0]:.2f} "
                                   f"id={_sef_best[1][_CI_ID][:12]}",
