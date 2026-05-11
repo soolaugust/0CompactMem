@@ -7583,6 +7583,12 @@ def main():
                             _fb2_lt = _fb_lite_sorted[1] if _fb_lite is _fb_lite_sorted[0] else _fb_lite_sorted[0]
                             if _fb2_lt[0] >= _fb_lite[0] * 0.4:
                                 _fb_lite_pair.append(_fb2_lt)
+                        # iter1557: lite_fallback_protected_propagation — LITE 路径 suppress_fallback 继承 _fallback_protected
+                        # 根因（数据驱动，2026-05-11）：git:78dc99a5695f(1 local) LITE suppress_fallback
+                        #   重建 top_k 无 _fallback_protected → floor_gate 以 score<0.12 全灭 → 100% 空召回。
+                        #   FULL(iter1553) 和 HD(iter1554) 已修复，LITE 路径遗漏。
+                        for _, _fbpc_lt in _fb_lite_pair:
+                            _fbpc_lt["_fallback_protected"] = True
                         top_k = _fb_lite_pair
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter793_suppress_fallback_lite: all {_pre758} "
