@@ -177,6 +177,14 @@ class SQLiteBackend(VFSBackend):
         if item.type in _EPHEMERAL_TYPES:
             return False
 
+        # iter1490: vfs_backend_write_protect — 同步 store_vfs 写保护到 backend 路径
+        try:
+            from store_vfs import _vfs_write_protect
+            if _vfs_write_protect(item.summary or ""):
+                return False
+        except ImportError:
+            pass
+
         try:
             conn = self._get_conn()
             metadata = item.metadata
