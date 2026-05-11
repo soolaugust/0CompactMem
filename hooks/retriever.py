@@ -1751,7 +1751,7 @@ def main():
         #   FTS5 可返回 32 candidates → candidates_count>=30 → tiny_db=False
         #   → suppress 阈值收紧 + fallback noise_floor 提高(0.15→0.25)
         #   → 51% 空召回。chunk 总数才是"库大小"的真实度量。
-        _db_chunk_count = 50  # fallback: 保守估计（走 small_db 路径）
+        _db_chunk_count = 10  # fallback: 走 tiny_db 路径（宁可少过滤不空召回）
         try:
             import sqlite3 as _rc_sql
             _rc_conn = _rc_sql.connect(str(STORE_DB))

@@ -3137,7 +3137,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _cutoff_14d = ""         # iter1091: cooldown_daemon_sync
         _effective_bw_window = 30
         _local_bw_window = 30  # iter610: fallback
-        _db_chunk_count = 50  # iter797: fallback for tiny/small判定
+        _db_chunk_count = 10  # iter797: fallback 走 tiny_db 路径（宁可少过滤不空召回）
         try:
             # iter602: 用标准连接（非 immutable）读取 recall_traces
             import sqlite3 as _rc_sql
