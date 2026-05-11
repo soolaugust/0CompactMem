@@ -546,6 +546,15 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # content==summary 时零信息增量，design_constraint 除外。
                 if t.strip() == _summ950.strip() and chunk_type != "design_constraint":
                     continue
+                # iter1523: pool_ephemeral_type_gate — 对齐 extractor.py ephemeral_type_gate
+                # 根因（数据驱动，2026-05-11）：15 条 ac=0 噪声中 3 条 conversation_summary
+                #   + 1 条 tool_insight 经 pool 路径逃逸（extractor.py 已拒绝但 pool 未同步）。
+                if chunk_type in ("conversation_summary", "tool_insight", "prompt_context"):
+                    continue
+                # iter1523: pool_thin_content_gate — 对齐 extractor.py thin_content_write_gate
+                # 根因：content==summary 且 len<100 的 chunk 无信息增量，12/15 ac=0 噪声属此类。
+                if t.strip() == _summ950.strip() and len(_summ950) < 100:
+                    continue
                 if already_exists(conn, _summ950, chunk_type=chunk_type):
                     continue
                 if merge_similar(conn, _summ950, chunk_type, imp, project=project):
