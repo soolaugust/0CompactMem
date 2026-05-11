@@ -183,7 +183,7 @@ def _seal_check_reject(text: str) -> bool:
     # 根因：迭代 agent 写入自身度量变化（"X → Y", "PA 10/10", "chunks N→M"），
     #   这些是 point-in-time 运行日志，不是可复用领域知识。零访问率 100%。
     # 特征：含 "→" + 量化指标词 + 无用户领域锚点
-    if '→' in text and _re.search(r'(?:PA\s*\d+/\d+|chunks?\s*\d+|zero_access|test.*pass)', _tl):
+    if '→' in text and _re.search(r'(?:PA\s*\d+/\d+|chunks?\s*\d+|zero_access|test.*pass|ACTIVE\s*\d+|ac=0\s*率)', _tl):
         return True
     # "量化改善" / "量化:" 开头 — 迭代器自评总结
     if _re.match(r'^量化[：:改]', text):
