@@ -3187,6 +3187,13 @@ def main():
                         #   导致 cooldown 过期后首次注入即消耗唯一 quota → 再等 7d 窗口过期。
                         # 修复：small_db(<100) thresh 2→3；大库保持 2。
                         _suppress_7d_thresh = 3 if _db_chunk_count < 100 else 2
+                        # iter1538: dc_saturated_7d_tighten — design_constraint ac>=5 额外 -1
+                        # 根因（数据驱动，2026-05-11）：memory验证路径(ac=6,dc) 7d=2<5 通过，
+                        #   Android诊断核心(ac=5,dc) 7d=3<5 通过。dc 语义泛化匹配广，
+                        #   ac>=5 用户已内化，第 4 次注入零边际价值，挤占领域特定知识注入位。
+                        # 修复：dc ac>=5 阈值额外 -1，tiny_db 5→4, small_db 3→2。
+                        if c.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
                     # iter1143: local_mid_saturated_suppress — ac>=4 本项目 chunk 7d 阈值 -1
                     # iter1276: ac4_7d_tighten — ac>=4 统一用 max(2, thresh-2)
                     # 根因（数据驱动，2026-05-09）：21-chunk 库中 9 个 ac=4-5 chunk 各 7d=3-4，
@@ -4244,6 +4251,9 @@ def main():
                     elif _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
+                        # iter1538: dc_saturated_7d_tighten — design_constraint ac>=5 额外 -1
+                        if c.get("chunk_type") == "design_constraint":
+                            return max(2, _t - 3)
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1276: ac4_7d_tighten — ac>=4 统一 max(2, _t-2) sync FULL path
                     elif _l_ac >= 4:
@@ -6509,6 +6519,9 @@ def main():
                     elif _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
+                        # iter1538: dc_saturated_7d_tighten — design_constraint ac>=5 额外 -1
+                        if c.get("chunk_type") == "design_constraint":
+                            return max(2, _t - 3)
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
                     # iter1171: constraint_local_saturated — design_constraint ac>=4 用 -2
@@ -6659,6 +6672,9 @@ def main():
                 elif _l_ac >= 7:
                     return 2
                 elif _l_ac >= 5:
+                    # iter1538: dc_saturated_7d_tighten — design_constraint ac>=5 额外 -1
+                    if c.get("chunk_type") == "design_constraint":
+                        return max(2, _t - 2)
                     return max(2, _t - 1)
                 # iter1457: ac3_4_closure_cap_sync — ac>=3/4 cap 与主路径对齐
                 elif _l_ac >= 4:
