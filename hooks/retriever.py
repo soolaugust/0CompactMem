@@ -2443,11 +2443,22 @@ def main():
                     # iter796: 同步 tiny_db 放宽
                     _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     # iter1386: ee_7d_thresh_tighten — <50 库 8→6 对齐主路径 ac3 cap
-                    # 根因（数据驱动，2026-05-10）：主路径 ac>=3 cap=2，但 early exit 阈值=8
-                    #   允许低 relevance chunk 7d=7 仍以 imp*0.1 进入候选池。
-                    #   37-chunk 库中 7d=8 才 suppress → chunk 可占 7d 注入的 ~30% 不被拦。
-                    # 修复：<50 库 8→6，缩小与主路径的 gap（完全对齐会导致 fallback 枯竭）。
-                    _ee_7d_thresh = 6 if _db_chunk_count < 50 else 5 if _db_chunk_count < 100 else 3
+                    # iter1559: ee_7d_ac_aware — early exit 阈值按 ac 分级，对齐主路径+1
+                    # 根因（数据驱动，2026-05-12）：主路径 ac>=4 thresh=2, ac>=3 thresh=3(tiny)，
+                    #   但 ee 固定 6 → 11/20 chunk 在 main suppress 后仍经 ee 逃逸注入。
+                    #   import-90139(ac=3,7d=5) main_thresh=3 但 ee_thresh=6 允许逃逸 2 次。
+                    # 修复：ee_7d_thresh = main_path_thresh + 1（fallback 余量），按 ac 分级。
+                    _ee_ac = _get_live_ac(chunk.get("id", ""))
+                    if _ee_ac is None:
+                        _ee_ac = chunk.get("access_count", 0) or 0
+                    if _ee_ac >= 7:
+                        _ee_7d_thresh = 3 if _db_chunk_count < 100 else 2
+                    elif _ee_ac >= 4:
+                        _ee_7d_thresh = 3 if _db_chunk_count < 50 else 3
+                    elif _ee_ac >= 3:
+                        _ee_7d_thresh = 4 if _db_chunk_count < 50 else 3
+                    else:
+                        _ee_7d_thresh = 6 if _db_chunk_count < 50 else 5 if _db_chunk_count < 100 else 4
                     if _r7d_ee >= _ee_7d_thresh:
                         return 0.0
                     # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
