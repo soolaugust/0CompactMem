@@ -3130,6 +3130,18 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             r'(?:覆盖|gate|suppress|zero_access|passed|HEALTHY|precision|一致性|'
             r'exempt|tighten|豁免|收紧|放宽|阈值|thresh)', summary):
         return
+    # iter1485: iter_status_density_gate — memory-os 运维指标高密度 = 迭代器状态报告
+    # 数据驱动（2026-05-11）：12 条 ac=0 噪声逃逸所有 gate，共同特征是
+    #   含 ≥2 个 memory-os 运维指标词且不含用户领域知识。
+    _MOS_STATUS_KW = re.compile(
+        r'(?:ACTIVE\s*\d|DEAD|空召回|覆盖率|HEALTHY|DEGRADED|'
+        r'ac[=≥]\s*0|zero.access|注入分布|分布合理|注入覆盖|'
+        r'FTS\s*(?:索引|删除|重建)|chunk.?(?:标记|DEAD|SWAPPED)|'
+        r'PA\s*\d+/\d+|production_assertions|'
+        r'FULL\s*路径|daemon\s*查询失败)',
+        re.IGNORECASE)
+    if len(_MOS_STATUS_KW.findall(summary)) >= 2 and not _DOMAIN_KW.search(summary):
+        return
     if re.search(r'(?:zero_access|chunk_count|tests?\s*passed|FTS5?\s*(?:索引|有效率)|一致性\s*\d+%|Active\s*pool)', summary):
         return
     # iter1311: quantification_summary_gate — "量化：X% → Y%" 格式必为迭代器执行结果
