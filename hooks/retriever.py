@@ -905,11 +905,28 @@ def _mmr_rerank(candidates: list, top_k: int,
         union = len(a | b)
         return inter / union if union > 0 else 0.0
 
+    # iter1527: identifier_overlap_boost — 共享长标识符视为同主题
+    # 根因（数据驱动，2026-05-11）：4 条 MTK ALB chunk 共享 "mtk_active_load_balance_cpu_stop"
+    #   但 Jaccard=0.008-0.118（远低于 sim_threshold=0.45），MMR 无法去重。
+    #   同一函数名/标识符(>=12字符) 是强语义关联信号。
+    def _extract_identifiers(text: str) -> frozenset:
+        return frozenset(m.group().lower() for m in _re.finditer(
+            r'[a-zA-Z_][a-zA-Z0-9_]{11,}', text or ''))
+
+    def _sim_with_ident(a_tok: frozenset, b_tok: frozenset,
+                        a_ids: frozenset, b_ids: frozenset) -> float:
+        jac = _jaccard(a_tok, b_tok)
+        if a_ids and b_ids and (a_ids & b_ids):
+            return max(jac, 0.55)
+        return jac
+
     # 预计算每个 candidate 的 token 集合
     tok_cache = []
+    ident_cache = []
     for score, chunk in candidates:
         text = (chunk.get("summary") or "") + " " + (chunk.get("content") or "")[:200]
         tok_cache.append(_tok(text))
+        ident_cache.append(_extract_identifiers(text))
 
     # 归一化 relevance score 到 [0.1, 1.0]（floor=0.1 防止最低分被归零）
     # 若 norm → 0，λ×0 - (1-λ)×0 = 0，多样低分候选无法胜过高相似度候选
@@ -922,6 +939,7 @@ def _mmr_rerank(candidates: list, top_k: int,
 
     selected_idx = []
     selected_toks = []
+    selected_idents = []
     remaining = list(range(len(candidates)))
 
     while len(selected_idx) < top_k and remaining:
@@ -934,7 +952,10 @@ def _mmr_rerank(candidates: list, top_k: int,
             if not selected_toks:
                 max_sim = 0.0
             else:
-                max_sim = max(_jaccard(tok_cache[idx], st) for st in selected_toks)
+                max_sim = max(
+                    _sim_with_ident(tok_cache[idx], selected_toks[k],
+                                    ident_cache[idx], selected_idents[k])
+                    for k in range(len(selected_toks)))
 
             # 只在超过 sim_threshold 时才惩罚（避免误杀弱相关 chunk）
             sim_penalty = max_sim if max_sim >= sim_threshold else 0.0
@@ -949,6 +970,7 @@ def _mmr_rerank(candidates: list, top_k: int,
 
         selected_idx.append(best_idx)
         selected_toks.append(tok_cache[best_idx])
+        selected_idents.append(ident_cache[best_idx])
         remaining.remove(best_idx)
 
     return [candidates[i] for i in selected_idx]
