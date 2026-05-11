@@ -1252,7 +1252,11 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # 根因（数据驱动，2026-05-11）：2 条 ac=0 chunk "诊断：35 ACTIVE chunks，7d 注入覆盖 62%，
         #   …suppress 机制已有效控制垄断" hits=0 逃逸。含 ACTIVE chunks/suppress 机制/注入覆盖/控制垄断
         #   均为 retriever 内部诊断概念，非用户知识。
-        r'ACTIVE\s*chunks?|suppress\s*机制|注入覆盖|控制垄断|分布合理)',
+        r'ACTIVE\s*chunks?|suppress\s*机制|注入覆盖|控制垄断|分布合理|'
+        # iter1498: pool_internal_gate — "池"作为 chunk pool 内部概念逃逸
+        # 数据驱动（2026-05-11）："global 池 18→10（-44%），高价值 constraint 占比 56%→100%"
+        #   hits=1 不够阈值 2。"池"+占比/注入/chunk 是 memory-os 内部概念。
+        r'(?:global|注入|候选|知识)\s*池|池\s*\d+\s*→)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
