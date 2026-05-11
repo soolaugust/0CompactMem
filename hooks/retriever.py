@@ -4927,11 +4927,12 @@ def main():
                             _topic_deduped_hd.append((_s1448h, _c1448h))
                     top_k = _topic_deduped_hd
                     # iter1558: type_diversity_cap — hard_deadline 路径同步
+                    # iter1560: default 3→2 sync
                     _type_div_seen_hd = {}
                     _type_div_result_hd = []
                     for _s1558h, _c1558h in top_k:
                         _ct1558h = _c1558h.get("chunk_type", "")
-                        _cap1558h = {"design_constraint": 2}.get(_ct1558h, 3)
+                        _cap1558h = {"design_constraint": 2}.get(_ct1558h, 2)
                         _type_div_seen_hd[_ct1558h] = _type_div_seen_hd.get(_ct1558h, 0) + 1
                         if _type_div_seen_hd[_ct1558h] <= _cap1558h:
                             _type_div_result_hd.append((_s1558h, _c1558h))
@@ -8538,8 +8539,13 @@ def main():
         #   topic_dedup_gate 完全不生效 → 5/06 session 单次注入 3 个 DC 占满位置。
         #   38% 的 7d trace 中 DC 超过 50%，挤占 decision/procedure 等多样性。
         # 修复：DC max=2（已充分内化的硬规则，2 条足够），其他类型 max=3。
+        # iter1560: type_diversity_tighten — default 3→2
+        # 根因（数据驱动，2026-05-12）：32-chunk 库 top_k<=5 时 cap=3 允许
+        #   quantitative_evidence 3 条占 60%（5/5 04:08），decision 3 条占 75%（5/3 16:32）。
+        #   68% 注入事件 single type，avg type diversity=1.35，多样性不足。
+        # 修复：default 3→2，top_k<=5 时每种 type 最多 2 条，确保 >=2 种 type。
         _TYPE_DIV_CAP = {"design_constraint": 2}
-        _TYPE_DIV_DEFAULT = 3
+        _TYPE_DIV_DEFAULT = 2
         _type_div_seen = {}
         _type_div_result = []
         for _s1558, _c1558 in top_k:
