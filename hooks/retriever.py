@@ -3105,7 +3105,13 @@ def main():
                     # iter1478: global_deep_saturated_7d_tighten — ac>=4 thresh 3→2
                     #   根因（数据驱动，2026-05-11）：4 个 global chunk(ac>=4) 占 7d 注入 46%(16/35)。
                     #   thresh=3 允许 2 次注入，跨项目 TOCTOU 使实际达 3-4 次。收紧到 2 限制为 1 次/7d。
-                    if _small_db:
+                    # iter1524: tiny_db_global_7d_relax — tiny_db(<50) global ac>=4 thresh 2→4
+                    #   根因（数据驱动，2026-05-11）：git:a4ee2fcfacc4(32 chunk) 5/6 五次 FULL 全空召回，
+                    #   cands=21-59 但 top_k=0。3 个 global ac>=4 chunk(7d=3-4) 被 thresh=2 封杀，
+                    #   剩余 4 个 local ac=1 新知识 BM25 分过低 → 全灭。tiny_db 库更依赖 global 知识。
+                    if _tiny_db:
+                        _suppress_7d_thresh = 4 if _g_ac_full >= 4 else 5
+                    elif _small_db:
                         _suppress_7d_thresh = 2 if _g_ac_full >= 4 else 4
                     else:
                         _suppress_7d_thresh = 2
@@ -4197,6 +4203,9 @@ def main():
                         # iter1478: global_deep_saturated_7d_tighten — sync hard_deadline
                         if _local_sparse and _cp == "global":
                             return 2 if _g_ac >= 4 else 5
+                        # iter1524: tiny_db_global_7d_relax — sync hard_deadline
+                        if _hd_tiny_db:
+                            return 4 if _g_ac >= 4 else 5
                         if _hd_small_db:
                             return 2 if _g_ac >= 4 else 4
                         return 2

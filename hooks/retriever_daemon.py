@@ -3873,8 +3873,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   small_db 内 global 知识尚未内化，需更多曝光。
                     if (chunk[_CI_CP] or "") == "global":
                         # iter1478: global_deep_saturated_7d_tighten — ac>=4 thresh 3→2
+                        # iter1524: tiny_db_global_7d_relax — tiny_db(<50) ac>=4 thresh 2→4
                         _g_ac_d = chunk[_CI_AC] or 0
-                        if _s672_small:
+                        if _s672_tiny:
+                            _7d_base = 4 if _g_ac_d >= 4 else 5
+                        elif _s672_small:
                             _7d_base = 2 if _g_ac_d >= 4 else 4
                         else:
                             _7d_base = 2
@@ -4067,9 +4070,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _7d_base_d2 = 7 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
                     # iter1194: global_unified_thresh — sync daemon dict path
                     # iter1478: global_deep_saturated_7d_tighten — sync dict path
+                    # iter1524: tiny_db_global_7d_relax — sync dict path
                     if (chunk.get("project", "") or "") == "global":
                         _g_ac_d2 = chunk.get("access_count", 0) or 0
-                        if _s672d_small:
+                        if _s672d_tiny:
+                            _7d_base_d2 = 4 if _g_ac_d2 >= 4 else 5
+                        elif _s672d_small:
                             _7d_base_d2 = 2 if _g_ac_d2 >= 4 else 4
                         else:
                             _7d_base_d2 = 2
@@ -5283,9 +5289,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   feishu CLI(ac=4)/memory验证(ac=6) 经 daemon 路径 7d suppress 逃逸。
                     elif _is_global:
                         # iter1478: global_deep_saturated_7d_tighten — sync daemon suppress_final_gate
+                        # iter1524: tiny_db_global_7d_relax — sync daemon suppress_final_gate
                         _g_ac_fg = c[_CI_AC] or 0
                         if _local_sparse_d:
                             return 3 if _g_ac_fg >= 4 else 5
+                        if _s672_tiny:
+                            return 4 if _g_ac_fg >= 4 else 5
                         if _s672_small:
                             return 2 if _g_ac_fg >= 4 else 4
                         return 2
@@ -5407,11 +5416,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return max(2, _t - 2)
                 # iter1194: global_unified_thresh — sync daemon closure_fallback
                 # iter1478: global_deep_saturated_7d_tighten — sync closure fallback
+                # iter1524: tiny_db_global_7d_relax — sync closure fallback
                 elif _is_global:
                     _g_ac_cf = c[_CI_AC] or 0
                     if _local_sparse_d:
                         return 3 if _g_ac_cf >= 4 else 5
-                    if _s672_small:
+                    if _fg887d_tiny:
+                        return 4 if _g_ac_cf >= 4 else 5
+                    if _fg887d_small:
                         return 2 if _g_ac_cf >= 4 else 4
                     return 2
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
