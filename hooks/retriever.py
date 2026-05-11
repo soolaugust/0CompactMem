@@ -6083,6 +6083,7 @@ def main():
                     _pebf_best = max(_pebf_cands, key=lambda x: x[0])
                     _pebf_score = _pebf_best[0]
                     _pebf_id = _pebf_best[1].get("id", "")
+                    _pebf_best[1]["_fallback_protected"] = True
                     top_k = [_pebf_best]
                     _deferred.log(DMESG_INFO, "retriever",
                                   f"iter677_positive_empty_best_fallback: "
@@ -6101,6 +6102,8 @@ def main():
                                if (c.get("access_count", 0) or 0) < 30]
                 if _iuf_by_imp:
                     _iuf_best = max(_iuf_by_imp, key=lambda x: x[0])
+                    # iter1484: fallback_protected_sync — 标记 _fallback_protected 防止 floor_gate 清空
+                    _iuf_best[2]["_fallback_protected"] = True
                     top_k = [(_iuf_best[0] * 0.01, _iuf_best[2])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter792_importance_ultimate_fallback: "
