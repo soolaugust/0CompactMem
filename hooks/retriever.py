@@ -4915,6 +4915,20 @@ def main():
                         else:
                             _topic_deduped_hd.append((_s1448h, _c1448h))
                     top_k = _topic_deduped_hd
+                    # iter1558: type_diversity_cap — hard_deadline 路径同步
+                    _type_div_seen_hd = {}
+                    _type_div_result_hd = []
+                    for _s1558h, _c1558h in top_k:
+                        _ct1558h = _c1558h.get("chunk_type", "")
+                        _cap1558h = {"design_constraint": 2}.get(_ct1558h, 3)
+                        _type_div_seen_hd[_ct1558h] = _type_div_seen_hd.get(_ct1558h, 0) + 1
+                        if _type_div_seen_hd[_ct1558h] <= _cap1558h:
+                            _type_div_result_hd.append((_s1558h, _c1558h))
+                        else:
+                            _deferred.log(DMESG_INFO, "retriever",
+                                          f"iter1558_type_diversity_cap_hd: drop {_c1558h.get('id','')[:12]} type={_ct1558h}",
+                                          session_id=session_id, project=project)
+                    top_k = _type_div_result_hd
                     constraint_items = []
                     normal_items = []
                     hard_deadline_forced = False
@@ -8507,6 +8521,27 @@ def main():
             else:
                 _topic_deduped.append((_s1448, _c1448))
         top_k = _topic_deduped
+
+        # iter1558: type_diversity_cap — 单次 top_k 同一 chunk_type 最多占 N 条
+        # 根因（数据驱动，2026-05-12）：11 个 design_constraint 均无 [topic] 前缀，
+        #   topic_dedup_gate 完全不生效 → 5/06 session 单次注入 3 个 DC 占满位置。
+        #   38% 的 7d trace 中 DC 超过 50%，挤占 decision/procedure 等多样性。
+        # 修复：DC max=2（已充分内化的硬规则，2 条足够），其他类型 max=3。
+        _TYPE_DIV_CAP = {"design_constraint": 2}
+        _TYPE_DIV_DEFAULT = 3
+        _type_div_seen = {}
+        _type_div_result = []
+        for _s1558, _c1558 in top_k:
+            _ct1558 = _c1558.get("chunk_type", "")
+            _cap1558 = _TYPE_DIV_CAP.get(_ct1558, _TYPE_DIV_DEFAULT)
+            _type_div_seen[_ct1558] = _type_div_seen.get(_ct1558, 0) + 1
+            if _type_div_seen[_ct1558] <= _cap1558:
+                _type_div_result.append((_s1558, _c1558))
+            else:
+                _deferred.log(DMESG_INFO, "retriever",
+                              f"iter1558_type_diversity_cap: drop {_c1558.get('id','')[:12]} type={_ct1558} ({_type_div_seen[_ct1558]}>{_cap1558})",
+                              session_id=session_id, project=project)
+        top_k = _type_div_result
 
         constraint_items = []
         normal_items = []
