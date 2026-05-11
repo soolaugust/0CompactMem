@@ -2908,7 +2908,13 @@ def main():
             #   git SOB ac=4）在非源项目中 7d 各注入 3-4 次，因 ac<7 跳过此降权。
             #   global chunk ac 增长慢（不常检索），ac=4 已表明 agent 内化 4+ 次。
             # 修复：global chunk floor 7→4；non-global 保持 7。
-            _cross_proj_floor = 4 if _cd_is_global else 7
+            # iter1522: constraint_cross_proj_floor — design_constraint 跨项目 floor 对齐 global
+            # 根因（数据驱动，2026-05-11）：93cbc985(memory验证,ac=6,design_constraint) project=git:a0ab16e8cafc
+            #   在 3 个非源项目 7d 注入 4 次。因 non-global floor=7 > ac=6 跳过降权。
+            #   design_constraint 本质是通用规则，跨项目注入信息增量≈0，应与 global 同等对待。
+            _cd_ctype = chunk.get("chunk_type", "")
+            _cd_is_constraint_like = _cd_ctype in ("design_constraint", "procedure")
+            _cross_proj_floor = 4 if (_cd_is_global or _cd_is_constraint_like) else 7
             if not _hard_suppressed and _cd_is_cross_project and _acc >= _cross_proj_floor:
                 score *= 0.4
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
