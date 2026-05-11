@@ -4628,7 +4628,36 @@ def main():
                         if len(_sf_hd_above) < len(top_k):
                             top_k = _sf_hd_above
                     else:
-                        top_k = [max(top_k, key=lambda x: x[0])]
+                        # iter1529: hd_sparse_local_priority — HD 路径 floor_gate 全灭时优先注入本地知识
+                        # 根因（数据驱动，2026-05-11）：git:78dc99a5695f(1 local, _local_sparse=True)
+                        #   HD 候选全是跨项目低分 chunk(score<0.08)，保留 best 1 后 hash 不变→不注入→
+                        #   fallback FULL 路径→iter1525 也未生效→连续空召回。
+                        # 修复：sparse 项目直接从 DB 拉最高 importance 本地 chunk，替代低分跨项目噪声。
+                        if _local_sparse:
+                            try:
+                                _hslp_row = conn.execute(
+                                    "SELECT id, summary, content, chunk_type, importance "
+                                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                    "ORDER BY importance DESC LIMIT 1",
+                                    (project,)
+                                ).fetchone()
+                                if _hslp_row:
+                                    _hslp_c = {"id": _hslp_row[0], "summary": _hslp_row[1],
+                                               "content": _hslp_row[2], "chunk_type": _hslp_row[3] or "",
+                                               "importance": _hslp_row[4] or 0.5,
+                                               "project": project,
+                                               "_fallback_protected": True}
+                                    top_k = [(0.001, _hslp_c)]
+                                    _deferred.log(DMESG_WARN, "retriever",
+                                                  f"iter1529_hd_sparse_local_priority: "
+                                                  f"id={_hslp_row[0][:12]} imp={_hslp_row[4]:.2f}",
+                                                  session_id=session_id, project=project)
+                                else:
+                                    top_k = [max(top_k, key=lambda x: x[0])]
+                            except Exception:
+                                top_k = [max(top_k, key=lambda x: x[0])]
+                        else:
+                            top_k = [max(top_k, key=lambda x: x[0])]
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
                 current_hash = hashlib.md5("|".join(top_k_ids).encode()).hexdigest()[:8]
