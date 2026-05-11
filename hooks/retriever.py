@@ -2936,8 +2936,14 @@ def main():
                     #   7d=2+ac=3 的 kernel chunk（1c6946c4,import-90139 等 5 个）逃逸
                     #   proj_conc_saturated_suppress(7d>=3,ac>=4)，以 score=0.07-0.10 占满注入位。
                     # 修复：<50 库 7d>=2+ac>=3 即 suppress，>=50 保持 ac>=7+7d>=4。
-                    _pcs_7d_thresh = 2 if _db_chunk_count < 50 else 4
-                    _pcs_ac_thresh = 3 if _db_chunk_count < 50 else 7
+                    # iter1568: small_db_proj_conc_tighten_v2 — 50-100 库 ac/7d 阈值收紧
+                    # 根因（数据驱动，2026-05-12）：98-chunk 库 9 个 chunk 各 7d=3 ac=4-6，
+                    #   proj_conc ratio=50%，但 >=50 的 thresh(7d>=4,ac>=7) 无一触发。
+                    #   群体占 50% 注入位，挤占新知识和跨项目领域知识。
+                    # 修复：50-100 库 7d>=3+ac>=4 即 suppress；>=100 保持 7d>=4+ac>=7。
+                    #   suppress_fallback 兜底空召回，且仅在 proj_conc>0.38 时生效。
+                    _pcs_7d_thresh = 2 if _db_chunk_count < 50 else (3 if _db_chunk_count < 100 else 4)
+                    _pcs_ac_thresh = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 7)
                     if _chunk_7d_pc >= _pcs_7d_thresh:
                         _pc_ac = chunk.get("access_count") or 0
                         if _pc_ac >= _pcs_ac_thresh:
@@ -7965,6 +7971,38 @@ def main():
                 #   chunk(score=0.001) 被 floor_gate 清空。iter1358 修复 <=30 库，但中型库(30-100)同理。
                 #   fallback 机制与 floor_gate 存在结构性矛盾：fallback 绕过 suppress 注入 → floor_gate 按 score 清空。
                 # 修复：带 _fallback_protected 标记的 chunk 跳过 floor_gate；其余保持原逻辑。
+                # iter1568: sparse_floor_gate_local_rescue — sparse 项目 floor_gate 全灭前先尝试保留本地 chunk
+                # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 ACTIVE local, ac=8) 10 次中 9 次空召回。
+                #   fallback 恢复跨项目 chunk + pair → _fallback_protected 在传播过程中丢失
+                #   （sat_floor strip 或 dict 重建）→ _sf_protected=[] → floor_gate 全灭 →
+                #   iter1525 DB 兜底因 conn 状态异常静默失败 → 100% 空召回。
+                #   根本矛盾：依赖 _fallback_protected 标记在多路径传播中保持完整过于脆弱。
+                # 修复：floor_gate 全灭判定前，_local_sparse 时直接从 DB 拉本地 chunk 作为 protected，
+                #   不依赖上游标记传播。score=0.001 保证不影响正常竞争。
+                if _local_sparse:
+                    try:
+                        import sqlite3 as _sfr1568
+                        _sfr_conn = _sfr1568.connect(str(STORE_DB))
+                        _sfr_row = _sfr_conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "ORDER BY importance DESC LIMIT 1",
+                            (project,)
+                        ).fetchone()
+                        _sfr_conn.close()
+                        if _sfr_row:
+                            _sfr_c = {"id": _sfr_row[0], "summary": _sfr_row[1],
+                                      "content": _sfr_row[2], "chunk_type": _sfr_row[3] or "",
+                                      "importance": _sfr_row[4] or 0.5,
+                                      "project": project,
+                                      "_fallback_protected": True}
+                            top_k = [(0.001, _sfr_c)]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1568_sparse_floor_gate_local_rescue: "
+                                          f"id={_sfr_row[0][:12]} imp={_sfr_row[4]:.2f}",
+                                          session_id=session_id, project=project)
+                    except Exception:
+                        pass
                 _sf_protected = [(s, c) for s, c in top_k if c.get("_fallback_protected")]
                 _sf_unprotected = [(s, c) for s, c in top_k if not c.get("_fallback_protected")]
                 if _sf_protected:
