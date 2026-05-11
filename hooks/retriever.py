@@ -4143,6 +4143,12 @@ def main():
                     def _fb_ac_thresh_hd(c):
                         if c.get("project", "") == "global":
                             return 4 if c.get("chunk_type") == "design_constraint" else 5
+                        # iter1563: cross_project_dc_fallback_align — 跨项目 dc ac>=4 排除 fallback
+                        # 根因（数据驱动，2026-05-12）：93cbc985(ac=6,dc,local) 跨项目注入时
+                        #   因非 global 走 return 7 逃逸 fallback 排除→7d=4。
+                        #   dc 是通用规则，跨项目注入时与 global dc 同质，门槛应对齐。
+                        if c.get("chunk_type") == "design_constraint":
+                            return 4
                         return 7
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if (c.get("access_count", 0) or 0) < 30
@@ -4185,7 +4191,7 @@ def main():
                                      and (c.get("access_count", 0) or 0) < 30
                                      and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                      and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                              and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
+                                              and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
                 if _fb_pair_hd_cands:
                     _fb_pair_hd_best = max(_fb_pair_hd_cands, key=lambda x: x[0])
                     if _fb_pair_hd_best[0] >= 0.3:
@@ -4736,18 +4742,19 @@ def main():
                     # iter975: output_monopoly_filter (hard_deadline path)
                     # iter977: hard_deadline 无 _rt663_7d（无 DB 查询预算），用闭包 _recent_7d_counts
                     if len(top_k) > 1 and not _micro_db:
-                        _omf_ceil_hd_base = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
-                        # iter1173: omf_ac_aware_ceiling (hard_deadline path sync)
+                        _omf_ceil_hd_base = 2 if _db_chunk_count < 50 else 3
+                        # iter1563: global_omf_tighten — base ceiling 3/5 → 2/3
+                        # 根因（数据驱动，2026-05-12）：ac=3-4 chunk 7d 注入 4-5 次未触发 omf
                         def _omf_hd_ceil(c):
                             _oac = c.get("access_count", 0) or 0
                             if _oac >= 10:
                                 return 1
                             if _oac >= 7:
-                                return 2
+                                return 1
                             if _oac >= 5:
-                                return 3
+                                return 2
                             if c.get("project", "") == "global" and _oac >= 4:
-                                return 3
+                                return 2
                             return _omf_ceil_hd_base
                         _omf_filt_hd = [(s, c) for s, c in top_k
                                         if _recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)]
@@ -5675,6 +5682,9 @@ def main():
                 def _fb_ac_thresh_full(c):
                     if c.get("project", "") == "global":
                         return 4 if c.get("chunk_type") == "design_constraint" else 5
+                    # iter1563: cross_project_dc_fallback_align — sync FULL path
+                    if c.get("chunk_type") == "design_constraint":
+                        return 4
                     return 7
                 _sef_by_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                if (c.get("access_count", 0) or 0) < 30
@@ -7761,6 +7771,9 @@ def main():
                               and _pair_suppress_ok_lite(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_lite_cands:
                 _ps_lite_best = max(_ps_lite_cands, key=lambda x: x[0])
+                # iter1565: pair_inherit_floor_protect_lite — LITE post_suppress_pair 继承 _fallback_protected
+                if top_k[0][1].get("_fallback_protected"):
+                    _ps_lite_best[1]["_fallback_protected"] = True
                 top_k.append(_ps_lite_best)
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter832_post_suppress_pair_lite: paired "
@@ -7840,6 +7853,9 @@ def main():
                     _f868_chunk = {"id": _f868_pick[0], "summary": _f868_pick[1],
                                    "content": _f868_pick[2], "chunk_type": _f868_pick[3],
                                    "importance": _f868_pick[4], "access_count": _f868_pick[5]}
+                    # iter1565: pair_inherit_floor_protect — final_single_pair 继承 _fallback_protected
+                    if top_k[0][1].get("_fallback_protected"):
+                        _f868_chunk["_fallback_protected"] = True
                     _f868_score = top_k[0][0] * 0.20
                     top_k.append((_f868_score, _f868_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
@@ -7881,14 +7897,20 @@ def main():
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
         _LOCAL_SAT_AC_THRESH = 7
         if len(top_k) > 0:
-            top_k = [(s, c) if not (
-                (c.get("project") == "global"
-                 and c.get("chunk_type") == "design_constraint"
-                 and (c.get("access_count") or 0) >= 4
-                 and s < _GLOBAL_SAT_FLOOR)
-                or ((c.get("access_count") or 0) >= _LOCAL_SAT_AC_THRESH
-                    and s < _GLOBAL_SAT_FLOOR)
-            ) else (0.0, c) for s, c in top_k]
+            def _sat_floor_apply(s, c):
+                _sat_hit = (
+                    (c.get("project") == "global"
+                     and c.get("chunk_type") == "design_constraint"
+                     and (c.get("access_count") or 0) >= 4
+                     and s < _GLOBAL_SAT_FLOOR)
+                    or ((c.get("access_count") or 0) >= _LOCAL_SAT_AC_THRESH
+                        and s < _GLOBAL_SAT_FLOOR))
+                if _sat_hit:
+                    # iter1566: saturated_floor_strip_fallback — 阻止 saturated chunk 经 _fallback_protected 逃逸 floor_gate
+                    c.pop("_fallback_protected", None)
+                    return (0.0, c)
+                return (s, c)
+            top_k = [_sat_floor_apply(s, c) for s, c in top_k]
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_pre_len = len(top_k)
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
@@ -7937,11 +7959,44 @@ def main():
                 _sf_protected = [(s, c) for s, c in top_k if c.get("_fallback_protected")]
                 _sf_unprotected = [(s, c) for s, c in top_k if not c.get("_fallback_protected")]
                 if _sf_protected:
-                    top_k = _sf_protected
-                    _deferred.log(DMESG_DEBUG, "retriever",
-                                  f"iter1365_fallback_floor_gate_bypass: kept {len(_sf_protected)} "
-                                  f"fallback-protected, dropped {len(_sf_unprotected)} below floor={_score_floor}",
-                                  session_id=session_id, project=project)
+                    # iter1564: sparse_local_over_cross_fallback — sparse 项目优先本地 chunk
+                    # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 ACTIVE local, ac=8) 14d 100% 空召回。
+                    #   dead_zone_fallback 取跨项目 chunk + pair 继承 _fallback_protected(iter1562)，
+                    #   floor_gate bypass 保留这些跨项目 chunk，跳过 sparse_local_priority 兜底。
+                    #   结果：注入不相关的跨项目知识，本地唯一知识永远不可见。
+                    # 修复：_local_sparse 且 protected 全是跨项目 → 替换为本地最高 importance chunk。
+                    _slof_all_cross = _local_sparse and all(
+                        c.get("project", "") != project and c.get("project", "") != "global"
+                        for _, c in _sf_protected)
+                    if _slof_all_cross:
+                        try:
+                            _slof_rows = conn.execute(
+                                "SELECT id, summary, content, chunk_type, importance "
+                                "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                "ORDER BY importance DESC LIMIT 1",
+                                (project,)
+                            ).fetchall()
+                            if _slof_rows:
+                                _slof_c = {"id": _slof_rows[0][0], "summary": _slof_rows[0][1],
+                                           "content": _slof_rows[0][2], "chunk_type": _slof_rows[0][3] or "",
+                                           "importance": _slof_rows[0][4] or 0.5,
+                                           "_fallback_protected": True}
+                                top_k = [(0.001, _slof_c)]
+                                _deferred.log(DMESG_WARN, "retriever",
+                                              f"iter1564_sparse_local_over_cross: replaced {len(_sf_protected)} "
+                                              f"cross-proj with local id={_slof_rows[0][0][:12]} imp={_slof_rows[0][4]:.2f}",
+                                              session_id=session_id, project=project)
+                            else:
+                                top_k = _sf_protected
+                        except Exception:
+                            top_k = _sf_protected
+                    else:
+                        top_k = _sf_protected
+                    if not _slof_all_cross:
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter1365_fallback_floor_gate_bypass: kept {len(_sf_protected)} "
+                                      f"fallback-protected, dropped {len(_sf_unprotected)} below floor={_score_floor}",
+                                      session_id=session_id, project=project)
                 else:
                     _sf_best = max(top_k, key=lambda x: x[0])
                     _deferred.log(DMESG_DEBUG, "retriever",
@@ -8209,10 +8264,10 @@ def main():
         #   解决闭包快照 _recent_7d_counts 在 session 内不更新 + 无 session-dedup 的问题。
         if top_k and len(top_k) > 1 and not _micro_db:
             _omf_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-            # iter1335: omf_ceiling_tighten — base ceiling 收紧防低ac chunk周注入过量
-            # 根因（数据驱动，2026-05-09）：70-chunk库 ceiling=6，ac=3 chunk 7d=6 才触发suppress，
-            #   周注入 6 次对用户无增量。收紧至 db<20→5, db<50→4, else→3。
-            _omf_ceiling_base = 5 if _db_chunk_count < 20 else (4 if _db_chunk_count < 50 else 3)
+            # iter1563: global_omf_tighten — base ceiling 统一收紧
+            # 根因（数据驱动，2026-05-12）：ac=3-4 chunk 7d 注入 4-5 次未被 omf 拦截
+            #   （旧 base 5/4/3 对 ac<5 不生效），垄断注入位。
+            _omf_ceiling_base = 3 if _db_chunk_count < 20 else 2
             # iter1173: omf_ac_aware_ceiling — per-chunk ceiling 对齐 suppress 阈值
             # 根因（数据驱动，2026-05-08）：PE分析(ac=7,7d=6) 被 _score_chunk suppress(thresh=2)，
             #   但经 fallback/pair 路径复活后到达 omf，flat ceiling=6 → 6<6 FALSE → 逃逸。
@@ -8220,17 +8275,14 @@ def main():
             # 修复：ac>=7→ceiling=2, ac>=5→ceiling=3, global ac>=4→ceiling=3，其余保持 base。
             def _omf_chunk_ceiling(c):
                 _oac = c.get("access_count", 0) or 0
-                # iter1204: deep_internalize_cap — ac>=10 每周最多注入 1 次
-                # 根因（数据驱动，2026-05-08）：ac=10-12 chunk 用户已深度内化，
-                #   ceiling=2 仍允许每周 2 次→月 8 次，信息增量≈0 却挤占注入槽位。
                 if _oac >= 10:
                     return 1
                 if _oac >= 7:
-                    return 2
+                    return 1
                 if _oac >= 5:
-                    return 3
+                    return 2
                 if c.get("project", "") == "global" and _oac >= 4:
-                    return 3
+                    return 2
                 return _omf_ceiling_base
             # iter1279: omf_sparse_shield — local_sparse 项目的 local chunk 免 omf 过滤
             # 根因（数据驱动，2026-05-09）：abspath:51963532bc1b 只有 1 条 local chunk(ac=5)，
@@ -8432,19 +8484,23 @@ def main():
                           session_id=session_id, project=project)
             top_k = _dic_result
 
-        # iter1106: output_cooldown_gate — FULL path 最终输出前 timeline 实时 cooldown 兜底
-        # 与 hard_deadline path 对齐：ac>=7 且 timeline 最近注入在 cooldown 窗口内 → 移除。
+        # iter1106: output_cooldown_gate — FULL path 最終输出前 timeline 实时 cooldown 兜底
+        # 与 hard_deadline path 对齐：ac>=5 且 timeline 最近注入在 cooldown 窗口内 → 移除。
+        # iter1563: ocg_threshold_lower — ac>=7→5, 堵中等饱和 chunk 经小库评分胜出后逃逸
+        #   根因（数据驱动，2026-05-12）：shadow_traces 5 次相同 top_k（ac=4-6），
+        #   评分阶段 cooldown 只降分不移除，小库(32 ACTIVE)候选不足→降分仍胜出。
+        #   ac=5-6 使用 48h cooldown，ac=7-9 用 10d，ac>=10 用 14d。
         if top_k and _injection_timeline and _cutoff_48h:
             def _ocg_pass(c):
                 _oa = c.get("access_count", 0) or 0
-                if _oa < 7:
+                if _oa < 5:
                     return True
                 _oid = c.get("id", "")
                 _ots = _injection_timeline.get(_oid)
-                _olast = max(_ots) if _ots else (c.get("last_accessed", "") if _oa >= 7 else "")
+                _olast = max(_ots) if _ots else (c.get("last_accessed", "") if _oa >= 5 else "")
                 if not _olast:
                     return True
-                _ocut = _cutoff_14d if _oa >= 10 else _cutoff_10d
+                _ocut = _cutoff_14d if _oa >= 10 else (_cutoff_10d if _oa >= 7 else _cutoff_48h)
                 return _olast <= _ocut
             _ocg_filtered = [(s, c) for s, c in top_k if _ocg_pass(c)]
             if _ocg_filtered:

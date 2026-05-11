@@ -4900,8 +4900,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter775: dead_zone_min_score — 防止 FTS5 无匹配时注入垃圾
                 _sef_full_max = _sef_full[0]
                 _DEAD_ZONE_MIN_FULL = 0.05
+                # iter1563: cross_project_dc_fallback_align — sync retriever.py
+                # 跨项目 dc ac>=4 / global ac>=4(dc)/5(other) / 跨项目 ac>=7 排除 fallback
+                def _fb_ac_ok(c):
+                    _a = c[_CI_AC] or 0
+                    if _a >= 30: return False
+                    _cp = c[_CI_CP] if len(c) > _CI_CP else ""
+                    _is_xp = _cp != project or _cp == "global"
+                    if not _is_xp: return True
+                    _ct = c[_CI_CT] if len(c) > _CI_CT else ""
+                    if _cp == "global":
+                        return _a < (4 if _ct == "design_constraint" else 5)
+                    if _ct == "design_constraint":
+                        return _a < 4
+                    return _a < 7
                 _sef_by_imp = [(float(c[_CI_IMP] or 0), c) for _, c in final
-                               if (c[_CI_AC] or 0) < 30]
+                               if _fb_ac_ok(c)]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
@@ -6033,7 +6047,33 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _sf_protected = [(s, c) for s, c in top_k
                                  if (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) in _fallback_protected_ids]
                 if _sf_protected:
-                    top_k = _sf_protected
+                    # iter1564: sparse_local_over_cross_fallback — sync daemon
+                    _slof_all_cross_d = _local_sparse_d and all(
+                        (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != project
+                        and (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != "global"
+                        for _, c in _sf_protected)
+                    if _slof_all_cross_d:
+                        try:
+                            _slof_rows = conn.execute(
+                                "SELECT id, summary, content, chunk_type, importance, "
+                                "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
+                                "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                "ORDER BY importance DESC LIMIT 1",
+                                (project,)
+                            ).fetchall()
+                            if _slof_rows:
+                                top_k = [(0.001, _slof_rows[0])]
+                                _fallback_protected_ids.add(_slof_rows[0][_CI_ID])
+                                _deferred.log(DMESG_WARN, "retriever_daemon",
+                                              f"iter1564_sparse_local_over_cross: replaced {len(_sf_protected)} "
+                                              f"cross-proj with local id={_slof_rows[0][_CI_ID][:12]}",
+                                              session_id=session_id, project=project)
+                            else:
+                                top_k = _sf_protected
+                        except Exception:
+                            top_k = _sf_protected
+                    else:
+                        top_k = _sf_protected
                 else:
                     _sf_best = max(top_k, key=lambda x: x[0])
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
@@ -6072,21 +6112,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。
         # 修复：inject_lines 构建前最终过滤——7d >= ceiling 移除，至少保留 1 条。
         if top_k and len(top_k) > 1 and _db_chunk_count > 5:
-            _omf_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
-            # iter1206: daemon_deep_internalize_sync — 同步 retriever.py iter1204
-            # 根因（数据驱动，2026-05-08）：ac=10 chunk 7d 仍注入 4x，因 daemon 路径
-            #   使用固定 ceiling(3/5) 而非 per-chunk 动态 ceiling。retriever.py 已对
-            #   ac>=10→1, ac>=7→2, ac>=5→3，daemon 未同步导致逃逸。
+            _omf_ceiling = 2 if _db_chunk_count < 50 else 3
+            # iter1563: global_omf_tighten — base ceiling 3/5 → 2/3
+            # 根因（数据驱动，2026-05-12）：ac=3-4 chunk 7d 注入 4-5 次未触发 omf
+            #   （旧 base=3/5 对 ac<5 不生效），垄断用户注入位。
             def _omf_ceil_d(c):
                 _oac = c[_CI_AC] or 0
                 if _oac >= 10:
                     return 1
                 if _oac >= 7:
-                    return 2
+                    return 1
                 if _oac >= 5:
-                    return 3
+                    return 2
                 if c[_CI_CP] == "global" and _oac >= 4:
-                    return 3
+                    return 2
                 return _omf_ceiling
             _omf_filtered = [(s, c) for s, c in top_k
                              if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)]
@@ -6256,6 +6295,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter1119_saturation_diversity_gate: saturated {len(_sdg_saturated)}->{_sdg_max}",
                               session_id=session_id, project=project)
+
+        # iter1563: output_cooldown_gate — daemon 最终出口 timeline cooldown 兜底
+        #   同步 retriever.py iter1106+1563：ac>=5 且最近注入在 cooldown 窗口内 → 移除。
+        #   ac=5-6→48h, ac=7-9→10d, ac>=10→14d。
+        if top_k and _last_inject_ts and _cutoff_48h:
+            def _ocg_pass_d(c):
+                _oa = c[_CI_AC] or 0
+                if _oa < 5:
+                    return True
+                _oid = c[_CI_ID]
+                _olast = _last_inject_ts.get(_oid, "")
+                if not _olast:
+                    return True
+                _ocut = _cutoff_14d if _oa >= 10 else (_cutoff_10d if _oa >= 7 else _cutoff_48h)
+                return _olast <= _ocut
+            _ocg_filtered_d = [(s, c) for s, c in top_k if _ocg_pass_d(c)]
+            if _ocg_filtered_d:
+                top_k = _ocg_filtered_d
 
         # ── Build context text ──
         # iter238: _TYPE_PREFIX now module-level constant (see definition near _CONSTRAINT_RE)
