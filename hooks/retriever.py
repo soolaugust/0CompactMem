@@ -7917,11 +7917,14 @@ def main():
         # 修复：global ac 4→4(含), local ac 10→7。预计减少 ~30% 低分垄断注入。
         _GLOBAL_SAT_FLOOR = 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
-        # iter1571: local_sat_floor_tighten — ac 门槛 7→5
-        # 数据驱动（2026-05-12）：memory-os 项目 9 个 ac=5-6 的 kernel chunk
-        #   在迭代开发 session 中以 score<0.25 被注入（与当前工作无关），
-        #   ac>=5 已注入 5+ 次表明 agent 已内化，低分命中是 FTS5 噪声匹配。
-        _LOCAL_SAT_AC_THRESH = 5
+        # iter1573: local_sat_floor_dbsize_tier — 按 DB size 分级 ac 阈值
+        # 根因（数据驱动，2026-05-12）：iter1571 统一 ac>=5 在 32-chunk 库中过度 suppress，
+        #   11/32(34%) ACTIVE chunk 受影响（含核心 procedure/decision），
+        #   FTS5 score<0.25 但语义相关（如 PE 工作时 on_cpu 并发协议 score=0.13）。
+        #   小库 chunk 密度低，ac=5 不代表"噪声匹配"——更可能是 BM25 词汇覆盖不足。
+        # 修复：<50 库恢复 7（仅 ac>=7 的深度内化 chunk 受 sat_floor），
+        #   50-100 保持 5（iter1571 针对的中库场景），>=100 保持 5。
+        _LOCAL_SAT_AC_THRESH = 7 if _db_chunk_count < 50 else 5
         if len(top_k) > 0:
             def _sat_floor_apply(s, c):
                 # iter1567: sat_floor_sparse_local_shield — sparse 项目本地 chunk 豁免 sat_floor
