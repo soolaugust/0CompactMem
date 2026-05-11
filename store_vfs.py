@@ -2059,6 +2059,11 @@ def _vfs_write_protect(summary: str) -> bool:
         return True
     if _re_vfs.match(r'^\[?(?:tool_insight|hit_rate)\]?\s*', s) and len(s) < 80:
         return True
+    # iter1503: internal_debug_record_gate — 迭代器对自身行为的调试/误判记录
+    # 根因（数据驱动，2026-05-11）：93614401 "session_id='unknown' 误判（真实 trace 被当测试数据）"
+    #   迭代器记录自身 bug 调试结论，含 session_id=/trace/误判 等内部术语，对用户零价值。
+    if _re_vfs.search(r"session_id\s*=\s*['\"]", s) and len(s) < 100:
+        return True
     return False
 
 
