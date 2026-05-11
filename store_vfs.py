@@ -2052,6 +2052,13 @@ def _vfs_write_protect(summary: str) -> bool:
     # iter1299: quantify_prefix_gate — "量化"/"改动" 开头 + 数值 = 迭代器自评记录
     if _re_vfs.match(r'^(?:量化|改动)[：:]', s) and _re_vfs.search(r'\d+', s):
         return True
+    # iter1501: gc_record_gate — GC 操作记录 + hit_rate 度量碎片拦截
+    # 根因（数据驱动，2026-05-11）：3 条 ac=0 噪声逃逸（量化统计、GC 结果、hit_rate），
+    #   守护进程缓存旧代码致 iter1500 内联 gate 不生效。增加最末端 VFS 防线。
+    if _re_vfs.search(r'GC[：:了]\s*[0-9a-f]{6,}', s):
+        return True
+    if _re_vfs.match(r'^\[?(?:tool_insight|hit_rate)\]?\s*', s) and len(s) < 80:
+        return True
     return False
 
 
