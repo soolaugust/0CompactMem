@@ -2922,15 +2922,25 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 数据驱动（2026-05-11）：f981f998 "GC 11条echo噪声chunk" + f54e9cb2 "量化：零访问率"
     #   content==summary，记录迭代器 GC/量化结果，ac=0，对用户零价值。
     _ITER_SELF_PATTERNS = re.compile(
-        r'GC\s*\d+\s*条|(?:ACTIVE|global|local)\s*(?:池|\d+\s*→)|\w*池\s*\d+\s*→\s*\d+|ac=0\s*率|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[:\s]'
+        r'GC\s*\d+\s*条|(?:ACTIVE|global|local)\s*(?:池|\d+\s*→)|\w*池\s*\d+\s*→\s*\d+|ac=0\s*率|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[_:\s]'
         r'|retriever\.py|extractor\.py|memory.os不是|vDSO\s*Stage|import\s*链路|冷启动.{0,20}ms'
         r'|compaction的根因|tool\s*output\s*体积|pathlib.{0,20}import'
         r'|hit_rate:\s*[\d.]+%|用.{1,6}定位而非|这边没\s*$|量化改善[：:]|HEALTHY\s*$'
         r'|swap\s*\d+\s*条|noise\s*chunk|Swapped\s*\d+'
         r'|ac=\d+\s*rate|production\s*assertions?\s*\d+/\d+|ac=0\s*(?:chunk|比例)'
-        r'|^\s*\|.*\|\s*\d+[\d.]*%.*\|',
+        r'|^\s*\|.*\|\s*\d+[\d.]*%.*\|'
+        r'|_fallback_protected_ids|floor_gate|daemon\s*floor|score[<>=]\d|suppress_fallback'
+        r'|PA\s*\d+/\d+[，,]|修复\s*\d+\s*处.*\+\d+\s*行|空召回.*修复',
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
+        return
+    # iter1518: thin_content_write_gate — 写入时拦截过短内容
+    # 数据驱动（2026-05-11）：3 条 ACTIVE chunk content<60字 ac=0，
+    #   retriever thin_content_hard_suppress 永远不会注入它们，
+    #   但仍占 FTS5 索引位。对齐 retriever 阈值，源头拦截。
+    #   豁免有 content_override 或 raw_snippet 的——它们有 rich content。
+    _has_rich = (content_override and content_override.strip() != summary.strip()) or bool(raw_snippet)
+    if not _has_rich and len(summary) < 60:
         return
     # iter1495: interrogative_causal_gate — 问句形式的因果链/推理链拒绝写入
     # 数据驱动（2026-05-11）：16 条 ac=0 causal_chain 中 5 条是对话追问/讨论：
