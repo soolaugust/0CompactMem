@@ -8616,8 +8616,10 @@ def sleep_consolidate(
                 _fts5_sync_chunk(conn, _survivor[0], summary=_merged_summary, content=_merged_content)
             except Exception:
                 pass
-            # ghost victims
+            # ghost victims — iter1505: enforce max_merges inside victim loop
             for _v in _victims:
+                if merge_count >= max_merges:
+                    break
                 conn.execute(
                     "UPDATE memory_chunks SET importance=0, oom_adj=500, chunk_state='MERGED', "
                     "summary=?, updated_at=? WHERE id=?",
