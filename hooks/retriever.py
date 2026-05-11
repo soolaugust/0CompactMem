@@ -4568,6 +4568,9 @@ def main():
                         _fb2 = _fb_hd_sorted[1] if _fb_hd is _fb_hd_sorted[0] else _fb_hd_sorted[0]
                         if _fb2[0] >= _fb_hd[0] * 0.4:
                             _fb_hd_pair.append(_fb2)
+                    # iter1554: hd_fallback_protected_propagation — HD suppress_fallback 继承标记
+                    for _, _fbpc_hd in _fb_hd_pair:
+                        _fbpc_hd["_fallback_protected"] = True
                     top_k = _fb_hd_pair
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter670_suppress_fallback_hd: all {len(_pre_suppress_top_k_hd)} "
