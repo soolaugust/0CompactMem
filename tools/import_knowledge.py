@@ -560,23 +560,20 @@ def incremental_import():
         bump_chunk_version()
     conn.commit()
 
-    # iter1419: fts5_post_import_sync — import 后修补 FTS5 漏洞
-    # 根因：insert_chunk 的 FTS5 INSERT 有 except:pass，CJK tokenize 异常时静默丢失索引。
-    # 修复：导入完成后对比 ACTIVE chunk/fts count，不一致时逐条补漏。
+    # iter1486: fts5_import_sync_fix — JOIN-based FTS5 补漏
+    # 根因（2026-05-11）：原 count 比较 total > fts 在 FTS 含 DEAD 残留时被膨胀跳过补漏。
     try:
         _has_state = conn.execute(
             "SELECT COUNT(*) FROM pragma_table_info('memory_chunks') WHERE name='chunk_state'"
         ).fetchone()[0]
         _fi_where = "chunk_state='ACTIVE' AND summary != ''" if _has_state else "id NOT LIKE 'swap_%'"
-        _fi_total = conn.execute(f"SELECT COUNT(*) FROM memory_chunks WHERE {_fi_where}").fetchone()[0]
-        _fi_fts = conn.execute("SELECT COUNT(*) FROM memory_chunks_fts").fetchone()[0]
-        if _fi_total > _fi_fts:
-            from store_vfs import _cjk_tokenize, _normalize_structured_summary
-            _fi_missing = conn.execute(
-                f"SELECT rowid, id, summary, content FROM memory_chunks "
-                f"WHERE {_fi_where} AND rowid NOT IN "
-                f"(SELECT CAST(rowid_ref AS INTEGER) FROM memory_chunks_fts)"
-            ).fetchall()
+        from store_vfs import _cjk_tokenize, _normalize_structured_summary
+        _fi_missing = conn.execute(
+            f"SELECT mc.rowid, mc.id, mc.summary, mc.content FROM memory_chunks mc "
+            f"WHERE mc.{_fi_where} AND mc.rowid NOT IN "
+            f"(SELECT CAST(rowid_ref AS INTEGER) FROM memory_chunks_fts)"
+        ).fetchall()
+        if _fi_missing:
             for _fr, _fid, _fs, _fc in _fi_missing:
                 _fs_tok = _cjk_tokenize(_normalize_structured_summary(_fs or ""))
                 _fc_tok = _cjk_tokenize(_normalize_structured_summary(_fc or ""))
