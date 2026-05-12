@@ -4728,8 +4728,8 @@ def main():
 
     # v3 新增：因果链
     # iter105: causal_chain 独立类型，不混入 reasoning_chain
-    causal_chains = _extract_causal_chains(text)
-    causal_chains = _deduplicate(causal_chains)
+    # iter1587: disable_causal_chain — 5% 存活率（19/20 DEAD），全局禁用写入
+    causal_chains = []
 
     # v3 新增：量化证据（作为 decision，importance 最高）
     quant_conclusions = _extract_quantitative_conclusions(text)
