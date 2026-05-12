@@ -389,17 +389,31 @@ def _gc_merged_victims(db_path: Path):
         """)
         deleted = cur.rowcount
 
-        # iter1601: dead_chunk_physical_reclaim — DEAD chunk 超过 24h 物理删除
+        # iter1601: dead_chunk_physical_reclaim — DEAD chunk 超过 2h 物理删除
         # 根因（数据驱动，2026-05-12）：39/75(52%) chunk 为 DEAD，不参与 FTS 检索
         #   但占表行数，增加 COUNT(*)/chunk_state 过滤开销。
-        #   DEAD 由 DAMON/gc_orphan 标记，含义为"确认无价值"，24h 后可安全回收。
+        #   DEAD 由 DAMON/gc_orphan 标记，含义为"确认无价值"。
+        # iter1627: 24h→2h — DEAD 标记后 delta=0-30min 即确定无价值，24h 等待无意义。
         cur2 = conn.execute("""
             DELETE FROM memory_chunks
             WHERE chunk_state = 'DEAD'
-              AND updated_at < datetime('now', '-1 day')
+              AND updated_at < datetime('now', '-2 hours')
         """)
         _dead_reclaimed = cur2.rowcount
         deleted += _dead_reclaimed
+
+        # iter1627: orphan_swap_reclaim — 清理无对应 memory_chunks 的 swap_chunks
+        # 数据驱动（2026-05-12）：93/100 swap_chunks 无对应 memory_chunks（已物理删除的残留）。
+        _swap_reclaimed = 0
+        try:
+            cur3 = conn.execute("""
+                DELETE FROM swap_chunks WHERE id NOT IN (SELECT id FROM memory_chunks)
+            """)
+            _swap_reclaimed = cur3.rowcount
+            deleted += _swap_reclaimed
+        except Exception:
+            pass
+
         if deleted > 0:
             # 重建 FTS5（孤立行清理）
             try:
@@ -420,7 +434,7 @@ def _gc_merged_victims(db_path: Path):
         gc_flag.write_text(json.dumps(_existing))
         if deleted > 0:
             import sys as _sys
-            _sys.stderr.write(f"[gc_merged_victims] deleted {deleted} chunks (dead_reclaim={_dead_reclaimed})\n")
+            _sys.stderr.write(f"[gc_merged_victims] deleted {deleted} (dead_reclaim={_dead_reclaimed}, swap_orphan={_swap_reclaimed})\n")
     except Exception:
         pass
 
