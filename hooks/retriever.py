@@ -6926,9 +6926,16 @@ def main():
                 #   5/6 session 6ca148eb 后半段 cands=16-59 全灭（9/14 trace），
                 #   因 fallback chunk 的 7d/lifetime 超阈值被 final_gate 二次过滤。
                 # 修复：_fallback_protected chunk 跳过 final_gate（已是最后防线，suppress 无意义）。
+                # iter1629: sparse_local_final_gate_shield — FULL 路径 sparse 本地 chunk 跳过 final_gate
+                # 根因（数据驱动，2026-05-12）：abspath:51963532bc1b(1 local + 6 global = 7)
+                #   _db_chunk_count=7 > 5 → 不跳过 final_gate，但唯一本地 chunk(ac=5,dc)
+                #   被 7d/lifetime suppress → 15/20 空召回。LITE 路径(line 7794)有 sparse shield
+                #   但 FULL 路径缺失，导致 sparse 项目唯一知识源被封锁。
+                # 修复：_local_sparse + 本项目 chunk → 跳过 final_gate（与 LITE 路径对齐）。
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if c.get("_fallback_protected")
+                             or (_local_sparse and c.get("project", "") == project)
                              or (_rt663_6h.get(c["id"], 0) < _sf1139_6h_thresh(c)
                              and _rt663_24h.get(c["id"], 0) < _sf1020_24h_thresh(s, c)
                              # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
@@ -7007,13 +7014,15 @@ def main():
                 elif _a >= 7:
                     return max(1, _b - 1)
                 return _b
+            # iter1629: sparse_local_final_gate_shield — closure 路径同步
             top_k = [(s, c) for s, c in top_k
-                     if _recent_6h_counts.get(c["id"], 0) < 2
+                     if (_local_sparse and c.get("project", "") == project)
+                     or (_recent_6h_counts.get(c["id"], 0) < 2
                      and _recent_24h_counts.get(c["id"], 0) < _fg1020_24h_thresh(s, c)
                      # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                      # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                      and _recent_7d_counts.get(c["id"], 0) < _fg887_7d_thresh(s, c)
-                     and _hd1273_lifetime_ok(c)]  # iter1273: closure path reuses hard_deadline fn
+                     and _hd1273_lifetime_ok(c))]  # iter1273: closure path reuses hard_deadline fn
             if len(top_k) < _pre887:
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter887_closure_fallback_suppress: filtered "

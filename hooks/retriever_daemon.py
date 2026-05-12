@@ -5505,9 +5505,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             return False
                     return True
                 # iter1580: fallback_protected_final_gate_bypass — sync retriever.py
+                # iter1629: sparse_local_final_gate_shield — daemon 路径同步
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if c[_CI_ID] in _fallback_protected_ids
+                             or (_local_sparse and c[_CI_PROJ] == project)
                              or (_rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                              and _rt663d_24h.get(c[_CI_ID], 0) < _d1020_24h_thresh(s, c)
                              # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
@@ -5595,12 +5597,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if (c[_CI_CP] or "") == "global" and _a >= 4:
                     return 1
                 return _b
+            # iter1629: sparse_local_final_gate_shield — daemon closure 路径同步
             top_k = [(s, c) for s, c in top_k
-                     if _recent_6h_counts.get(c[_CI_ID], 0) < 2
+                     if (_local_sparse_d and (c[_CI_CP] or "") == project)
+                     or (_recent_6h_counts.get(c[_CI_ID], 0) < 2
                      and _recent_24h_counts.get(c[_CI_ID], 0) < _d1019_24h_thresh(s, c)
                      # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                      and _recent_7d_counts.get(c[_CI_ID], 0) < _d887_7d_thresh(s, c)
-                     and _d1273_lifetime_ok(c)]  # iter1273: closure path reuses daemon fn
+                     and _d1273_lifetime_ok(c))]  # iter1273: closure path reuses daemon fn
             if len(top_k) < _pre887d:
                 _deferred.log(DMESG_WARN, "retriever_daemon",
                               f"iter887_closure_fallback_suppress: filtered "
