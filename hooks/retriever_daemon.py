@@ -3374,7 +3374,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _gc_ph = ",".join("?" for _ in _gc_batch)
                     _gc_alive.update(
                         r[0] for r in _gc_conn.execute(
-                            f"SELECT id FROM memory_chunks WHERE id IN ({_gc_ph})", _gc_batch
+                            f"SELECT id FROM memory_chunks WHERE id IN ({_gc_ph}) AND chunk_state='ACTIVE'", _gc_batch
                         ).fetchall()
                     )
                 _gc_conn.close()

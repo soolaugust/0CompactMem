@@ -1898,7 +1898,7 @@ def main():
                             _ph = ",".join("?" for _ in _batch)
                             _alive_ids.update(
                                 r[0] for r in _rc_conn.execute(
-                                    f"SELECT id FROM memory_chunks WHERE id IN ({_ph})", _batch
+                                    f"SELECT id FROM memory_chunks WHERE id IN ({_ph}) AND chunk_state='ACTIVE'", _batch
                                 ).fetchall()
                             )
                         _ghost_count = len(_pruned) - len(_alive_ids)
