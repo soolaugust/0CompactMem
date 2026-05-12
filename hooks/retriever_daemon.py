@@ -4246,7 +4246,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _sli_has_local = any(c[_CI_CP] == project for c in fts_results)
                 if not _sli_has_local:
                     try:
-                        _sli_r = conn.execute(
+                        # iter1632: immutable_conn_stale_fix — 同上
+                        import sqlite3 as _sli_sql
+                        _sli_conn = _sli_sql.connect(str(STORE_DB), timeout=2)
+                        _sli_r = _sli_conn.execute(
                             "SELECT id, summary, content, importance, last_accessed, "
                             "chunk_type, COALESCE(access_count,0), created_at, "
                             "0.0, COALESCE(lru_gen,0), project, "
@@ -4257,6 +4260,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             "ORDER BY importance DESC LIMIT 1",
                             (project,)
                         ).fetchone()
+                        _sli_conn.close()
                         if _sli_r:
                             _sli_min_rank = min(c[_CI_FR] for c in fts_results)
                             _sli_t = list(_sli_r)
@@ -6192,13 +6196,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             for _, c in _sf_protected)
                     if _slof_all_cross_d:
                         try:
-                            _slof_rows = conn.execute(
+                            # iter1632: immutable_conn_stale_fix — conn(immutable=1) 看不到
+                            #   WAL 未 checkpoint 的 chunk_state 变更，导致 sparse 项目 local
+                            #   chunk 查询返回 0 行 → iter1564/1525 兜底全部静默失败。
+                            #   实测：git:78dc99a5695f 9/9 空召回(100%)，唯一 ACTIVE chunk 从未注入。
+                            import sqlite3 as _slof_sql
+                            _slof_conn = _slof_sql.connect(str(STORE_DB), timeout=2)
+                            _slof_rows = _slof_conn.execute(
                                 "SELECT id, summary, content, chunk_type, importance, "
                                 "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
                                 "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                                 "ORDER BY importance DESC LIMIT 1",
                                 (project,)
                             ).fetchall()
+                            _slof_conn.close()
                             if _slof_rows:
                                 top_k = [(0.001, _slof_rows[0])]
                                 _fallback_protected_ids.add(_slof_rows[0][_CI_ID])
@@ -6231,13 +6242,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   仅当本地有 ACTIVE chunk 时触发；global-only 项目不触发（避免噪声）。
                     if _local_sparse_d:
                         try:
-                            _slp_rows = conn.execute(
+                            # iter1632: immutable_conn_stale_fix — 同上
+                            import sqlite3 as _slp_sql
+                            _slp_conn = _slp_sql.connect(str(STORE_DB), timeout=2)
+                            _slp_rows = _slp_conn.execute(
                                 "SELECT id, summary, content, chunk_type, importance, "
                                 "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
                                 "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                                 "ORDER BY importance DESC LIMIT 1",
                                 (project,)
                             ).fetchall()
+                            _slp_conn.close()
                             if _slp_rows:
                                 top_k = [(0.001, _slp_rows[0])]
                                 _fallback_protected_ids.add(_slp_rows[0][_CI_ID])
