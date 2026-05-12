@@ -497,6 +497,32 @@ def incremental_import():
         bump_chunk_version()
         _orp_conn.commit()
         gc_deleted += _orp_dead
+
+    # iter1662: redundant_subsection_gc — parent 存在且活跃时，ac=0 子章节归档
+    # 数据驱动（2026-05-13）：3 个 import 子章节 ac=0，parent ac=5-6。
+    #   子章节信息已被 parent 覆盖，占 FTS5 索引位但零检索价值。
+    # 条件：summary 含 " > " + parent ACTIVE 且 ac>=1 + 子 ac=0 + 创建 >=1 天。
+    _red_rows = _orp_conn.execute(
+        "SELECT id, summary FROM memory_chunks "
+        "WHERE id LIKE 'import-%' AND chunk_state='ACTIVE' AND access_count=0 "
+        "AND summary LIKE '% > %' AND created_at < datetime('now', '-1 hour')"
+    ).fetchall()
+    _red_dead = 0
+    for _red_id, _red_summary in _red_rows:
+        _par_summary = _red_summary.rsplit(" > ", 1)[0]
+        _par_alive = _orp_conn.execute(
+            "SELECT 1 FROM memory_chunks WHERE summary LIKE ? AND chunk_state='ACTIVE' "
+            "AND access_count >= 1 AND id != ? LIMIT 1",
+            (f"{_par_summary}%", _red_id)
+        ).fetchone()
+        if _par_alive:
+            _orp_conn.execute(
+                "UPDATE memory_chunks SET chunk_state='DEAD' WHERE id=?", (_red_id,))
+            _red_dead += 1
+    if _red_dead:
+        bump_chunk_version()
+        _orp_conn.commit()
+        gc_deleted += _red_dead
     _orp_conn.close()
 
     # iter1421: retroactive_doc_cap — 按 doc 分组，超 cap 的低价值 chunk 立即回收
