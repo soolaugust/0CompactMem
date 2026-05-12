@@ -4995,8 +4995,10 @@ def main():
                             if c.get("project", "") == "global" and _oac >= 4:
                                 return 2
                             return _omf_ceil_hd_base
+                        # iter1669: omf_fallback_protect (HD path sync)
                         _omf_filt_hd = [(s, c) for s, c in top_k
-                                        if _recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)]
+                                        if c.get("id", "") in _fallback_protected_ids
+                                        or _recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                         else:
@@ -8814,8 +8816,10 @@ def main():
             #   7d>=3 后被 omf 过滤 → 9/14d 空召回。_score_chunk 有 sparse_shield 但 omf 无。
             #   local_sparse 项目的本地知识是唯一来源，suppress 它等于剥夺用户所有记忆。
             # 修复：local_sparse 时，local chunk 跳过 omf ceiling 检查。
+            # iter1669: omf_fallback_protect — fallback 恢复的 chunk 不被 omf 二次清空
             _omf_filtered = [(s, c) for s, c in top_k
-                             if (_local_sparse and c.get("project", "") == project)
+                             if c.get("id", "") in _fallback_protected_ids
+                             or (_local_sparse and c.get("project", "") == project)
                              or _omf_7d_src.get(c.get("id", ""), 0) < _omf_chunk_ceiling(c)]
             if _omf_filtered:
                 if len(top_k) != len(_omf_filtered):

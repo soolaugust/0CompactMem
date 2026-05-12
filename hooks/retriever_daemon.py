@@ -4735,9 +4735,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                 if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
                                     return True
                             return False
+                        # iter1669: omf_fallback_protect (HD path sync)
                         _omf_filt_hd = [(s, c) for s, c in top_k
-                                        if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hdf(c)
-                                        and not _omf_lt_sup_hd(c)]
+                                        if c[_CI_ID] in _fallback_protected_ids
+                                        or (_recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hdf(c)
+                                            and not _omf_lt_sup_hd(c))]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                     # iter1013+1056: topic_group_dedup (hard_deadline path)
@@ -6456,9 +6458,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
                         return True
                 return False
+            # iter1669: omf_fallback_protect — fallback 恢复的 chunk 不被 omf 二次清空
             _omf_filtered = [(s, c) for s, c in top_k
-                             if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)
-                             and not _omf_lifetime_suppress_d(c)]
+                             if c[_CI_ID] in _fallback_protected_ids
+                             or (_recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)
+                                 and not _omf_lifetime_suppress_d(c))]
             if _omf_filtered:
                 if len(top_k) != len(_omf_filtered):
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
