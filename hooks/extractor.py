@@ -887,9 +887,17 @@ def _extract_from_tool_outputs(transcript_path: str, session_id: str,
                     if key in seen_summaries:
                         continue
                     seen_summaries.add(key)
+                    # iter1626: tool_insight_rich_content — 构造 rich content 通过 iter1530 echo gate
+                    # 根因（数据驱动，2026-05-12）：iter1530 要求非 dc chunk 必须有 rich content，
+                    #   但 tool_insight 路径未传 content_override → 100% 被拦截 → 类型完全失效。
+                    _ti_ctx = output_text[:300].strip() if output_text else ""
+                    _ti_content = f"[tool_insight] {clean}"
+                    if _ti_ctx and _ti_ctx != clean:
+                        _ti_content = f"[tool_insight] {clean}\n\nContext:\n{_ti_ctx}"
                     _write_chunk("tool_insight", clean, project, session_id,
                                  topic="", conn=conn,
-                                 importance_override=0.75)
+                                 importance_override=0.75,
+                                 content_override=_ti_content)
                     written += 1
                     if written >= 5:
                         return written
