@@ -5046,6 +5046,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cst_7d_thresh = 4 if _cst_tiny else 3
                 if c[_CI_CP] == "global" and (c[_CI_AC] or 0) >= 4:
                     _cst_7d_thresh = max(2, _cst_7d_thresh - 1)
+                # iter1588: local_dc_saturated_constraint_7d — sync retriever.py
+                elif c[_CI_CP] != "global" and (c[_CI_AC] or 0) >= 5:
+                    _cst_7d_thresh = max(2, _cst_7d_thresh - 1)
                 if _recent_7d_counts.get(_cid, 0) >= _cst_7d_thresh:
                     return False
                 # iter608: session-level constraint dedup

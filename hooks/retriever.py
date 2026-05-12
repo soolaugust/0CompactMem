@@ -6002,6 +6002,12 @@ def main():
                 _cst_7d_thresh = (3 if _cst_tiny_db else 4) if _cst_small_db else 3
                 if c.get("project") == "global" and _ac_abs >= 4:
                     _cst_7d_thresh = max(2, _cst_7d_thresh - 1)
+                # iter1588: local_dc_saturated_constraint_7d — local dc ac>=5 收紧 constraint 通道
+                # 根因（数据驱动，2026-05-12）：93cbc985(memory验证,ac=6,dc,local) 7d=3
+                #   主路径 thresh=2 已拦截，但 constraint 通道 thresh=3 无 local ac 收紧，
+                #   形成逃逸口。ac>=5 local dc 用户已内化 5+ 次，constraint 通道应对齐。
+                elif c.get("project") != "global" and _ac_abs >= 5:
+                    _cst_7d_thresh = max(2, _cst_7d_thresh - 1)
                 if _recent_7d_counts.get(_cid, 0) >= _cst_7d_thresh:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
