@@ -2907,7 +2907,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 是迭代器自身写入的噪声（重复提示词、轮次计数），从未被用户召回。
     # 这些类型天然短暂（会话级），写入 store 只增加 FTS 噪声和 swap 压力。
     # iter1082: tool_insight_ephemeral — tool_insight 是工具执行快照，无跨会话持久价值
-    _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary", "tool_insight"}
+    # iter1582: excluded_path_ephemeral — 0% 存活率（1/1 DEAD），内容为迭代器调试碎片
+    _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary", "tool_insight", "excluded_path"}
     if chunk_type in _EPHEMERAL_TYPES:
         return
     # iter1578: causal_chain_rich_content_gate — 碎片因果链拒绝写入
