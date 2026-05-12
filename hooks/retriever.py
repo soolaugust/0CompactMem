@@ -2437,6 +2437,17 @@ def main():
                 except Exception:
                     pass
 
+        # iter1612: topic_mismatch_discount — query 内容词集合，用于同项目话题偏移检测
+        _query_content_words = set()
+        try:
+            import re as _re_qcw
+            _query_content_words = set(
+                w for w in _re_qcw.sub(r'[^\w一-鿿]', ' ', query.lower()).split()
+                if len(w) >= 2
+            )
+        except Exception:
+            pass
+
         def _score_chunk(chunk, relevance):
             _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
@@ -3022,6 +3033,21 @@ def main():
                     _hard_suppressed = True
                 else:
                     score *= 0.4
+            # iter1612: topic_mismatch_discount — 同项目内话题偏移降权
+            # 根因（数据驱动，2026-05-12）：git:a0ab16e8cafc 下 kernel 知识（MTK ALB、PE 分析）
+            #   与 memory-os 迭代工作 topic 完全不匹配，但因 project 相同不触发跨项目降权。
+            #   FTS5 "注入"一词同时匹配 "vendor 注入"(kernel) 和 "注入垄断"(memory-os)。
+            # 修复：ac>=4 同项目非 global chunk，summary 与 query 内容词 overlap=0 → score*=0.3
+            if (not _hard_suppressed and not _cd_is_cross_project and not _cd_is_global
+                    and _acc >= 4 and _query_content_words and score > 0):
+                _tm_summary = (chunk.get("summary") or "").lower()
+                import re as _re_tm
+                _tm_words = set(
+                    w for w in _re_tm.sub(r'[^\w一-鿿]', ' ', _tm_summary).split()
+                    if len(w) >= 2
+                )
+                if _tm_words and len(_query_content_words & _tm_words) == 0:
+                    score *= 0.3
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
