@@ -5660,6 +5660,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _fb_ceiling_d = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter1207: fallback_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 # iter1053: fallback_ceiling_align_local_deep — per-chunk ceiling 对齐 suppress thresh
                 def _fb_ceiling_d_fn(c):
+                    # iter1576: lifetime_fallback_ceiling_cap — lifetime>=4 直接 ceiling=2
+                    _lt_fb = (_itl_lifetime.get(c[_CI_ID], (0,))[0] if _itl_lifetime else 0)
+                    if _lt_fb >= 4 and (c[_CI_AC] or 0) >= 4:
+                        return 2
                     # iter1150: global_fallback_ceiling_align — ac>=5 直接=2
                     # 根因：suppress_final_gate 对 global ac>=5→thresh=2，但 fallback ceiling
                     #   仅区分 ac>=4→max(2,base-2)=3，ac=5-6 chunk 经 fallback 逃逸。
