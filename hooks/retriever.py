@@ -3257,7 +3257,13 @@ def main():
                     # 修复：tiny_db ac>=4 直接 thresh=2，非 tiny 保持原逻辑。
                     #   配合 cooldown(3d)，7d 最多 2 次（首次+TOCTOU 1）。sparse shield 保护不变。
                     elif _l_ac >= 4:
-                        _suppress_7d_thresh = 2 if _tiny_db else max(2, _suppress_7d_thresh - 2)
+                        # iter1589: micro_tiny_ac4_7d_relax — <=20 chunk 库 thresh 2→3
+                        # 根因（数据驱动，2026-05-12）：git:a4ee2fcfacc4(13 chunk) 5/6 连续 8 次空召回，
+                        #   7 个 local ac=4 chunk 7d=2 触发 thresh=2 全灭。13-chunk 库 7d 注入 2 次
+                        #   ≈ 3.5 天看 1 次，属正常使用频率。iter1549 基于 43-chunk 库收紧，
+                        #   但 <=20 chunk 极小库知识覆盖窄、替代候选少，thresh=2 过紧导致核心知识封锁。
+                        # 修复：<=20 chunk 库 thresh=3（允许 7d 2 次注入），>20 保持 2。
+                        _suppress_7d_thresh = 3 if _db_chunk_count <= 20 else (2 if _tiny_db else max(2, _suppress_7d_thresh - 2))
                     # iter1256: ac3_7d_direct_cap3 — ac>=3 直接 cap thresh=3
                     # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) small_db
                     #   高分 base=6, iter1242 max(3,6-1)=5 仍过宽→7d=6 逃逸。
