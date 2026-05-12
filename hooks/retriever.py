@@ -8190,9 +8190,20 @@ def main():
                     #   floor_gate bypass 保留这些跨项目 chunk，跳过 sparse_local_priority 兜底。
                     #   结果：注入不相关的跨项目知识，本地唯一知识永远不可见。
                     # 修复：_local_sparse 且 protected 全是跨项目 → 替换为本地最高 importance chunk。
-                    _slof_all_cross = _local_sparse and all(
-                        c.get("project", "") != project and c.get("project", "") != "global"
-                        for _, c in _sf_protected)
+                    # iter1611: zero_local_global_fallback_block — local=0 时 global chunk 也算"跨项目"
+                    # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(local=0) 经 dead_zone_fallback
+                    #   恢复 global chunk(7e4b9f6b, 51d2a345) + _fallback_protected → floor_gate bypass。
+                    #   _slof_all_cross 排除 global（认为不是跨项目）→ 条件为 False → 不清空。
+                    #   local=0 项目无本地知识，global chunk 无上下文关联，属于噪声注入。
+                    # 修复：local=0 时将 global 视为跨项目，all_cross 条件包含 global。
+                    if _local_chunk_count == 0:
+                        _slof_all_cross = _local_sparse and all(
+                            c.get("project", "") != project
+                            for _, c in _sf_protected)
+                    else:
+                        _slof_all_cross = _local_sparse and all(
+                            c.get("project", "") != project and c.get("project", "") != "global"
+                            for _, c in _sf_protected)
                     if _slof_all_cross:
                         try:
                             _slof_rows = conn.execute(
