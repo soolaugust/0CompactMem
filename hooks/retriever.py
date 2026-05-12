@@ -8207,14 +8207,21 @@ def main():
                                   session_id=session_id, project=project)
                     top_k = []
                     # iter1525: sparse_local_priority — sparse 项目 floor_gate 全灭时注入本地知识
+                    # iter1605: conn_independence — 用独立连接避免 LITE 路径 conn 已关闭导致静默失败
+                    # 根因（数据驱动，2026-05-12）：git:78dc99a5695f 5月11日 2 次空召回 ftrace 均无
+                    #   iter1525/iter1568 日志。LITE 路径 conn 在 FTS 阶段后可能被 close/重用，
+                    #   导致 conn.execute() 抛 ProgrammingError 被 except pass 吞掉。
                     if _local_sparse:
                         try:
-                            _slp_rows = conn.execute(
+                            import sqlite3 as _slp1605
+                            _slp_conn = _slp1605.connect(str(STORE_DB))
+                            _slp_rows = _slp_conn.execute(
                                 "SELECT id, summary, content, chunk_type, importance "
                                 "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                                 "ORDER BY importance DESC LIMIT 1",
                                 (project,)
                             ).fetchall()
+                            _slp_conn.close()
                             if _slp_rows:
                                 _slp_c = {"id": _slp_rows[0][0], "summary": _slp_rows[0][1],
                                           "content": _slp_rows[0][2], "chunk_type": _slp_rows[0][3] or "",
@@ -8227,13 +8234,11 @@ def main():
                                               session_id=session_id, project=project)
                         except Exception:
                             pass
-                    # iter1599: floor_gate_pre_suppress_rescue — 非 sparse 项目 floor_gate 全灭兜底
-                    # 根因（数据驱动，2026-05-12）：58% 空召回率。75-chunk 库(memory-os)
-                    #   suppress 全灭 → fallback 恢复 → sat_floor strip _fallback_protected →
-                    #   floor_gate 全灭。iter1525 仅保护 _local_sparse，中型库无兜底。
-                    # 修复：从 _pre_suppress_top_k 选 importance 最高的本地 chunk（已通过 FTS 语义匹配），
-                    #   score=_score_floor 确保通过 floor_gate 且不影响正常竞争。
-                    elif not top_k and _pre_suppress_top_k:
+                    # iter1599: floor_gate_pre_suppress_rescue — floor_gate 全灭兜底
+                    # iter1605: elif→if — sparse 项目 iter1525 失败后也应走此兜底
+                    # 根因（数据驱动，2026-05-12）：原 elif 结构导致 _local_sparse=True 时
+                    #   iter1525 静默失败后直接跳过 iter1599 → 空召回无兜底。
+                    if not top_k and _pre_suppress_top_k:
                         _fgr_local = [(s, c) for s, c in _pre_suppress_top_k
                                       if c.get("project") == project]
                         if not _fgr_local:
