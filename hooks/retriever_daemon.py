@@ -6154,6 +6154,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 or (_sat_floor_ac(c) >= _LOCAL_SAT_AC_THRESH
                     and s < _GLOBAL_SAT_FLOOR)
             ) else (0.0, c) for s, c in top_k]
+        # iter1630: cross_project_only_floor_raise — daemon 同步 retriever.py iter1621
+        # 根因（数据驱动，2026-05-12）：local>0 但 top_k 无本地 match 时 floor=0.05，
+        #   跨项目低分噪声（score=0.01~0.05）通过 daemon 路径注入。
+        # 修复：top_k 无当前项目 chunk 时 floor 提升到 0.15。
+        if top_k and _score_floor < 0.15 and _local_chunk_count_d > 0:
+            if not any(_sat_floor_proj(c) == project for _, c in top_k):
+                _score_floor = 0.15
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
             if _sf_above:
