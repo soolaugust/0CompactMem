@@ -4842,6 +4842,10 @@ def main():
                 # iter1607: sync iter1602 — HD 路径 local=0 floor 对齐
                 if _local_chunk_count == 0 and _sf_hd < 0.15:
                     _sf_hd = 0.15
+                # iter1621: sync cross_project_only_floor_raise — HD 路径
+                if _sf_hd < 0.15 and _local_chunk_count > 0 and top_k:
+                    if not any(c.get("project") == project for _, c in top_k):
+                        _sf_hd = 0.15
                 if _db_chunk_count > 5:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
@@ -8160,6 +8164,17 @@ def main():
                     return (0.0, c)
                 return (s, c)
             top_k = [_sat_floor_apply(s, c) for s, c in top_k]
+        # iter1621: cross_project_only_floor_raise — top_k 全为跨项目时提升 floor
+        # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(local=2,db=11) floor=0.05，
+        #   但 2 条 local chunk 与当前 query 不匹配，top_k 全是跨项目 chunk(score=0.01~0.05)。
+        #   _local_chunk_count=2 导致 iter1602(local=0) 不触发，低分跨项目噪声放行。
+        #   MTK ALB(score=0.05) 和 feishu CLI(score=0.01) 注入到 memory-os Python 开发 session。
+        # 修复：top_k 无当前项目 chunk 时 floor 提升到 0.15，
+        #   因为 FTS5 无 local match = query 与本项目知识库不相关，跨项目低分=纯噪声。
+        if top_k and _score_floor < 0.15 and _local_chunk_count > 0:
+            _has_local_in_topk = any(c.get("project") == project for _, c in top_k)
+            if not _has_local_in_topk:
+                _score_floor = 0.15
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_pre_len = len(top_k)
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
