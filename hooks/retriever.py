@@ -5031,9 +5031,12 @@ def main():
                     context_text = "\n".join(inject_lines)
                     if len(context_text) > effective_max_chars:
                         context_text = context_text[:effective_max_chars] + "…"
-                    _write_hash(current_hash)
+                    # iter1590: post_filter_hash — hash 基于实际注入的 top_k
+                    _pf_ids_hd = sorted([c["id"] for _, c in top_k])
+                    _pf_hash_hd = hashlib.md5("|".join(_pf_ids_hd).encode()).hexdigest()[:8] if _pf_ids_hd else current_hash
+                    _write_hash(_pf_hash_hd)
                     _mark_session_injected(session_id)  # iter805
-                    _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
+                    _tlb_write(prompt_hash, _pf_hash_hd, _get_db_mtime())  # 迭代57: TLB
                     _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
                     duration_ms = _elapsed_ms()
                     # iter1393: timeline_ids 必须在 zero_score_final_gate 之前提取
@@ -9004,9 +9007,17 @@ def main():
             reason += f"|deadline_skip:{'+'.join(deadline_skipped)}"  # 迭代41
         if _iter359_dedup_count > 0:
             reason += f"|dedup:{_iter359_dedup_count}"  # 迭代359：去重计数
-        _write_hash(current_hash)
+        # iter1590: post_filter_hash — hash 基于实际注入的 top_k（suppress/floor_gate 后）
+        # 根因（数据驱动，2026-05-12）：20/132 trace 为 skipped_same_hash（主项目 100%）。
+        #   _write_hash 写 suppress 前的 current_hash → 下次 suppress 前 top_k 不变 → hash 相同
+        #   → same_hash 触发 → rotation/diversity_probe 替换后仍被 suppress 全灭 → 死循环。
+        #   修复：用实际注入的 chunk IDs 重算 hash，使 suppress 条件变化（如时间推移、7d 重置）
+        #   能自然打破 hash 锁定。
+        _post_filter_ids = sorted([c["id"] for _, c in top_k])
+        _post_filter_hash = hashlib.md5("|".join(_post_filter_ids).encode()).hexdigest()[:8] if _post_filter_ids else current_hash
+        _write_hash(_post_filter_hash)
         _mark_session_injected(session_id)  # iter805
-        _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
+        _tlb_write(prompt_hash, _post_filter_hash, _get_db_mtime())  # 迭代57: TLB
         _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
 
         output = {
