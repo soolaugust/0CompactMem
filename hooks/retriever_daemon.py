@@ -6163,6 +6163,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                               session_id=session_id, project=project)
                         except Exception:
                             pass
+                    # iter1599: floor_gate_pre_suppress_rescue — 非 sparse 项目 floor_gate 全灭兜底
+                    elif not top_k and _pre_suppress_top_k:
+                        _fgr_local_d = [(s, c) for s, c in _pre_suppress_top_k
+                                        if (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") == project]
+                        if not _fgr_local_d:
+                            _fgr_local_d = [(s, c) for s, c in _pre_suppress_top_k]
+                        _fgr_best_d = max(_fgr_local_d,
+                                          key=lambda x: (x[1][_CI_IMP] if isinstance(x[1], (list, tuple)) and len(x[1]) > _CI_IMP else 0))
+                        _fgr_id = _fgr_best_d[1][_CI_ID] if isinstance(_fgr_best_d[1], (list, tuple)) else _fgr_best_d[1].get("id", "")
+                        _fallback_protected_ids.add(_fgr_id)
+                        top_k = [(_score_floor, _fgr_best_d[1])]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter1599_floor_gate_pre_suppress_rescue: "
+                                      f"id={_fgr_id[:12]} project={project}",
+                                      session_id=session_id, project=project)
 
         # ── iter975: output_monopoly_filter — 最终输出前去垄断（single control point）──
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。

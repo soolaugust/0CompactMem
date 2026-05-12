@@ -8179,6 +8179,26 @@ def main():
                                               session_id=session_id, project=project)
                         except Exception:
                             pass
+                    # iter1599: floor_gate_pre_suppress_rescue — 非 sparse 项目 floor_gate 全灭兜底
+                    # 根因（数据驱动，2026-05-12）：58% 空召回率。75-chunk 库(memory-os)
+                    #   suppress 全灭 → fallback 恢复 → sat_floor strip _fallback_protected →
+                    #   floor_gate 全灭。iter1525 仅保护 _local_sparse，中型库无兜底。
+                    # 修复：从 _pre_suppress_top_k 选 importance 最高的本地 chunk（已通过 FTS 语义匹配），
+                    #   score=_score_floor 确保通过 floor_gate 且不影响正常竞争。
+                    elif not top_k and _pre_suppress_top_k:
+                        _fgr_local = [(s, c) for s, c in _pre_suppress_top_k
+                                      if c.get("project") == project]
+                        if not _fgr_local:
+                            _fgr_local = [(s, c) for s, c in _pre_suppress_top_k]
+                        _fgr_best = max(_fgr_local,
+                                        key=lambda x: x[1].get("importance", 0))
+                        _fgr_best[1]["_fallback_protected"] = True
+                        top_k = [(_score_floor, _fgr_best[1])]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1599_floor_gate_pre_suppress_rescue: "
+                                      f"id={_fgr_best[1].get('id','')[:12]} "
+                                      f"imp={_fgr_best[1].get('importance',0):.2f}",
+                                      session_id=session_id, project=project)
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）
