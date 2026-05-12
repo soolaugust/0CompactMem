@@ -5441,14 +5441,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _rt663d_7d.get(c[_CI_ID], 0) >= 3:
                             return False
                     return True
+                # iter1580: fallback_protected_final_gate_bypass — sync retriever.py
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
-                             if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
+                             if c[_CI_ID] in _fallback_protected_ids
+                             or (_rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                              and _rt663d_24h.get(c[_CI_ID], 0) < _d1020_24h_thresh(s, c)
                              # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                              and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)
-                             and _d1273_lifetime_ok(c)]  # iter1273
+                             and _d1273_lifetime_ok(c))]  # iter1273
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "

@@ -3242,7 +3242,7 @@ def main():
                         #   Android诊断核心(ac=5,dc) 7d=3<5 通过。dc 语义泛化匹配广，
                         #   ac>=5 用户已内化，第 4 次注入零边际价值，挤占领域特定知识注入位。
                         # 修复：dc ac>=5 阈值额外 -1，tiny_db 5→4, small_db 3→2。
-                        if c.get("chunk_type") == "design_constraint":
+                        if chunk.get("chunk_type") == "design_constraint":
                             _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
                     # iter1143: local_mid_saturated_suppress — ac>=4 本项目 chunk 7d 阈值 -1
                     # iter1276: ac4_7d_tighten — ac>=4 统一用 max(2, thresh-2)
@@ -4427,13 +4427,15 @@ def main():
                         if _r7d >= 3:
                             return False
                     return True
+                # iter1580: fallback_protected_final_gate_bypass — hard_deadline path sync
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
+                         if c.get("_fallback_protected")
+                         or (_recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
                          and _recent_24h_counts.get(c["id"], 0) < _hd1019_24h_thresh(s, c)
                          # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                          # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                          and _recent_7d_counts.get(c["id"], 0) < _hd905_7d_thresh(s, c)
-                         and _hd1273_lifetime_ok(c)]  # iter1273
+                         and _hd1273_lifetime_ok(c))]  # iter1273
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
             # iter1011: pair_saturated_cap — hard_deadline pair 路径同步
@@ -6722,14 +6724,21 @@ def main():
                         if _r7d >= 3:
                             return False
                     return True
+                # iter1580: fallback_protected_final_gate_bypass — fallback 选出的 chunk 不被 final_gate 清空
+                # 根因（数据驱动，2026-05-12）：iter677/792/902 fallback 选出 top_k，
+                #   但 suppress_final_gate 无 _fallback_protected 检查 → 再次清空 → 空召回。
+                #   5/6 session 6ca148eb 后半段 cands=16-59 全灭（9/14 trace），
+                #   因 fallback chunk 的 7d/lifetime 超阈值被 final_gate 二次过滤。
+                # 修复：_fallback_protected chunk 跳过 final_gate（已是最后防线，suppress 无意义）。
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
-                             if _rt663_6h.get(c["id"], 0) < _sf1139_6h_thresh(c)
+                             if c.get("_fallback_protected")
+                             or (_rt663_6h.get(c["id"], 0) < _sf1139_6h_thresh(c)
                              and _rt663_24h.get(c["id"], 0) < _sf1020_24h_thresh(s, c)
                              # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
                              and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)
-                             and _sf1273_lifetime_ok(c)]  # iter1273
+                             and _sf1273_lifetime_ok(c))]  # iter1273
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
