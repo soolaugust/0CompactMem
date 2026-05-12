@@ -4992,8 +4992,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   floor_gate(L6093) 重算 _score_floor=0.12 → 0.084<0.12 被二杀。
                     #   _fallback_protected_ids bypass(L6139) 失效原因待查，但 score>=floor 可彻底消除。
                     _dz_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
-                    if _local_chunk_count_d == 0 and _dz_floor < 0.15:
-                        _dz_floor = 0.15
+                    if _local_chunk_count_d == 0 and _dz_floor < 0.25:
+                        _dz_floor = 0.25
                     top_k = [(max(_sef_best[0] * 0.1, _dz_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
@@ -5006,8 +5006,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
                     # iter1618: floor_safe_inline — 同上，内联 floor 计算
                     _dz_floor2 = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
-                    if _local_chunk_count_d == 0 and _dz_floor2 < 0.15:
-                        _dz_floor2 = 0.15
+                    if _local_chunk_count_d == 0 and _dz_floor2 < 0.25:
+                        _dz_floor2 = 0.25
                     top_k = [(max(_sef_best[0] * 0.01, _dz_floor2), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter776_suppress_zero_fallback: imp={_sef_best[0]:.2f} "
@@ -6129,11 +6129,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter1541: tiny_db_score_floor_relax — sync retriever.py
         _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
         # iter1602: zero_local_cross_project_floor — local=0 项目提高 floor
-        # 数据驱动（2026-05-12）：abspath:7e3095aef7a6(local=0) 注入 mtk ALB(score=0.05)
-        #   与 memory-os 工作完全无关。local=0 时所有候选都是跨项目，信息增量低，
-        #   0.05 floor 放行了语义不相关的噪声。提升到 0.15 确保只注入真正相关的跨项目知识。
-        if _local_chunk_count_d == 0 and _score_floor < 0.15:
-            _score_floor = 0.15
+        # iter1637: zero_local_floor_raise — 0.15→0.25
+        # 数据驱动（2026-05-13）：abspath:7e3095aef7a6(local=0) 5/12 注入 4 条跨项目噪声
+        #   (migration +125%, feishu CLI, mtk ALB, git Signed-off-by)。
+        #   score 在 0.15-0.25 区间的跨项目 chunk 与 local=0 项目语义不相关，
+        #   0.25 确保只有高语义相关（score>0.25）的跨项目知识才注入。
+        if _local_chunk_count_d == 0 and _score_floor < 0.25:
+            _score_floor = 0.25
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
