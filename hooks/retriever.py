@@ -2810,6 +2810,13 @@ def main():
                 _sat_mult = max(0.2, 0.8 - 0.1 * (_acc - 5))
                 if _acc >= 10:
                     _sat_mult *= 0.5
+                # iter1604: constraint_accelerated_decay — design_constraint 加速衰减
+                # 根因（数据驱动，2026-05-12）：ac=5 design_constraint "feishu CLI"(inj=5)、
+                #   "memory 验证路径"(inj=4) 占 last-200 traces 注入 11.4%，挤占新鲜知识位。
+                #   约束类知识一旦内化（ac>=4），再注入边际价值≈0，衰减应比 decision 更激进。
+                # 修复：design_constraint + ac>=4 额外 *0.5，使 ac=5 从 0.8→0.4，ac=6 从 0.7→0.35。
+                if chunk.get("chunk_type") == "design_constraint" and _acc >= 4:
+                    _sat_mult *= 0.5
                 score *= _sat_mult
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
