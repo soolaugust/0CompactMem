@@ -5781,6 +5781,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 修复：non-global 跨项目 chunk 需 relevance >= 0.30，与 retriever.py iter1555 对齐。
                 def _fb_rel_ok_d(c):
                     _cp = c.get("project", "")
+                    # iter1628: fallback_cross_proj_dc_block — 对齐 retriever.py iter1563
+                    # 根因（数据驱动，2026-05-12）：c9accb7b(global,dc,ac=5) 被 cross_proj_constraint
+                    #   hard suppress 后，因 relevance=0.22>=0.20 经 fallback 逃逸注入。
+                    #   dc/procedure 跨项目 ac>=4 信息增量=0，fallback 不应恢复。
+                    _fac_r = c[_CI_AC] or 0
+                    _fct_r = c[_CI_CT] if len(c) > _CI_CT else ""
+                    if _cp != project and _fct_r in ("design_constraint", "procedure") and _fac_r >= 4:
+                        return False
                     if _cp == "global" and project != "global":
                         return _iter1446_rel_map.get(c[_CI_ID], 1.0) >= 0.20
                     if _cp and _cp != "global" and _cp != project:
@@ -5819,7 +5827,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   仅保留 cooldown 检查（防 14d 冷冻期内的过饱和 chunk），跳过 7d/24h ceiling。
                 if not _fb_cap and _local_sparse_d:
                     _fb_cap = sorted(
-                        [(s, c) for s, c in _pre_suppress_top_k if _fb_cooldown_ok_d(c)],
+                        [(s, c) for s, c in _pre_suppress_top_k
+                         if _fb_cooldown_ok_d(c) and _fb_rel_ok_d(c)],
                         key=lambda x: (x[1][_CI_AC] or 0, -x[0])
                     )[:2]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback

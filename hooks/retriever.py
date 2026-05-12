@@ -4685,6 +4685,10 @@ def main():
                 _fb_hd_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance_hd} if _pre_score_relevance_hd else {}
                 def _fb_hd_relevance_ok(c):
                     _cp = c.get("project", "")
+                    # iter1628: fallback_cross_proj_dc_block — dc/proc 跨项目 ac>=4 hard block
+                    _fct_hd = c.get("chunk_type", "")
+                    if _cp != project and _fct_hd in ("design_constraint", "procedure") and (c.get("access_count", 0) or 0) >= 4:
+                        return False
                     if _cp == "global" and project != "global":
                         return _fb_hd_rel_map.get(c.get("id", ""), 1.0) >= 0.20
                     # iter1555: fallback_cross_project_gate — non-global 跨项目 chunk 需 relevance >= 0.30
@@ -4723,7 +4727,8 @@ def main():
                 # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选(hard_deadline sync)
                 if not _fb_hd_cap and _local_sparse:
                     _fb_hd_cap = sorted(
-                        [(s, c) for s, c in _pre_suppress_top_k_hd if _hd_cooldown_ok(c)],
+                        [(s, c) for s, c in _pre_suppress_top_k_hd
+                         if _hd_cooldown_ok(c) and _fb_hd_relevance_ok(c)],
                         key=lambda x: (x[1].get("access_count", 0) or 0, -x[0])
                     )[:2]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
@@ -7214,6 +7219,10 @@ def main():
                 _fb_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance} if _pre_score_relevance else {}
                 def _fb_relevance_ok(c):
                     _cp = c.get("project", "")
+                    # iter1628: fallback_cross_proj_dc_block — dc/proc 跨项目 ac>=4 hard block
+                    _fct_fb = c.get("chunk_type", "")
+                    if _cp != project and _fct_fb in ("design_constraint", "procedure") and (c.get("access_count", 0) or 0) >= 4:
+                        return False
                     if _cp == "global" and project != "global":
                         return _fb_rel_map.get(c.get("id", ""), 1.0) >= 0.20
                     # iter1555: fallback_cross_project_gate — non-global 跨项目 chunk 需 relevance >= 0.30
@@ -7266,7 +7275,7 @@ def main():
                 # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选(FULL path sync)
                 if not _fb_cap and _local_sparse:
                     _fb_cap = sorted(
-                        [(s, c) for s, c in _pre_suppress_top_k],
+                        [(s, c) for s, c in _pre_suppress_top_k if _fb_relevance_ok(c)],
                         key=lambda x: (x[1].get("access_count", 0) or 0, -x[0])
                     )[:2]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
@@ -7854,6 +7863,9 @@ def main():
                     def _fb_lite_cross_ok(c):
                         _cp = c.get("project", "")
                         if _cp and _cp != "global" and _cp != project:
+                            return False
+                        # iter1628: fallback_cross_proj_dc_block — global dc/proc ac>=4 block
+                        if _cp == "global" and c.get("chunk_type", "") in ("design_constraint", "procedure") and (c.get("access_count", 0) or 0) >= 4:
                             return False
                         return True
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
