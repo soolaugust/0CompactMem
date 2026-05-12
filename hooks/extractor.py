@@ -4718,13 +4718,13 @@ def main():
         + _extract_structured_decisions(text)
     )
 
-    excluded = _extract_by_signals(text, EXCLUDED_SIGNALS)
-    reasoning = _extract_by_signals(text, REASONING_SIGNALS)
+    # iter1586: skip_ephemeral_extraction — 已全局禁用写入的类型不再提取，节省 CPU
+    excluded = []
+    reasoning = []
 
-    # v3 新增：对比句式（同时产出决策和排除）
-    comp_decisions, comp_exclusions = _extract_comparisons(text)
+    # v3 新增：对比句式（决策部分保留，排除部分丢弃——excluded_path 已全局禁用）
+    comp_decisions, _ = _extract_comparisons(text)
     decisions.extend(comp_decisions)
-    excluded.extend(comp_exclusions)
 
     # v3 新增：因果链
     # iter105: causal_chain 独立类型，不混入 reasoning_chain
@@ -4744,10 +4744,9 @@ def main():
     reasoning = _deduplicate(reasoning)
     constraints = _deduplicate(constraints)
 
-    # v4 新增：对话摘要
-    # 增强1：从 transcript 尾部额外 5 轮消息补充提取
-    _transcript_extra = _read_transcript_tail(transcript_path) if transcript_path else []
-    conv_summaries = _extract_conversation_summary(text, extra_texts=_transcript_extra)
+    # iter1586: conversation_summary 全局禁用（iter976），跳过提取
+    _transcript_extra = []
+    conv_summaries = []
 
     page_faults = _extract_page_fault_candidates(text)
 
