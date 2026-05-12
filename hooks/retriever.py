@@ -6233,10 +6233,17 @@ def main():
                 # iter641: two_phase_relevance_gate — 阈值与 constraint_ac_cap 对齐
                 # ac>15 进入陡斜率（constraint 通道比主路径更严格）
                 import math as _m609
-                if _ac <= 10:
+                # iter1646: internalized_constraint_penalty — ac>=4 开始渐进惩罚
+                # 根因（数据驱动，2026-05-13）：ac<=10 penalty=0 使 feishu CLI(ac=5),
+                #   memory验证(ac=6) 仅需 Jaccard>0.05 通过，持续注入零增量知识。
+                #   ac>=4 表示用户已见过 4+ 次，信息已内化，需更高 relevance。
+                # 公式：ac<4 无惩罚；4<=ac<=10 线性增长 0→0.10；ac>10 对数增长。
+                if _ac < 4:
                     _ac_penalty = 0.0
+                elif _ac <= 10:
+                    _ac_penalty = (_ac - 4) * 0.015
                 elif _ac <= 15:
-                    _ac_penalty = min(0.20, _m609.log1p(_ac - 10) * 0.04)
+                    _ac_penalty = 0.09 + min(0.11, _m609.log1p(_ac - 10) * 0.04)
                 else:
                     _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty

@@ -158,7 +158,7 @@ def test_sysctl_constraint_thrash_max_pct_exists():
     val = sysctl_get("retriever.constraint_thrash_max_pct")
     assert val is not None
     assert isinstance(val, float)
-    assert val == 0.40  # default
+    assert val == 0.20  # default (updated iter598)
 
 
 # ── T8: sysctl 范围合理 ──
