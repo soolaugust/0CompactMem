@@ -2931,6 +2931,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         _cc_rich = content_override and content_override.strip() != summary.strip() and len(content_override) > 200
         if not _cc_rich:
             return
+    # iter1592: dc_fragment_gate — design_constraint 碎片拦截
+    # 数据驱动（2026-05-12）：2/2 DEAD dc 的 content==summary 且 <80字，0 ACTIVE 受影响。
+    if chunk_type == "design_constraint":
+        _dc_echo = not content_override or content_override.strip() == summary.strip()
+        if _dc_echo and len(summary.strip()) < 80:
+            return
     # iter701: content_echo_gate — summary 无补充内容时拒绝写入
     # 数据驱动：6d4f68bb content=summary="选就会降级注入 1 条最佳结果"（ac=0）。
     # 根因：调用方未传 content_override，_write_chunk 自动生成 "[type] summary"，

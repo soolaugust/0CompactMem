@@ -559,6 +559,9 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # 数据驱动（2026-05-12）：19/20 causal_chain content==summary 全 DEAD。
                 if chunk_type == "causal_chain" and t.strip() == _summ950.strip():
                     continue
+                # iter1592: dc_fragment_gate (pool sync)
+                if chunk_type == "design_constraint" and t.strip() == _summ950.strip() and len(_summ950.strip()) < 80:
+                    continue
                 # iter1523: pool_thin_content_gate — 对齐 extractor.py thin_content_write_gate
                 # 根因：content==summary 且 len<100 的 chunk 无信息增量，12/15 ac=0 噪声属此类。
                 if t.strip() == _summ950.strip() and len(_summ950) < 100:
