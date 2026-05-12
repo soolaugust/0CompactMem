@@ -239,11 +239,18 @@ def test_empty_db():
 
 # ── T10: 无 bracket 前缀不参与 ──
 def test_no_bracket_excluded():
-    """没有 [bracket] 前缀的 chunks 不参与 KSM。"""
+    """没有 [bracket] 前缀且关键词不重叠的 chunks 不参与 KSM。"""
     conn = _setup_db()
-    # These have no bracket prefix → fingerprint = "" → excluded
-    for i in range(5):
-        _make_chunk(conn, summary=f"Plain text summary version {i}")
+    # iter1603: 使用完全不同主题避免 Jaccard 匹配
+    _distinct = [
+        "TCP congestion control cubic algorithm overview",
+        "React hooks useState useEffect lifecycle pattern",
+        "PostgreSQL vacuum autovacuum dead tuples bloat",
+        "Kubernetes pod scheduling affinity anti-affinity rules",
+        "WebAssembly WASI runtime sandboxing interface spec",
+    ]
+    for topic in _distinct:
+        _make_chunk(conn, summary=topic)
     conn.commit()
 
     result = ksm_scan(conn)

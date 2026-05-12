@@ -5159,9 +5159,68 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
                 "oom_adj": row[8] or 0,
             })
 
+    # ── Phase 1b: Entity+Jaccard dedup (iter1603) ──
+    # 同 project+type 下，共享核心技术实体 AND 关键词 Jaccard >= 0.15 → 语义重复
+    _JACCARD_THRESH = 0.15
+    _CJK_WORD_RE = re.compile(r'[一-鿿]+|[a-zA-Z_]\w+')
+    _ENTITY_RE = re.compile(r'\b[a-zA-Z_]+_[a-zA-Z_]+\b|[A-Z]{3,}\b')
+    _TYPE_LABELS = frozenset(('design_constraint', 'quantitative_evidence',
+                              'decision', 'procedure', 'causal_chain',
+                              'excluded_path', 'reasoning_chain', 'prompt_context'))
+
+    def _keywords(text: str) -> set:
+        return set(w.lower() for w in _CJK_WORD_RE.findall(text) if len(w) >= 2)
+
+    def _entities(text: str) -> set:
+        return set(m.lower() for m in _ENTITY_RE.findall(text) if len(m) >= 4) - _TYPE_LABELS
+
+    _fp_assigned = set()
+    for fp, chunk_list in groups.items():
+        for c in chunk_list:
+            _fp_assigned.add(c["id"])
+
+    _pt_groups = defaultdict(list)
+    for row in rows:
+        rid, summary, content = row[0], row[1] or "", row[2] or ""
+        if rid in _fp_assigned:
+            continue
+        proj, ctype = row[6] or "", row[7] or ""
+        _text = summary + " " + content[:500]
+        _pt_groups[(proj, ctype)].append({
+            "id": rid, "summary": summary, "content": content,
+            "importance": row[3] if row[3] is not None else 0.5,
+            "access_count": row[4] or 0, "created_at": row[5] or "",
+            "project": proj, "chunk_type": ctype, "oom_adj": row[8] or 0,
+            "_kw": _keywords(_text), "_ent": _entities(_text),
+        })
+
+    for key, chunks in _pt_groups.items():
+        if len(chunks) < 2:
+            continue
+        _jac_used = set()
+        for i in range(len(chunks)):
+            if chunks[i]["id"] in _jac_used:
+                continue
+            for j in range(i + 1, len(chunks)):
+                if chunks[j]["id"] in _jac_used:
+                    continue
+                a, b = chunks[i], chunks[j]
+                if not a["_kw"] or not b["_kw"]:
+                    continue
+                inter = len(a["_kw"] & b["_kw"])
+                union = len(a["_kw"] | b["_kw"])
+                if union == 0:
+                    continue
+                jacc = inter / union
+                ent_shared = a["_ent"] & b["_ent"]
+                if jacc >= _JACCARD_THRESH and len(ent_shared) >= 1:
+                    fp_key = f"jaccard:{a['id'][:8]}+{b['id'][:8]}"
+                    groups[fp_key] = [a, b]
+                    _jac_used.update({a["id"], b["id"]})
+
     # ── Phase 2: Merge Selection ──
     merge_candidates = [(fp, chunks) for fp, chunks in groups.items()
-                        if len(chunks) >= min_group_size]
+                        if len(chunks) >= (2 if fp.startswith("jaccard:") else min_group_size)]
 
     if not merge_candidates:
         result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
@@ -5189,13 +5248,15 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
         to_merge = chunks_sorted[1:]
 
         # 保护：不删除 oom_adj <= -500 (mlock) 或 access >= protect_accessed 的 chunks
+        # iter1603: Jaccard 组跳过 protect_accessed（语义重复确认，保留 survivor 即可）
+        _is_jaccard = fp.startswith("jaccard:")
         to_delete = []
         for c in to_merge:
             if total_deleted >= max_merge_per_scan:
                 break
             if c["oom_adj"] <= -500:
                 continue  # mlock protected
-            if c["access_count"] >= protect_accessed:
+            if not _is_jaccard and c["access_count"] >= protect_accessed:
                 continue  # has been accessed, might have unique value
             to_delete.append(c)
             total_deleted += 1
