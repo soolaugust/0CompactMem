@@ -472,6 +472,33 @@ def incremental_import():
         _gc_conn.commit()
     _gc_conn.close()
 
+    # iter1660: orphan_subsection_gc — 子章节 chunk 的 parent 不存在时标记 DEAD
+    # 数据驱动（2026-05-13）：import-0fe8ebc34(schedqos > 配置文件格式) ac=0 ACTIVE，
+    #   parent chunk 未被 import（不在当前 DB）。孤立子章节无上下文、无独立检索价值。
+    # 修复：summary 含 " > " 的 import chunk，检查去掉子标题后的 parent 是否存在。
+    _orp_conn = open_db()
+    ensure_schema(_orp_conn)
+    _orp_rows = _orp_conn.execute(
+        "SELECT id, summary FROM memory_chunks "
+        "WHERE id LIKE 'import-%' AND chunk_state='ACTIVE' AND summary LIKE '% > %'"
+    ).fetchall()
+    _orp_dead = 0
+    for _orp_id, _orp_summary in _orp_rows:
+        _parent_summary = _orp_summary.rsplit(" > ", 1)[0]
+        _parent_exists = _orp_conn.execute(
+            "SELECT 1 FROM memory_chunks WHERE summary LIKE ? AND chunk_state='ACTIVE' LIMIT 1",
+            (f"{_parent_summary}%",)
+        ).fetchone()
+        if not _parent_exists:
+            _orp_conn.execute(
+                "UPDATE memory_chunks SET chunk_state='DEAD' WHERE id=?", (_orp_id,))
+            _orp_dead += 1
+    if _orp_dead:
+        bump_chunk_version()
+        _orp_conn.commit()
+        gc_deleted += _orp_dead
+    _orp_conn.close()
+
     # iter1421: retroactive_doc_cap — 按 doc 分组，超 cap 的低价值 chunk 立即回收
     # 根因：per_doc_chunk_cap(iter1420) 只对新 import 生效，历史数据仍有 doc 5-8 chunk
     #   83/100 chunk 是 import，13/19 doc 超 cap → 检索信噪比极低
