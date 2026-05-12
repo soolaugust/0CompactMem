@@ -841,10 +841,10 @@ def check_negative_ac_invariant(conn: sqlite3.Connection, fix: bool = False) -> 
         elif fix:
             for cid, _ in rows:
                 conn.execute(
-                    "UPDATE memory_chunks SET access_count=0 WHERE id=?", (cid,))
+                    "UPDATE memory_chunks SET chunk_state='DEAD' WHERE id=?", (cid,))
             conn.commit()
             r.passed = True
-            r.message = f"Reset {len(rows)} ACTIVE chunks from negative ac to 0 (fix applied)"
+            r.message = f"Marked {len(rows)} ACTIVE ac<0 chunks as DEAD (fix applied)"
         else:
             r.passed = False
             r.message = f"{len(rows)} ACTIVE chunks have ac<0 (suppress/cooldown bypass)"
