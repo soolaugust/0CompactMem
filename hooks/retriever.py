@@ -9406,9 +9406,20 @@ def main():
         except Exception:
             pass  # 计数写入失败不影响已输出的结果
         # ── iter647: injection timeline write-back ──
+        # iter1650: timeline_writeback_reload — 写回前重新加载防止数据丢失
+        # 根因（数据驱动，2026-05-13）：c9accb7b(feishu CLI) 在 timeline 中丢失。
+        #   _injection_timeline 初始化为 {}（行1751），读取阶段（行1858）如因
+        #   _rc_conn 故障传导跳过，写回用 {} 覆盖文件 → 历史全量丢失。
+        # 修复：写回前若 _injection_timeline 为空，重新从文件加载后 merge。
         try:
             from datetime import datetime as _dt647w, timezone as _tz647w
             _now_ts = _dt647w.now(_tz647w.utc).isoformat()
+            if not _injection_timeline and os.path.exists(_INJECTION_TIMELINE_FILE):
+                try:
+                    with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf_reload:
+                        _injection_timeline = json.loads(_itf_reload.read()) or {}
+                except Exception:
+                    _injection_timeline = {}
             for _inj_tid in accessed_ids:
                 if _inj_tid not in _injection_timeline:
                     _injection_timeline[_inj_tid] = []
