@@ -5114,6 +5114,17 @@ def main():
                         if _nonzero:
                             top_k = _nonzero
 
+                    # iter1658: cross_project_noise_gate (LITE path)
+                    # 根因（数据驱动，2026-05-13）：10% chunk 注入 score<0.05 全来自跨项目/global。
+                    #   zero_score_final_gate 只过滤 s==0，s=0.01 的语义零相关 chunk 逃逸。
+                    #   实测：feishu CLI(0.01)、git commit SOB(0.01)、memory验证(0.00) 持续占位。
+                    # 修复：跨项目 chunk score<0.03 视为噪声剔除，保留至少 1 条避免空注入。
+                    if len(top_k) > 1:
+                        _cpng = [(s, c) for s, c in top_k
+                                 if s >= 0.03 or c.get("project") == project]
+                        if _cpng:
+                            top_k = _cpng
+
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
                     # iter1464: global_dc_7d_monopoly — sync LITE path
                     if _injection_timeline and len(top_k) > 1:
@@ -5250,6 +5261,12 @@ def main():
                     # iter1240: zero_score_final_gate — 移除 score=0 的零相关注入
                     if len(top_k) > 1:
                         top_k = [(s, c) for s, c in top_k if s > 0] or top_k[:1]
+                    # iter1658: cross_project_noise_gate (HD path)
+                    if len(top_k) > 1:
+                        _cpng_hd = [(s, c) for s, c in top_k
+                                    if s >= 0.03 or c.get("project") == project]
+                        if _cpng_hd:
+                            top_k = _cpng_hd
                     accessed_ids = [c["id"] for _, c in top_k]
                     # 迭代323: SM-2 recall_quality — 从 top_k 分数推断
                     # avg_score > 0.6 → FTS5 强命中 → quality=5
@@ -9034,6 +9051,16 @@ def main():
             _nonzero = [(s, c) for s, c in top_k if s > 0]
             if _nonzero:
                 top_k = _nonzero
+
+        # iter1658: cross_project_noise_gate (FULL path)
+        # 根因（数据驱动，2026-05-13）：10% chunk 注入 score<0.05 全来自跨项目/global。
+        #   feishu CLI(0.01)、git commit SOB(0.01) 等通用约束以近零 score 占位。
+        # 修复：跨项目 chunk score<0.03 视为噪声剔除，保留至少 1 条避免空注入。
+        if len(top_k) > 1:
+            _cpng_full = [(s, c) for s, c in top_k
+                          if s >= 0.03 or c.get("project") == project]
+            if _cpng_full:
+                top_k = _cpng_full
 
         # iter1372: final_monopoly_gate — 最终出口 48h 注入频次硬上限
         # 根因（数据驱动，2026-05-10）：7d=5 的 chunk 仍经 fallback/pair 等路径逃逸全部 suppress。
