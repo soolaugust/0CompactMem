@@ -8714,7 +8714,8 @@ def main():
                 #   7d 窗口滑动后 cnt_7d 衰减到 0→再次通过 gate→7 天周期震荡。
                 #   ac>=4 + timeline>=4 = 已充分内化，14d 冷却期防止周期性垄断。
                 _lifetime_suppress = False
-                if _is_global and _c_ac >= 4 and len(_tl) >= 4:
+                _is_dc = _c1372.get("chunk_type") == "design_constraint"
+                if (_is_global or _is_dc) and _c_ac >= 4 and len(_tl) >= 4:
                     _cut_14d = (_now_1372 - _td1372(days=14)).isoformat()
                     if any(t > _cut_14d for t in _tl):
                         _lifetime_suppress = True

@@ -4604,8 +4604,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             if c[_CI_CP] == "global" and _oac >= 4:
                                 return 3
                             return _omf_ceil_hd
+                        def _omf_lt_sup_hd(c):
+                            _ig = c[_CI_CP] == "global"
+                            _id = (c[_CI_CT] or "") == "design_constraint"
+                            if (_ig or _id) and (c[_CI_AC] or 0) >= 4:
+                                _lt = _itl_lifetime.get(c[_CI_ID])
+                                if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
+                                    return True
+                            return False
                         _omf_filt_hd = [(s, c) for s, c in top_k
-                                        if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hdf(c)]
+                                        if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hdf(c)
+                                        and not _omf_lt_sup_hd(c)]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                     # iter1013+1056: topic_group_dedup (hard_deadline path)
@@ -6163,8 +6172,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if c[_CI_CP] == "global" and _oac >= 4:
                     return 2
                 return _omf_ceiling
+            def _omf_lifetime_suppress_d(c):
+                _is_g = c[_CI_CP] == "global"
+                _is_dc = (c[_CI_CT] or "") == "design_constraint"
+                if (_is_g or _is_dc) and (c[_CI_AC] or 0) >= 4:
+                    _lt = _itl_lifetime.get(c[_CI_ID])
+                    if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
+                        return True
+                return False
             _omf_filtered = [(s, c) for s, c in top_k
-                             if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)]
+                             if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)
+                             and not _omf_lifetime_suppress_d(c)]
             if _omf_filtered:
                 if len(top_k) != len(_omf_filtered):
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
