@@ -170,6 +170,9 @@ def access_bonus(access_count: int) -> float:
     # iter831: diminishing return for over-exposed chunks
     if access_count > 8:
         ab *= 1.0 / (1.0 + (access_count - 8) * 0.1)
+    # iter1647: internalized_knowledge_decay — ac>=6 bonus 渐进归零
+    if access_count >= 6:
+        ab = max(0.0, ab - (access_count - 6) * 0.015)
     return ab
 
 
