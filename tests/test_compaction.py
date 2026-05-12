@@ -46,7 +46,7 @@ def _make_chunk(project, chunk_type, summary, importance=0.7, access_count=1):
         "project": project,
         "source_session": "test-session",
         "chunk_type": chunk_type,
-        "content": f"[{chunk_type}] {summary}",
+        "content": f"[{chunk_type}] {summary} — detailed technical explanation for testing purposes",
         "summary": summary,
         "tags": "[]",
         "importance": importance,
@@ -54,6 +54,19 @@ def _make_chunk(project, chunk_type, summary, importance=0.7, access_count=1):
         "last_accessed": now,
         "feishu_url": None,
     }
+
+
+def _raw_insert(conn, chunk_dict):
+    """直接 SQL INSERT 绕过 VFS gate（用于测试 compaction 逻辑本身）。"""
+    d = chunk_dict
+    conn.execute(
+        """INSERT INTO memory_chunks (id, created_at, updated_at, project, source_session,
+           chunk_type, content, summary, tags, importance, retrievability, last_accessed, feishu_url)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (d["id"], d["created_at"], d["updated_at"], d["project"], d["source_session"],
+         d["chunk_type"], d["content"], d["summary"], d["tags"], d["importance"],
+         d["retrievability"], d["last_accessed"], d["feishu_url"]),
+    )
 
 
 def _setup_db():
@@ -121,8 +134,8 @@ def test_2_below_min_cluster():
     project = "test-compact"
 
     chunks = [
-        _make_chunk(project, "decision", "FTS5 索引加速检索", 0.8),
-        _make_chunk(project, "decision", "FTS5 权重配置优化", 0.7),
+        _make_chunk(project, "decision", "CFS vruntime 计算使用 64bit 精度避免溢出", 0.8),
+        _make_chunk(project, "decision", "CFS load_weight 映射表使用 sched_prio_to_weight 数组", 0.7),
     ]
     for c in chunks:
         insert_chunk(conn, c)
@@ -141,15 +154,15 @@ def test_3_excluded_types():
     conn, db_path = _setup_db()
     project = "test-compact"
 
-    # task_state chunks 不参与 compaction
+    # task_state/prompt_context 不参与 compaction（用 _raw_insert 绕过 VFS gate）
     chunks = [
-        _make_chunk(project, "task_state", "BM25 任务状态1", 0.8),
-        _make_chunk(project, "task_state", "BM25 任务状态2", 0.7),
-        _make_chunk(project, "task_state", "BM25 任务状态3", 0.6),
-        _make_chunk(project, "prompt_context", "BM25 用户话题", 0.5),
+        _make_chunk(project, "task_state", "CPU affinity 绑核策略1", 0.8),
+        _make_chunk(project, "task_state", "CPU affinity 绑核策略2", 0.7),
+        _make_chunk(project, "task_state", "CPU affinity 绑核策略3", 0.6),
+        _make_chunk(project, "prompt_context", "CPU affinity 用户话题", 0.5),
     ]
     for c in chunks:
-        insert_chunk(conn, c)
+        _raw_insert(conn, c)
     conn.commit()
 
     result = compact_zone(conn, project)
@@ -166,13 +179,15 @@ def test_4_cross_type_cluster():
     project = "test-compact"
 
     chunks = [
-        _make_chunk(project, "decision", "scorer.py 统一评分引擎设计", 0.85, 3),
-        _make_chunk(project, "reasoning_chain", "scorer.py 消除三份重复评分实现", 0.80, 2),
-        _make_chunk(project, "decision", "scorer.py retention_score 四维公式", 0.75, 1),
-        _make_chunk(project, "conversation_summary", "scorer.py 5/5 测试通过", 0.65, 1),
+        _make_chunk(project, "decision", "cpufreq schedutil governor 选频策略设计", 0.85, 3),
+        _make_chunk(project, "decision", "cpufreq schedutil 消除 iowait boost 误触发", 0.80, 2),
+        _make_chunk(project, "decision", "cpufreq schedutil 频率更新周期 4ms 约束", 0.75, 1),
     ]
+    # conversation_summary 被 VFS ephemeral gate 拦截，用 _raw_insert
+    extra = _make_chunk(project, "quantitative_evidence", "cpufreq schedutil 5 场景全部达标", 0.65, 1)
     for c in chunks:
         insert_chunk(conn, c)
+    _raw_insert(conn, extra)
     conn.commit()
 
     result = compact_zone(conn, project)
@@ -194,7 +209,7 @@ def test_5_quota_freed():
 
     # 创建 6 个相关 chunk
     for i in range(6):
-        c = _make_chunk(project, "decision", f"kswapd 水位线策略 变体{i}", 0.7 + i * 0.02)
+        c = _make_chunk(project, "decision", f"EEVDF 虚拟截止时间调度 变体{i}", 0.7 + i * 0.02)
         insert_chunk(conn, c)
     conn.commit()
 
@@ -256,9 +271,9 @@ def test_8_entity_extraction():
 
     # 含反引号、文件路径、中文双字词的 chunk
     chunks = [
-        _make_chunk(project, "decision", "`retriever.py` 使用 FTS5 索引检索", 0.8),
-        _make_chunk(project, "decision", "retriever.py 召回 Top-K 优化策略", 0.7),
-        _make_chunk(project, "decision", "retriever.py FTS5 降级 fallback 机制", 0.75),
+        _make_chunk(project, "decision", "`thermal_core.py` 使用 PID 控制散热策略", 0.8),
+        _make_chunk(project, "decision", "thermal_core.py 温度采样周期 500ms 约束", 0.7),
+        _make_chunk(project, "decision", "thermal_core.py 降频阶梯按功耗曲线配置", 0.75),
     ]
     for c in chunks:
         insert_chunk(conn, c)
@@ -267,7 +282,7 @@ def test_8_entity_extraction():
     result = compact_zone(conn, project)
     conn.commit()
 
-    # 应该发现聚类（共享 "retriever.py" 和 "FTS5"）
+    # 应该发现聚类（共享 "thermal_core.py"）
     assert result["clusters_found"] >= 1, f"Expected entity-based cluster, got {result}"
 
     print(f"  T8 PASS: entity extraction works, clusters={result['clusters_found']}")
