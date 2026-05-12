@@ -4333,10 +4333,21 @@ def main():
                         if c.get("chunk_type") == "design_constraint":
                             return 4
                         return 7
+                    # iter1654: hd_fallback_7d_suppress_align — HD 路径对齐 FULL/daemon 的 7d 检查
+                    # 根因（代码审查，2026-05-13）：iter1653 只在 FULL 路径和 daemon 加了
+                    #   _fb_7d_ok，HD dead_zone_fallback 漏掉 → 7d 达阈值 chunk 仍可经 HD 逃逸。
+                    def _fb_7d_ok_hd(c):
+                        _cid = c.get("id", "")
+                        _7d = _recent_7d_counts.get(_cid, 0)
+                        _t = 5 if _db_chunk_count < 50 else 3
+                        if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                            _t = max(2, _t - 1)
+                        return _7d < _t
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if (c.get("access_count", 0) or 0) < 30
                                    and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                            and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
+                                            and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))
+                                   and _fb_7d_ok_hd(c)]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
@@ -8293,8 +8304,13 @@ def main():
         # 修复：top_k 无当前项目 chunk 时 floor 提升到 0.15，
         #   因为 FTS5 无 local match = query 与本项目知识库不相关，跨项目低分=纯噪声。
         if top_k and _score_floor < 0.15 and _local_chunk_count > 0:
+            # iter1655: cross_floor_fallback_exempt — _fallback_protected chunk 不计入"全跨项目"判定
+            # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(1 local, db=10) dead_zone_fallback
+            #   恢复跨项目 chunk(score=0.084) + pair，floor 被提到 0.15 → 全灭 → 100% 空召回。
+            #   fallback 恢复的 chunk 已是兜底路径，floor_raise 二次杀死 = fallback 形同虚设。
             _has_local_in_topk = any(c.get("project") == project for _, c in top_k)
-            if not _has_local_in_topk:
+            _has_protected_in_topk = any(c.get("_fallback_protected") for _, c in top_k)
+            if not _has_local_in_topk and not _has_protected_in_topk:
                 _score_floor = 0.15
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_pre_len = len(top_k)
