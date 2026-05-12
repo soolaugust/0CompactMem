@@ -6237,15 +6237,21 @@ def main():
                 # 根因（数据驱动，2026-05-13）：ac<=10 penalty=0 使 feishu CLI(ac=5),
                 #   memory验证(ac=6) 仅需 Jaccard>0.05 通过，持续注入零增量知识。
                 #   ac>=4 表示用户已见过 4+ 次，信息已内化，需更高 relevance。
-                # 公式：ac<4 无惩罚；4<=ac<=10 线性增长 0→0.10；ac>10 对数增长。
+                # iter1648: ac_penalty_steepen — 0.015→0.025 斜率
+                # 根因（数据驱动，2026-05-13）：ac=5 penalty=0.015, ac=6 penalty=0.030
+                #   memory验证(ac=6,同项目) Jaccard≈0.10 通过 eff_min_rel=0.080（过低）。
+                #   feishu CLI(ac=5) 在 memory-os 项目 Jaccard≈0.08 通过 eff=0.065。
+                #   ac>=5 用户已见 5+ 次，信息完全内化，需更高 relevance 才值得再注入。
+                # 修复：斜率 0.015→0.025；ac=5→0.025, ac=6→0.050, ac=9→0.125。
+                #   ac>10 段调整基准保持连续（0.15 + log）。
                 if _ac < 4:
                     _ac_penalty = 0.0
                 elif _ac <= 10:
-                    _ac_penalty = (_ac - 4) * 0.015
+                    _ac_penalty = (_ac - 4) * 0.025
                 elif _ac <= 15:
-                    _ac_penalty = 0.09 + min(0.11, _m609.log1p(_ac - 10) * 0.04)
+                    _ac_penalty = 0.15 + min(0.10, _m609.log1p(_ac - 10) * 0.05)
                 else:
-                    _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
+                    _ac_penalty = 0.25 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
                 # iter856: global_chunk_relevance_floor — global chunk 跨项目注入需更高相关性
                 # 根因（数据驱动，2026-05-05）：feishu CLI (global) 在 kernel 项目中
