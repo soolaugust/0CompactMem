@@ -5161,6 +5161,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sef_best = max(final, key=_SORT_KEY)
                     if _sef_best[0] >= _FALLBACK_NOISE_FLOOR_LATE:
                         top_k = [_sef_best]
+                        _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                         _deferred.log(DMESG_WARN, "retriever_daemon",
                                       f"iter689_score_empty_fallback: all scored out, "
                                       f"fallback best={_sef_best[1][_CI_ID][:12]} s={_sef_best[0]:.4f}",
@@ -5183,6 +5184,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _spf_candidates:
                         _spf_best = max(_spf_candidates, key=lambda x: x[0])
                         top_k = [(_spf_best[0], _spf_best[1])]
+                        _fallback_protected_ids.add(_spf_best[1][_CI_ID])
                         _deferred.log(DMESG_WARN, "retriever_daemon",
                                       f"iter694_suppress_pierce_fallback: all suppressed, "
                                       f"pierce best={_spf_best[1][_CI_ID][:12]} imp={_spf_best[0]:.2f}",
@@ -5195,6 +5197,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _epf.sort(key=lambda x: (x[1], -x[0]))
                             _epf_best = _epf[0]
                             top_k = [(_epf_best[0], _epf_best[2])]
+                            _fallback_protected_ids.add(_epf_best[2][_CI_ID])
                             _deferred.log(DMESG_WARN, "retriever_daemon",
                                           f"iter1392_exhaust_pierce: 7d_min={_epf_best[1]} "
                                           f"imp={_epf_best[0]:.2f} id={_epf_best[2][_CI_ID][:12]}",
