@@ -5532,6 +5532,14 @@ def main():
                                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
                                 and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
             if _pair_candidates:
+                # iter1585: pair_topic_diversity — 优先选不同 topic 的 pair 避免被 topic_group_dedup 抹杀
+                _top1_sum = (positive[0][1].get("summary") or "")
+                _top1_tg = _top1_sum.split("]")[0] + "]" if _top1_sum.startswith("[") and "]" in _top1_sum else None
+                if _top1_tg:
+                    _cross_topic = [(s, c) for s, c in _pair_candidates
+                                    if not (c.get("summary") or "").startswith(_top1_tg)]
+                    if _cross_topic:
+                        _pair_candidates = _cross_topic
                 _pair_best = max(_pair_candidates, key=lambda x: x[0])
                 positive.append(_pair_best)
                 _deferred.log(DMESG_DEBUG, "retriever",
@@ -5554,6 +5562,12 @@ def main():
                               # iter1027: fallback_24h_align — global ac>=4 阈值=1
                               and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
                 if _imp_pairs:
+                    # iter1585: pair_topic_diversity — sync imp_pair path
+                    if _top1_tg:
+                        _imp_cross = [(i, c) for i, c in _imp_pairs
+                                      if not (c.get("summary") or "").startswith(_top1_tg)]
+                        if _imp_cross:
+                            _imp_pairs = _imp_cross
                     _imp_best = max(_imp_pairs, key=lambda x: x[0])
                     # iter941: imp_pair_top1_gate — top1 score 过低时不配对
                     # 根因（数据驱动，2026-05-06）：12 条 score<0.10 注入中 8 条来自 imp_pair，
@@ -5588,6 +5602,14 @@ def main():
                          and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
                          and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
             if _rp_cands:
+                # iter1585: pair_topic_diversity — sync relevance_pair path
+                _rp_top1_sum = (positive[0][1].get("summary") or "")
+                _rp_tg = _rp_top1_sum.split("]")[0] + "]" if _rp_top1_sum.startswith("[") and "]" in _rp_top1_sum else None
+                if _rp_tg:
+                    _rp_cross = [(r, c) for r, c in _rp_cands
+                                 if not (c.get("summary") or "").startswith(_rp_tg)]
+                    if _rp_cross:
+                        _rp_cands = _rp_cross
                 _rp_best = max(_rp_cands, key=lambda x: x[0])
                 _rp_score = positive[0][0] * 0.35
                 positive.append((_rp_score, _rp_best[1]))
