@@ -4570,7 +4570,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if top_k:
                 # iter919: score_floor_gate_hd — hard_deadline 路径 score_floor 保护（同步 retriever.py）
                 # iter1517: daemon_small_db_floor_sync (hd path)
-                _sf_hd = 0.08 if _db_chunk_count < 50 else 0.12
+                # iter1574: hd_tiny_db_floor_sync — 同步 retriever.py iter1541 三级 floor
+                # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(_db_chunk_count=18<20)
+                #   HD 路径 floor=0.08 拦截 score=0.05~0.07 的有效本地候选。
+                #   retriever.py HD(line 4718) 已有 <20→0.05，daemon 此处遗漏未同步。
+                _sf_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                 if _db_chunk_count > 5:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
