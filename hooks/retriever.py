@@ -3038,12 +3038,15 @@ def main():
             #   与 memory-os 迭代工作 topic 完全不匹配，但因 project 相同不触发跨项目降权。
             #   FTS5 "注入"一词同时匹配 "vendor 注入"(kernel) 和 "注入垄断"(memory-os)。
             # 修复：ac>=4 同项目非 global chunk，summary 与 query 内容词 overlap=0 → score*=0.3
+            # iter1613: topic_mismatch_ac_lower — ac 门槛 4→3
+            # 数据驱动（2026-05-12）：ac=3 chunk（DSQ、PE LKMM）已被 agent 内化 3 次，
+            #   topic 完全不匹配时信息增量极低。ac=3+overlap=0 → 降权防止噪声占位。
+            #   global chunk 不受影响（_cd_is_global 跳过）。
             if (not _hard_suppressed and not _cd_is_cross_project and not _cd_is_global
-                    and _acc >= 4 and _query_content_words and score > 0):
+                    and _acc >= 3 and _query_content_words and score > 0):
                 _tm_summary = (chunk.get("summary") or "").lower()
-                import re as _re_tm
                 _tm_words = set(
-                    w for w in _re_tm.sub(r'[^\w一-鿿]', ' ', _tm_summary).split()
+                    w for w in re.sub(r'[^\w一-鿿]', ' ', _tm_summary).split()
                     if len(w) >= 2
                 )
                 if _tm_words and len(_query_content_words & _tm_words) == 0:
