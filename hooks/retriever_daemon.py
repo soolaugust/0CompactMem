@@ -3849,9 +3849,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _ac_sc = chunk[_CI_AC] or 0
                 _ct_sc = chunk[_CI_CT] if len(chunk) > _CI_CT else ""
                 _is_cl_sc = _ct_sc in ("design_constraint", "procedure")
-                _xp_floor_sc = 4 if (_cp_sc == "global" or _is_cl_sc) else 7
+                # iter1666: cross_proj_general_suppress_tighten — sync retriever.py
+                _xp_floor_sc = 4 if (_cp_sc == "global" or _is_cl_sc) else 5
                 if _ac_sc >= _xp_floor_sc:
-                    if _cp_sc == "global" or _is_cl_sc:
+                    if _cp_sc == "global" or _is_cl_sc or _ac_sc >= 5:
                         score = 0.0
                     else:
                         score *= 0.4

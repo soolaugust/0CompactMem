@@ -3068,13 +3068,17 @@ def main():
             #   design_constraint 本质是通用规则，跨项目注入信息增量≈0，应与 global 同等对待。
             _cd_ctype = chunk.get("chunk_type", "")
             _cd_is_constraint_like = _cd_ctype in ("design_constraint", "procedure")
-            _cross_proj_floor = 4 if (_cd_is_global or _cd_is_constraint_like) else 7
+            # iter1666: cross_proj_general_suppress_tighten — 非 constraint 跨项目 floor 7→5
+            # 根因（数据驱动，2026-05-13）：51d2a345(quantitative_evidence,ac=7) kernel→memory-os
+            #   score*=0.4=0.05 经 suppress_fallback 恢复注入。ac>=5 跨项目信息增量=0。
+            _cross_proj_floor = 4 if (_cd_is_global or _cd_is_constraint_like) else 5
             if not _hard_suppressed and _cd_is_cross_project and _acc >= _cross_proj_floor:
                 # iter1572: cross_proj_constraint_hard_suppress — 降权→hard suppress
                 # 根因（数据驱动，2026-05-12）：93cbc985(memory验证,ac=6,dc) 经 *0.4 降权后
                 #   score=0.08 仍被 suppress_fallback 恢复注入到 kernel 项目 2 次。
                 #   跨项目已内化知识(ac>=4) 信息增量=0，降权不够需 hard suppress。
-                if _cd_is_global or _cd_is_constraint_like:
+                # iter1666: 统一 hard suppress — 非 constraint ac>=5 跨项目同样 hard suppress
+                if _cd_is_global or _cd_is_constraint_like or _acc >= 5:
                     score = 0.0
                     _hard_suppressed = True
                 else:
