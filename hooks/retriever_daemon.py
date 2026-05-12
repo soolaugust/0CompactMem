@@ -5092,6 +5092,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _eff_min_rel_d = _constraint_min_rel + _ac_penalty
                 if c.get("project") == "global":
                     _eff_min_rel_d += 0.05
+                # iter1596: cross_project_local_dc_relevance_floor (sync retriever.py)
+                elif c.get("project", "") not in ("", "global") and c.get("project") != project:
+                    _eff_min_rel_d += 0.08
                 if _rel < _eff_min_rel_d:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct

@@ -6078,6 +6078,15 @@ def main():
                 #   feishu CLI/memory 验证 在非相关项目中 Jaccard<0.10（被拦截）。
                 if c.get("project") == "global":
                     _eff_min_rel += 0.05
+                # iter1596: cross_project_local_dc_relevance_floor — 非 global 跨项目 chunk relevance 门槛
+                # 根因（数据驱动，2026-05-12）：93cbc985(memory验证,ac=6,proj=git:a0ab16e8cafc)
+                #   在 git:a4ee2fcfacc4(kernel) 中 Jaccard≈0.05 偶然词重叠通过 min_rel gate，
+                #   4 次跨项目注入（5/4,5/5,5/6×2）。global chunk 有 +0.05 floor，但非 global
+                #   跨项目 chunk 无此保护——它们是项目特定约束，跨项目信息增量更低。
+                # 修复：non-global cross-project chunk → +0.08 floor（比 global +0.05 更严）。
+                #   项目特定知识跨项目使用需要更强语义关联才值得注入。
+                elif c.get("project", "") not in ("", "global") and c.get("project") != project:
+                    _eff_min_rel += 0.08
                 # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
                 if _rel < _eff_min_rel:
                     return False
