@@ -6526,6 +6526,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ri = _sat_floor_ac(c)
                 return _ri
             _sat_mid_thresh = 5
+            # iter1754: lifetime_suppress_tier — sync retriever.py
+            _LIFETIME_SAT_FLOOR = 0.50
             def _sat_hit_d(s, c):
                 # iter1567 sync: sparse 项目本地 chunk 豁免 sat_floor
                 if _local_sparse_d and _sat_floor_proj(c) == project:
@@ -6535,7 +6537,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _is_dc = _ct_d == "design_constraint" or _ct_d == "quantitative_evidence"
                 _ri = _sat_real_inj_d(c)
                 return (
-                    (_is_dc and _ri >= 4 and s < _GLOBAL_SAT_FLOOR)
+                    (_ri >= 8 and s < _LIFETIME_SAT_FLOOR)
+                    or (_is_dc and _ri >= 4 and s < _GLOBAL_SAT_FLOOR)
                     or (_ri >= _sat_mid_thresh and s < _GLOBAL_SAT_FLOOR
                         and _db_chunk_count < 50)
                     or (_ri >= _LOCAL_SAT_AC_THRESH and s < _GLOBAL_SAT_FLOOR))
