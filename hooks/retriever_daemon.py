@@ -3880,8 +3880,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _tm_w and len(_query_content_words & _tm_w) == 0:
                     _tm_ct = chunk[_CI_CT] if len(chunk) > _CI_CT else ""
                     _tm_ac = chunk[_CI_AC] or 0
-                    # iter1727: topic_mismatch_thresh_lower — ac>=4 也 hard suppress (sync retriever.py)
-                    if _tm_ct != "design_constraint" and _tm_ac >= 4:
+                    # iter1727: topic_mismatch_thresh_lower — ac>=4 或 (ac>=3+历史注入>=5) hard suppress
+                    _tm_tl_cnt = _itl_lifetime.get(chunk[_CI_ID], (0,))[0] if _itl_lifetime else 0
+                    if _tm_ct != "design_constraint" and (_tm_ac >= 4 or (_tm_ac >= 3 and _tm_tl_cnt >= 5)):
                         score = 0.0
                     else:
                         score *= 0.6 if _tm_ct == "design_constraint" else 0.3
@@ -4135,8 +4136,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _tm_sd = (chunk.get("summary") or "").lower()
                 _tm_wd = set(w for w in _RE_NON_WORD.sub(' ', _tm_sd).split() if len(w) >= 2)
                 if _tm_wd and len(_query_content_words & _tm_wd) == 0:
-                    # iter1727: topic_mismatch_thresh_lower — ac>=4 也 hard suppress (sync retriever.py)
-                    if chunk.get("chunk_type") != "design_constraint" and _ac >= 4:
+                    # iter1727: topic_mismatch_thresh_lower — ac>=4 或 (ac>=3+历史注入>=5) hard suppress
+                    _tm_tl_cnt2 = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
+                    if chunk.get("chunk_type") != "design_constraint" and (_ac >= 4 or (_ac >= 3 and _tm_tl_cnt2 >= 5)):
                         score = 0.0
                     else:
                         score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
