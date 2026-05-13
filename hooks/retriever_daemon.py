@@ -4893,6 +4893,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                         _tgd_np_hd[_matched] = (_cid, _ctype, _ctoks)
                         if _tgd_res_hd and len(_tgd_res_hd) < len(top_k):
                             top_k = _tgd_res_hd
+                    # iter1743: final_chunk_id_dedup (daemon HD path)
+                    _seen_dd_dh = {}
+                    for _s_ddh, _c_ddh in top_k:
+                        _cid_ddh = _c_ddh[_CI_ID]
+                        if _cid_ddh not in _seen_dd_dh or _s_ddh > _seen_dd_dh[_cid_ddh][0]:
+                            _seen_dd_dh[_cid_ddh] = (_s_ddh, _c_ddh)
+                    if len(_seen_dd_dh) < len(top_k):
+                        top_k = list(_seen_dd_dh.values())
                     # iter238: _TYPE_PREFIX hoisted to module level (was local dict, 0.356us → 0.128us)
                     inject_lines = ["【相关历史记录（BM25 召回）】"]
                     constraint_items, normal_items = [], []
@@ -6891,6 +6899,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = _ocg_filtered_d
 
         # ── Build context text ──
+        # iter1743: final_chunk_id_dedup (daemon FULL path)
+        _seen_dd_df = {}
+        for _s_ddf, _c_ddf in top_k:
+            _cid_ddf = _c_ddf[_CI_ID]
+            if _cid_ddf not in _seen_dd_df or _s_ddf > _seen_dd_df[_cid_ddf][0]:
+                _seen_dd_df[_cid_ddf] = (_s_ddf, _c_ddf)
+        if len(_seen_dd_df) < len(top_k):
+            top_k = list(_seen_dd_df.values())
         # iter238: _TYPE_PREFIX now module-level constant (see definition near _CONSTRAINT_RE)
         # iter238: _conf_tag removed — dead code (inlined at usage site since iter214)
         constraint_items, normal_items = [], []

@@ -5385,6 +5385,17 @@ def main():
                                           f"iter1558_type_diversity_cap_hd: drop {_c1558h.get('id','')[:12]} type={_ct1558h}",
                                           session_id=session_id, project=project)
                     top_k = _type_div_result_hd
+                    # iter1743: final_chunk_id_dedup (HD path sync)
+                    _seen_cid_dd_hd = {}
+                    for _s_ddh, _c_ddh in top_k:
+                        _cid_ddh = _c_ddh.get("id", "")
+                        if _cid_ddh not in _seen_cid_dd_hd or _s_ddh > _seen_cid_dd_hd[_cid_ddh][0]:
+                            _seen_cid_dd_hd[_cid_ddh] = (_s_ddh, _c_ddh)
+                    if len(_seen_cid_dd_hd) < len(top_k):
+                        _deferred.log(DMESG_INFO, "retriever",
+                                      f"iter1743_final_dedup_hd: {len(top_k)}->{len(_seen_cid_dd_hd)}",
+                                      session_id=session_id, project=project)
+                        top_k = list(_seen_cid_dd_hd.values())
                     constraint_items = []
                     normal_items = []
                     hard_deadline_forced = False
@@ -9573,6 +9584,19 @@ def main():
                               f"iter1558_type_diversity_cap: drop {_c1558.get('id','')[:12]} type={_ct1558} ({_type_div_seen[_ct1558]}>{_cap1558})",
                               session_id=session_id, project=project)
         top_k = _type_div_result
+
+        # iter1743: final_chunk_id_dedup — top_k 中同一 chunk_id 可能出现多次（主路径+fallback/pair）
+        # 保留最高 score 的 entry，消除重复注入（数据：5/12 0aff0d67 以 0.05+0.01 双重注入）。
+        _seen_cid_dedup = {}
+        for _s_dd, _c_dd in top_k:
+            _cid_dd = _c_dd.get("id", "")
+            if _cid_dd not in _seen_cid_dedup or _s_dd > _seen_cid_dedup[_cid_dd][0]:
+                _seen_cid_dedup[_cid_dd] = (_s_dd, _c_dd)
+        if len(_seen_cid_dedup) < len(top_k):
+            _deferred.log(DMESG_INFO, "retriever",
+                          f"iter1743_final_dedup: {len(top_k)}->{len(_seen_cid_dedup)}",
+                          session_id=session_id, project=project)
+            top_k = list(_seen_cid_dedup.values())
 
         constraint_items = []
         normal_items = []
