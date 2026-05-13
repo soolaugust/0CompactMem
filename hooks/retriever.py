@@ -8780,8 +8780,10 @@ def main():
                                               f"iter1665_sparse_local_least_seen: "
                                               f"id={_slp_pick[0][:12]} ac={_slp_pick[5]} imp={_slp_pick[4]:.2f}",
                                               session_id=session_id, project=project)
-                        except Exception:
-                            pass
+                        except Exception as _slp_err:
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1665_sparse_rescue_fail: {_slp_err}",
+                                          session_id=session_id, project=project)
                     # iter1599: floor_gate_pre_suppress_rescue — floor_gate 全灭兜底
                     # iter1605: elif→if — sparse 项目 iter1525 失败后也应走此兜底
                     # 根因（数据驱动，2026-05-12）：原 elif 结构导致 _local_sparse=True 时
@@ -8794,17 +8796,48 @@ def main():
                     if not top_k and _pre_suppress_top_k and _local_chunk_count > 0:
                         _fgr_local = [(s, c) for s, c in _pre_suppress_top_k
                                       if c.get("project") == project]
-                        if not _fgr_local:
-                            _fgr_local = [(s, c) for s, c in _pre_suppress_top_k]
-                        _fgr_best = max(_fgr_local,
-                                        key=lambda x: x[1].get("importance", 0))
-                        _fgr_best[1]["_fallback_protected"] = True
-                        top_k = [(_score_floor, _fgr_best[1])]
-                        _deferred.log(DMESG_WARN, "retriever",
-                                      f"iter1599_floor_gate_pre_suppress_rescue: "
-                                      f"id={_fgr_best[1].get('id','')[:12]} "
-                                      f"imp={_fgr_best[1].get('importance',0):.2f}",
-                                      session_id=session_id, project=project)
+                        if _fgr_local:
+                            _fgr_best = max(_fgr_local,
+                                            key=lambda x: x[1].get("importance", 0))
+                            _fgr_best[1]["_fallback_protected"] = True
+                            top_k = [(_score_floor, _fgr_best[1])]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1599_floor_gate_pre_suppress_rescue: "
+                                          f"id={_fgr_best[1].get('id','')[:12]} "
+                                          f"imp={_fgr_best[1].get('importance',0):.2f}",
+                                          session_id=session_id, project=project)
+                        else:
+                            # iter1729: fgr_local_db_rescue — 候选池无本地 chunk 时从 DB 直接拉取
+                            # 根因（数据驱动，2026-05-13）：non-sparse 项目 floor_gate 全灭后
+                            #   _fgr_local=[] 时 fallback 到跨项目候选(importance最高)，注入无关知识。
+                            #   git:a4ee2fcfacc4(6 local) 的 5/6 空召回正是此路径：候选全是
+                            #   global/跨项目 chunk，本地 chunk 未进 FTS 候选池 → _fgr_local=[]
+                            #   → 选跨项目最高 imp → 注入噪声或被下游 dedup 拦截 → 空召回。
+                            # 修复：从 DB 直接拉本地 chunk（与 iter1665 对齐），不注入跨项目噪声。
+                            try:
+                                import sqlite3 as _fgr1729
+                                _fgr_conn = _fgr1729.connect(str(STORE_DB))
+                                _fgr_row = _fgr_conn.execute(
+                                    "SELECT id, summary, content, chunk_type, importance "
+                                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                                    (project,)
+                                ).fetchone()
+                                _fgr_conn.close()
+                                if _fgr_row:
+                                    _fgr_c = {"id": _fgr_row[0], "summary": _fgr_row[1],
+                                              "content": _fgr_row[2], "chunk_type": _fgr_row[3] or "",
+                                              "importance": _fgr_row[4] or 0.5,
+                                              "_fallback_protected": True}
+                                    top_k = [(_score_floor, _fgr_c)]
+                                    _deferred.log(DMESG_WARN, "retriever",
+                                                  f"iter1729_fgr_local_db_rescue: "
+                                                  f"id={_fgr_row[0][:12]} imp={_fgr_row[4]:.2f}",
+                                                  session_id=session_id, project=project)
+                            except Exception as _fgr_err:
+                                _deferred.log(DMESG_WARN, "retriever",
+                                              f"iter1729_fgr_local_db_rescue_fail: {_fgr_err}",
+                                              session_id=session_id, project=project)
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）
