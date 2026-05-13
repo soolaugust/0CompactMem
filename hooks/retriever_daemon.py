@@ -6462,18 +6462,33 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             return (c[_CI_CT] or "") if isinstance(c, (list, tuple)) else (c.get("chunk_type") or "")
         if len(top_k) > 0:
             # iter1668: saturated_floor_strip_fallback — sync retriever.py iter1566
-            # 根因（数据驱动，2026-05-13）：sat_floor 置 0 的 chunk 仍在 _fallback_protected_ids，
-            #   floor_gate 全灭时 line 6310 rescue 路径将其复活（feishu CLI 7x/7d 注入）。
             _sat_stripped = set()
-            # iter1674: dc_sat_floor_unify — sync retriever.py iter1644
-            # non-global design_constraint ac>=4 也走 sat_floor（dc 是静态规则，内化后边际=0）
-            top_k = [(s, c) if not (
-                (_sat_floor_ct(c) == "design_constraint"
-                 and _sat_floor_ac(c) >= 4
-                 and s < _GLOBAL_SAT_FLOOR)
-                or (_sat_floor_ac(c) >= _LOCAL_SAT_AC_THRESH
-                    and s < _GLOBAL_SAT_FLOOR)
-            ) else (_sat_stripped.add(c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) or 0.0, c) for s, c in top_k]
+            # iter1740: daemon_sat_floor_real_inject — sync iter1730/1731/1732
+            # 根因：daemon sat_floor 直接用 access_count 判定，但 ac 被 daemon probe/TLB 膨胀。
+            #   MTK ALB(ac=12,real_inj=0) 被误 suppress；feishu CLI(ac=5,timeline=0) 逃逸。
+            # 修复：用 _itl_lifetime real inject count，timeline 无记录+ac>=4 回退 ac。
+            def _sat_real_inj_d(c):
+                _cid = c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")
+                _lt = _itl_lifetime.get(_cid)
+                _ri = _lt[0] if _lt else 0
+                if _ri == 0 and _sat_floor_ac(c) >= 4:
+                    _ri = _sat_floor_ac(c)
+                return _ri
+            _sat_mid_thresh = 5
+            def _sat_hit_d(s, c):
+                # iter1567 sync: sparse 项目本地 chunk 豁免 sat_floor
+                if _local_sparse_d and _sat_floor_proj(c) == project:
+                    return False
+                _is_dc = _sat_floor_ct(c) == "design_constraint"
+                _ri = _sat_real_inj_d(c)
+                return (
+                    (_is_dc and _ri >= 4 and s < _GLOBAL_SAT_FLOOR)
+                    or (_ri >= _sat_mid_thresh and s < _GLOBAL_SAT_FLOOR
+                        and _db_chunk_count < 50)
+                    or (_ri >= _LOCAL_SAT_AC_THRESH and s < _GLOBAL_SAT_FLOOR))
+            top_k = [(s, c) if not _sat_hit_d(s, c)
+                     else (_sat_stripped.add(c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) or 0.0, c)
+                     for s, c in top_k]
             if _sat_stripped:
                 _fallback_protected_ids -= _sat_stripped
         # iter1630: cross_project_only_floor_raise — daemon 同步 retriever.py iter1621
