@@ -4213,12 +4213,18 @@ def main():
             except Exception:
                 pass
             # iter1715: Cross-Session Recall Fatigue (hard_deadline path sync)
+            # iter1723: recall_fatigue_never_injected_bypass — 从未注入的 chunk 跳过 fatigue 衰减
+            # 根因（数据驱动，2026-05-13）：MTK ALB(ac=12,inject=0) 和 cgroup uclamp(ac=8,inject=0)
+            #   因 daemon retrieval 虚高 access_count，被 fatigue 惩罚 score/2.2 和 /1.6，
+            #   但从未出现在用户 context 中 — 不存在"重复注入疲劳"，衰减无意义。
+            # 修复：_injection_timeline 中无记录的 chunk 跳过 fatigue 衰减。
             try:
                 if _sysctl("retriever.recall_fatigue_enabled"):
                     _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
                     _rf_rate = _sysctl("retriever.recall_fatigue_rate")
                     final = [
                         (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                        if _injection_timeline.get(c.get("id", "")) else (s, c)
                         for s, c in final
                     ]
             except Exception:
@@ -5755,12 +5761,14 @@ def main():
             pass  # IOR 失败不影响主流程
         # ── iter1715: Cross-Session Recall Fatigue ────────────────────────────
         # 高 access_count chunk 跨 session 垄断注入位；按 ac 超额程度衰减 score。
+        # iter1723: recall_fatigue_never_injected_bypass (FULL path sync)
         try:
             if _sysctl("retriever.recall_fatigue_enabled"):
                 _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
                 _rf_rate = _sysctl("retriever.recall_fatigue_rate")
                 final = [
                     (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                    if _injection_timeline.get(c.get("id", "")) else (s, c)
                     for s, c in final
                 ]
         except Exception:
