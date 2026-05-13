@@ -6112,7 +6112,10 @@ def main():
                               # iter1027: fallback_24h_align — global ac>=4 阈值=1
                               and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)
                               and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                       and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))]
+                                       and (c.get("access_count", 0) or 0) >= (5 if c.get("project", "") == "global" else 7))
+                              # iter1698: pair_dc_gate_align — 对齐 iter1608，global dc+ac>=4 不参与 pair
+                              and not (c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4
+                                       and c.get("project", "") == "global")]
             if _fb_pair_cands:
                 _fb_pair_best = max(_fb_pair_cands, key=lambda x: x[0])
                 if _fb_pair_best[0] >= 0.3:
@@ -7356,8 +7359,13 @@ def main():
                 #   → 44% 单条注入。pair 是辅助上下文，不应被 suppress 完全阻断。
                 # 修复：_dp895_ok 为空时从 _dp895_rows 选 7d 最低 + session 未注入的 1 条。
                 if not _dp895_ok and _dp895_rows:
+                    # iter1698: pair_relaxed_dc_gate — relaxed fallback 也排除高 ac global dc
+                    # 根因（数据驱动，2026-05-13）：c9accb7b(feishu CLI,ac=4→5) 和 0aff0d67(git commit,ac=4→5)
+                    #   被 line 7353 dc+ac>=4 过滤 → _dp895_ok 空 → relaxed fallback 无 dc 检查 → 逃逸。
+                    #   pair 配对位被无关 global constraint 垄断（7 次/7d），挤占语义相关知识。
                     _dp895_relaxed = [r for r in _dp895_rows
-                                      if _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh]
+                                      if _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh
+                                      and not (r[3] == "design_constraint" and r[5] >= 4)]
                     if _dp895_relaxed:
                         _dp895_ok = [min(_dp895_relaxed, key=lambda r: _dp895_7d.get(r[0], 0))]
                 if _dp895_ok:
