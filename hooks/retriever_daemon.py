@@ -6555,13 +6555,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
                     top_k = []
                     # iter1525: sparse_local_priority — sparse 项目 floor_gate 全灭时注入本地知识
-                    # 根因（数据驱动，2026-05-11）：git:78dc99a5695f(1 local + 6 global = 7 visible)
-                    #   FTS5 只命中跨项目 chunk → suppress 全灭 → fallback 恢复跨项目 chunk(score=0.084)
-                    #   → floor_gate 清空。本地唯一知识(58c70136,imp=0.85) 从未进入候选池（FTS5 不匹配）。
-                    #   用户在该项目中 9/9 空召回(100%)，但有 1 条高价值本地知识从未被注入。
-                    # 修复：floor_gate 清空后，如果 _local_sparse_d=True，从 DB 选本地最高 imp chunk。
-                    #   仅当本地有 ACTIVE chunk 时触发；global-only 项目不触发（避免噪声）。
-                    if _local_sparse_d:
+                    # iter1737: floor_gate_universal_local_rescue — 扩展覆盖所有有本地知识的项目
+                    # 根因（daemon sync iter1736）：non-sparse 项目(6 local, _local_sparse=False)
+                    #   floor_gate 全灭后因 _local_sparse=False 跳过 DB 兜底 → 70% 空召回。
+                    #   FTS5 候选全为跨项目 chunk，本地 chunk 未进候选池。
+                    # 修复：条件从 _local_sparse_d 放宽到 _local_chunk_count_d > 0。
+                    if _local_chunk_count_d > 0:
                         try:
                             # iter1665: sparse_local_least_seen — 优先注入 ac 最低的本地 chunk
                             import sqlite3 as _slp_sql
@@ -6591,21 +6590,48 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                               session_id=session_id, project=project)
                         except Exception:
                             pass
-                    # iter1599: floor_gate_pre_suppress_rescue — 非 sparse 项目 floor_gate 全灭兜底
-                    elif not top_k and _pre_suppress_top_k:
+                    # iter1599: floor_gate_pre_suppress_rescue — floor_gate 全灭兜底
+                    # iter1737: elif→if — DB rescue 失败后也应走此兜底（sync retriever.py iter1605）
+                    if not top_k and _pre_suppress_top_k and _local_chunk_count_d > 0:
                         _fgr_local_d = [(s, c) for s, c in _pre_suppress_top_k
                                         if (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") == project]
-                        if not _fgr_local_d:
-                            _fgr_local_d = [(s, c) for s, c in _pre_suppress_top_k]
-                        _fgr_best_d = max(_fgr_local_d,
-                                          key=lambda x: (x[1][_CI_IMP] if isinstance(x[1], (list, tuple)) and len(x[1]) > _CI_IMP else 0))
-                        _fgr_id = _fgr_best_d[1][_CI_ID] if isinstance(_fgr_best_d[1], (list, tuple)) else _fgr_best_d[1].get("id", "")
-                        _fallback_protected_ids.add(_fgr_id)
-                        top_k = [(_score_floor, _fgr_best_d[1])]
-                        _deferred.log(DMESG_WARN, "retriever_daemon",
-                                      f"iter1599_floor_gate_pre_suppress_rescue: "
-                                      f"id={_fgr_id[:12]} project={project}",
-                                      session_id=session_id, project=project)
+                        if _fgr_local_d:
+                            _fgr_best_d = max(_fgr_local_d,
+                                              key=lambda x: (x[1][_CI_IMP] if isinstance(x[1], (list, tuple)) and len(x[1]) > _CI_IMP else 0))
+                            _fgr_id = _fgr_best_d[1][_CI_ID] if isinstance(_fgr_best_d[1], (list, tuple)) else _fgr_best_d[1].get("id", "")
+                            _fallback_protected_ids.add(_fgr_id)
+                            top_k = [(_score_floor, _fgr_best_d[1])]
+                            _deferred.log(DMESG_WARN, "retriever_daemon",
+                                          f"iter1599_floor_gate_pre_suppress_rescue: "
+                                          f"id={_fgr_id[:12]} project={project}",
+                                          session_id=session_id, project=project)
+                        else:
+                            # iter1737: fgr_local_db_rescue — 候选池无本地 chunk 时从 DB 直接拉取
+                            # (sync retriever.py iter1729)
+                            try:
+                                import sqlite3 as _fgr1737
+                                _fgr_conn = _fgr1737.connect(str(STORE_DB), timeout=2)
+                                _fgr_row = _fgr_conn.execute(
+                                    "SELECT id, summary, content, chunk_type, importance "
+                                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                                    (project,)
+                                ).fetchone()
+                                _fgr_conn.close()
+                                if _fgr_row:
+                                    _fgr_c = {"id": _fgr_row[0], "summary": _fgr_row[1],
+                                              "content": _fgr_row[2], "chunk_type": _fgr_row[3] or "",
+                                              "importance": _fgr_row[4] or 0.5,
+                                              "project": project,
+                                              "_fallback_protected": True}
+                                    _fallback_protected_ids.add(_fgr_row[0])
+                                    top_k = [(_score_floor, _fgr_c)]
+                                    _deferred.log(DMESG_WARN, "retriever_daemon",
+                                                  f"iter1737_fgr_local_db_rescue: "
+                                                  f"id={_fgr_row[0][:12]} imp={_fgr_row[4]:.2f} project={project}",
+                                                  session_id=session_id, project=project)
+                            except Exception:
+                                pass
 
         # ── iter1659: cross_project_noise_gate (daemon sync) ──────────────────
         # 根因（数据驱动，2026-05-13）：retriever.py iter1658 在 FULL/LITE/HD 路径加了
