@@ -4737,8 +4737,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 except Exception:
                     pass
             # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon HD
-            if (len(positive) < effective_top_k
-                    and sysctl("retriever.cold_start_enabled")
+            # iter1770: cold_start_replace — positive 满时替换已内化低分 chunk
+            if (sysctl("retriever.cold_start_enabled")
                     and _local_chunk_count_d > 0):
                 try:
                     _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
@@ -4755,9 +4755,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             continue
                         _cs_tup = (_csr[0], _csr[1], _csr[2], _csr[3], None, _csr[4], 0, None, None, None, project, None)
                         _cs_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
-                        positive.append((max(float(_csr[3] or 0), _cs_floor), _cs_tup))
+                        _cs_score = max(float(_csr[3] or 0), _cs_floor)
+                        if len(positive) < effective_top_k:
+                            positive.append((_cs_score, _cs_tup))
+                        else:
+                            _cs_repl = [(i, s, c) for i, (s, c) in enumerate(positive)
+                                        if (c[_CI_AC] or 0) >= 3]
+                            if _cs_repl:
+                                _cs_worst = min(_cs_repl, key=lambda x: x[1])
+                                if _cs_score > _cs_worst[1]:
+                                    positive[_cs_worst[0]] = (_cs_score, _cs_tup)
+                                else:
+                                    continue
+                            else:
+                                continue
                         _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                                      f"iter1769_cold_start_db_probe_hd: {_csr[0][:12]} imp={_csr[3]:.2f}",
+                                      f"iter1770_cold_start_replace_hd: {_csr[0][:12]} imp={_csr[3]:.2f}",
                                       session_id=session_id, project=project)
                         break
                 except Exception:
@@ -5225,8 +5238,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 pass
 
         # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon FULL
-        if (len(positive) < effective_top_k
-                and sysctl("retriever.cold_start_enabled")
+        # iter1770: cold_start_replace — positive 满时替换已内化低分 chunk
+        if (sysctl("retriever.cold_start_enabled")
                 and _local_chunk_count_d > 0):
             try:
                 _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
@@ -5243,9 +5256,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         continue
                     _cs_tup = (_csr[0], _csr[1], _csr[2], _csr[3], None, _csr[4], 0, None, None, None, project, None)
                     _cs_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
-                    positive.append((max(float(_csr[3] or 0), _cs_floor), _cs_tup))
+                    _cs_score = max(float(_csr[3] or 0), _cs_floor)
+                    if len(positive) < effective_top_k:
+                        positive.append((_cs_score, _cs_tup))
+                    else:
+                        _cs_repl = [(i, s, c) for i, (s, c) in enumerate(positive)
+                                    if (c[_CI_AC] or 0) >= 3]
+                        if _cs_repl:
+                            _cs_worst = min(_cs_repl, key=lambda x: x[1])
+                            if _cs_score > _cs_worst[1]:
+                                positive[_cs_worst[0]] = (_cs_score, _cs_tup)
+                            else:
+                                continue
+                        else:
+                            continue
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                                  f"iter1769_cold_start_db_probe_full: {_csr[0][:12]} imp={_csr[3]:.2f}",
+                                  f"iter1770_cold_start_replace_full: {_csr[0][:12]} imp={_csr[3]:.2f}",
                                   session_id=session_id, project=project)
                     break
             except Exception:

@@ -6376,7 +6376,6 @@ def main():
         _cold_start_injected = 0
         if (priority == "FULL"
                 and _sysctl("retriever.cold_start_enabled")
-                and len(positive) < effective_top_k
                 and not _check_deadline("cold_start")):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
@@ -6424,10 +6423,23 @@ def main():
                     # 按 importance 降序，取 top _cs_max 个
                     _cold_candidates.sort(key=lambda x: x[0], reverse=True)
                     for _cold_imp, _cold_chunk in _cold_candidates[:_cs_max]:
-                        # 注入分数 = importance（让其能进入 positive，但不垫底也不顶替高分）
-                        positive.append((_cold_imp, _cold_chunk))
-                        _positive_ids.add(_cold_chunk["id"])
-                        _cold_start_injected += 1
+                        if len(positive) < effective_top_k:
+                            positive.append((_cold_imp, _cold_chunk))
+                            _positive_ids.add(_cold_chunk["id"])
+                            _cold_start_injected += 1
+                        else:
+                            # iter1770: cold_start_replace — positive 满时替换已内化低分 chunk
+                            # 根因（数据驱动，2026-05-14）：sem_c4531bbd(imp=0.854,ac=0) 创建 24 天未注入。
+                            #   git:a0ab16e8cafc 有 17 chunk，positive 总被 BM25 填满 → cold_start 不触发。
+                            # 修复：替换 positive 中 ac>=3 的最低分 chunk，给 ac=0 曝光机会。
+                            _cs_replaceable = [(i, s, c) for i, (s, c) in enumerate(positive)
+                                               if (c.get("access_count", 0) or 0) >= 3]
+                            if _cs_replaceable:
+                                _cs_worst = min(_cs_replaceable, key=lambda x: x[1])
+                                if _cold_imp > _cs_worst[1]:
+                                    positive[_cs_worst[0]] = (_cold_imp, _cold_chunk)
+                                    _positive_ids.add(_cold_chunk["id"])
+                                    _cold_start_injected += 1
                     if _cold_start_injected > 0:
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"cold_start: injected={_cold_start_injected} "
