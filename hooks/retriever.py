@@ -9660,26 +9660,36 @@ def main():
         except Exception:
             pass  # 计数写入失败不影响已输出的结果
         # ── iter647: injection timeline write-back ──
-        # iter1650: timeline_writeback_reload — 写回前重新加载防止数据丢失
-        # 根因（数据驱动，2026-05-13）：c9accb7b(feishu CLI) 在 timeline 中丢失。
-        #   _injection_timeline 初始化为 {}（行1751），读取阶段（行1858）如因
-        #   _rc_conn 故障传导跳过，写回用 {} 覆盖文件 → 历史全量丢失。
-        # 修复：写回前若 _injection_timeline 为空，重新从文件加载后 merge。
+        # iter1706: timeline_unconditional_merge — 写回前无条件重新加载文件并 merge
+        # 根因（数据驱动，2026-05-13）：6 个高频注入 chunk（0aff0d67/c9accb7b/93cbc985 等）
+        #   不在 timeline 中，导致 6h/24h/7d suppress 计数=0，lifetime suppress 失效。
+        #   iter1650 仅在 _injection_timeline 为空时重新加载，部分读取（非空但不完整）时
+        #   写回仍覆盖文件丢失 daemon 写入的条目。
+        # 修复：写回前无条件从文件加载最新内容，merge 后写回。确保 daemon/hook 并发写入不丢失。
         try:
             from datetime import datetime as _dt647w, timezone as _tz647w
             _now_ts = _dt647w.now(_tz647w.utc).isoformat()
-            if not _injection_timeline and os.path.exists(_INJECTION_TIMELINE_FILE):
+            _itl_disk = {}
+            if os.path.exists(_INJECTION_TIMELINE_FILE):
                 try:
                     with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf_reload:
-                        _injection_timeline = json.loads(_itf_reload.read()) or {}
+                        _itl_disk = json.loads(_itf_reload.read()) or {}
                 except Exception:
-                    _injection_timeline = {}
+                    pass
+            for _mk, _mv in _injection_timeline.items():
+                if _mk in _itl_disk:
+                    _existing_set = set(_itl_disk[_mk])
+                    for _ts_item in _mv:
+                        if _ts_item not in _existing_set:
+                            _itl_disk[_mk].append(_ts_item)
+                else:
+                    _itl_disk[_mk] = list(_mv)
             for _inj_tid in accessed_ids:
-                if _inj_tid not in _injection_timeline:
-                    _injection_timeline[_inj_tid] = []
-                _injection_timeline[_inj_tid].append(_now_ts)
+                if _inj_tid not in _itl_disk:
+                    _itl_disk[_inj_tid] = []
+                _itl_disk[_inj_tid].append(_now_ts)
             with open(_INJECTION_TIMELINE_FILE, 'w', encoding="utf-8") as _itf_w:
-                _itf_w.write(json.dumps(_injection_timeline, ensure_ascii=False))
+                _itf_w.write(json.dumps(_itl_disk, ensure_ascii=False))
         except Exception:
             pass
         # 迭代323: SM-2 recall_quality — 从 top_k 平均分推断
