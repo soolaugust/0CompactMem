@@ -3871,13 +3871,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     else:
                         score *= 0.4
             # iter1673: topic_mismatch_discount — sync retriever.py iter1612
+            # iter1680: daemon_topic_mismatch_hard_suppress — sync retriever.py iter1679
+            #   ac>=5 非 dc + topic 完全不匹配 → hard suppress（降权不够，经 fallback 逃逸）。
             if (score > 0 and not _is_xp_sc and _cp_sc != "global"
                     and (chunk[_CI_AC] or 0) >= 3 and _query_content_words):
                 _tm_s = (chunk[_CI_SUM] or "").lower() if len(chunk) > _CI_SUM else ""
                 _tm_w = set(w for w in _RE_NON_WORD.sub(' ', _tm_s).split() if len(w) >= 2)
                 if _tm_w and len(_query_content_words & _tm_w) == 0:
                     _tm_ct = chunk[_CI_CT] if len(chunk) > _CI_CT else ""
-                    score *= 0.6 if _tm_ct == "design_constraint" else 0.3
+                    _tm_ac = chunk[_CI_AC] or 0
+                    if _tm_ct != "design_constraint" and _tm_ac >= 5:
+                        score = 0.0
+                    else:
+                        score *= 0.6 if _tm_ct == "design_constraint" else 0.3
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
@@ -4107,11 +4113,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
                         score *= _bw_pen_d
             # iter1673: topic_mismatch_discount — sync retriever.py iter1612 (dict path)
+            # iter1680: daemon_topic_mismatch_hard_suppress — sync retriever.py iter1679
             if score > 0 and _cp != "global" and _cp == project and _ac >= 3 and _query_content_words:
                 _tm_sd = (chunk.get("summary") or "").lower()
                 _tm_wd = set(w for w in _RE_NON_WORD.sub(' ', _tm_sd).split() if len(w) >= 2)
                 if _tm_wd and len(_query_content_words & _tm_wd) == 0:
-                    score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
+                    if chunk.get("chunk_type") != "design_constraint" and _ac >= 5:
+                        score = 0.0
+                    else:
+                        score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
             # iter875/876: soft_diversity_penalty — sync with _score_chunk (factor 0.35)
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
