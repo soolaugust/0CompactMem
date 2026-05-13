@@ -4736,6 +4736,9 @@ def main():
                     #   lifetime>=4，阈值=5 导致大部分知识被永久封锁→47% 空召回。
                     #   小库 chunk 经人工审核保留，5 次注入不代表"已内化"。
                     _lt_thresh = 8 if _hd_tiny_db else 5
+                    # iter1765: saturated_nondc_lifetime_cap — tiny_db ac>=5 non-dc 阈值 8→5
+                    if _hd_tiny_db and (c.get("access_count", 0) or 0) >= 5 and c.get("chunk_type") != "design_constraint":
+                        _lt_thresh = 5
                     # iter1469: global_saturated_lifetime_cap — global ac>=4 在 tiny_db 不享受 8 的放宽
                     # 根因（数据驱动，2026-05-11）：abspath:7e3095aef7a6(47 chunk,tiny_db) 中
                     #   0aff0d67(git commit,ac=4,lt=5) 非 dc 类型，逃逸 _lt_thresh=8。
@@ -7274,6 +7277,9 @@ def main():
                     # iter1326: lifetime_thresh_lower — sync FULL path
                     # iter1359: tiny_db_lifetime_relax — sync FULL path
                     _lt_thresh = 8 if _tiny_db else 5
+                    # iter1765: saturated_nondc_lifetime_cap — sync FULL path
+                    if _tiny_db and (c.get("access_count", 0) or 0) >= 5 and c.get("chunk_type") != "design_constraint":
+                        _lt_thresh = 5
                     # iter1469: global_saturated_lifetime_cap — sync FULL path
                     if _tiny_db and c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4:
                         _lt_thresh = 5
