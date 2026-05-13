@@ -7438,13 +7438,18 @@ def main():
                 # 修复：escalate 全灭后，从 _pre_suppress_top_k 中选 7d 最低的本地 chunk 1 条。
                 #   无 ac 限制（核心知识不应因多次访问而在 fallback 中被排除）。
                 #   仍受 _fb_floor 保护（score 过低不强注入）。
-                if not _fb_cap and _db_chunk_count < 100:
+                if not _fb_cap and _db_chunk_count < 100 and _local_chunk_count > 0:
+                    # iter1688: last_resort_local_only — local=0 项目跳过 last_resort
+                    # 根因（数据驱动，2026-05-13）：abspath:7e3095aef7a6(local=0) suppress 全灭后
+                    #   last_resort 从 _pre_suppress_top_k(全跨项目) 选 7d 最低的 chunk 注入。
+                    #   local=0 无本地知识，跨项目 chunk 经此路径绕过 score_floor=0.25 保护，
+                    #   5/12 注入 migration/feishu CLI(score=0.05/0.01) 纯噪声。
+                    # 修复：_local_chunk_count==0 时跳过 last_resort，
+                    #   落到 sparse_fallback 或 db_ultimate_fallback（有 floor 保护）。
                     # iter1687: fallback_last_resort_score_gate — 排除 score=0 (hard-suppressed) chunk
-                    #   根因（数据驱动，2026-05-13）：topic_mismatch_hard_suppress 将 kernel chunk
-                    #   score 置 0，但 local_last_resort 按 7d 排序忽略 score → 7d=0 的 kernel
-                    #   chunk 逃逸注入到 memory-os query。score>0 确保仅选有语义相关性的候选。
                     _fb_local_last = [(s, c) for s, c in _pre_suppress_top_k
-                                      if c.get("project", "") != "global" and s > 0]
+                                      if c.get("project", "") != "global"
+                                      and c.get("project", "") == project and s > 0]
                     if _fb_local_last:
                         _fb_local_last.sort(key=lambda x: _fb_7d.get(x[1].get("id", ""), 0))
                         _fb_cap = [_fb_local_last[0]]
