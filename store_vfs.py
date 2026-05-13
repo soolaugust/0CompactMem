@@ -1054,6 +1054,28 @@ def fts5_checkpoint(conn: sqlite3.Connection) -> dict:
             conn.execute("DELETE FROM memory_chunks_fts WHERE rowid=?", (fts_rowid,))
         stats["orphans_removed"] = len(orphans)
 
+    # iter1716: swap_in_pinned — pinned + SWAPPED chunk 自动恢复为 ACTIVE
+    # 根因（数据驱动，2026-05-13）：soft-pin 高 ac chunk（用户偏好 ac=3、Corrections ac=5、
+    #   memory路径验证 ac=6）被未知路径标记 SWAPPED + FTS 清除 → 永久丢失检索。
+    #   soft pin 的 oom_adj=-999 不足以防止所有淘汰路径。
+    # 修复：fsck 时将 pinned + SWAPPED chunk 恢复为 ACTIVE（Phase 2 自动补建 FTS）。
+    _has_state_col_pre = conn.execute(
+        "SELECT COUNT(*) FROM pragma_table_info('memory_chunks') WHERE name='chunk_state'"
+    ).fetchone()[0]
+    if _has_state_col_pre:
+        _pinned_swapped = conn.execute("""
+            SELECT m.id FROM memory_chunks m
+            JOIN chunk_pins p ON m.id = p.chunk_id
+            WHERE m.chunk_state IN ('SWAPPED', 'SWAP')
+        """).fetchall()
+        for (_ps_id,) in _pinned_swapped:
+            conn.execute(
+                "UPDATE memory_chunks SET chunk_state='ACTIVE' WHERE id=?",
+                (_ps_id,),
+            )
+        if _pinned_swapped:
+            stats["swap_in_pinned"] = len(_pinned_swapped)
+
     # Phase 1.5: 清理 SWAPPED chunk 的 FTS 条目
     # iter995: swapped_fts_cleanup — SWAPPED chunk 不应被 FTS 检索命中
     # 根因（数据驱动，2026-05-06）：3 条 chunk_state='SWAPPED' 仍有 FTS 条目，
