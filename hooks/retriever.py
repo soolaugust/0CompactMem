@@ -8686,12 +8686,12 @@ def main():
                 #   分别累计注入 5 次，信息早已内化但持续挤占 top_k slot。
                 # 修复：增加中间层 real_inj>=5 + score<sat_floor + 小库 → suppress。
                 _sat_mid_thresh = 5
-                # iter1754: lifetime_suppress_tier — real_inj>=8 提升 floor 到 0.50
-                # 数据驱动（2026-05-14）：9 chunk real_inj=8~11，内化后边际信息≈0，
-                #   但 FTS5 score 0.25~0.49 仍逃逸 _GLOBAL_SAT_FLOOR=0.25。
-                #   只有 score>=0.50（强语义匹配）时才值得再次注入已深度内化的知识。
+                # iter1755: lifetime_suppress_lower — real_inj>=6 提升 floor 到 0.50
+                # 数据驱动（2026-05-14）：top 3 chunk real_inj=5~7 占总注入 48%，
+                #   iter1754 阈值=8 从未触发（max real_inj=7）。降到 6 命中前 3 垄断 chunk。
+                #   real_inj>=6 = 至少 6 次真实注入，用户已深度内化，score<0.50 = 弱匹配无增量。
                 _LIFETIME_SAT_FLOOR = 0.50
-                _lifetime_hit = _sat_real_inj >= 8 and s < _LIFETIME_SAT_FLOOR
+                _lifetime_hit = _sat_real_inj >= 6 and s < _LIFETIME_SAT_FLOOR
                 _sat_hit = (
                     _lifetime_hit
                     or (_is_dc
