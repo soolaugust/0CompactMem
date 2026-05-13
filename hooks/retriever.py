@@ -2806,7 +2806,7 @@ def main():
                         #   "v1 patch Tejun 否决"(ac=3,decision) 是活跃开发关键参考。
                         # 修复：ac=3 → 48h cooldown（tiny_db 减半=24h），ac>=4 维持 72h。
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_72h if _acc >= 4 else _cutoff_48h))
-                    if _tiny_db and not _cd_is_global:
+                    if _tiny_db and not _cd_is_global and not _cd_is_constraint:
                         _cd_cutoff = (_now647 - (_now647 - _dt647.fromisoformat(_cd_cutoff)) / 2).isoformat()
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
                     # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
