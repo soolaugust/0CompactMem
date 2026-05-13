@@ -6457,6 +6457,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _lt = _itl_lifetime.get(c[_CI_ID])
                     if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
                         return True
+                    # iter1671: timeline_fallback_ac — timeline 数据缺失时用 ac 兜底
+                    # 根因（数据驱动，2026-05-13）：global dc chunk(0aff0d67 ac=5, c9accb7b ac=5)
+                    #   因 timeline 文件并发覆写丢失条目 → _itl_lifetime 查不到 → lifetime suppress 失效
+                    #   → 7d session-dedup 后计数=1 不触发 omf ceiling → 反复注入。
+                    # 修复：ac>=5 的 global/dc chunk 即使 timeline 缺失也 suppress。
+                    #   ac 由 retriever 在每次注入时递增，是可靠的 lifetime 计数下界。
+                    if not _lt and _is_g and _is_dc and (c[_CI_AC] or 0) >= 5:
+                        return True
                 return False
             # iter1669: omf_fallback_protect — fallback 恢复的 chunk 不被 omf 二次清空
             _omf_filtered = [(s, c) for s, c in top_k

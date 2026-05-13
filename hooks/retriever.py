@@ -4995,10 +4995,20 @@ def main():
                             if c.get("project", "") == "global" and _oac >= 4:
                                 return 2
                             return _omf_ceil_hd_base
+                        # iter1671: omf_lifetime_ac_fallback (HD path sync)
+                        def _omf_lt_sup_hd(c):
+                            if c.get("project", "") == "global" and c.get("chunk_type") == "design_constraint":
+                                _oac = c.get("access_count", 0) or 0
+                                if _oac >= 5:
+                                    _tl = _injection_timeline.get(c.get("id", ""))
+                                    if not _tl or len(_tl) >= 4:
+                                        return True
+                            return False
                         # iter1669: omf_fallback_protect (HD path sync)
                         _omf_filt_hd = [(s, c) for s, c in top_k
                                         if c.get("id", "") in _fallback_protected_ids
-                                        or _recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)]
+                                        or (_recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)
+                                            and not _omf_lt_sup_hd(c))]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                         else:
@@ -8816,11 +8826,26 @@ def main():
             #   7d>=3 后被 omf 过滤 → 9/14d 空召回。_score_chunk 有 sparse_shield 但 omf 无。
             #   local_sparse 项目的本地知识是唯一来源，suppress 它等于剥夺用户所有记忆。
             # 修复：local_sparse 时，local chunk 跳过 omf ceiling 检查。
+            # iter1671: omf_lifetime_ac_fallback — timeline 缺失时用 ac 兜底 suppress
+            # 根因（数据驱动，2026-05-13）：global dc chunk(ac=5) 因 timeline 并发覆写丢失条目
+            #   → 7d session-dedup=1 不触发 ceiling → 长期反复注入（总 7 次/5 次）。
+            # 修复：global dc ac>=5 且 timeline 无记录 → suppress。ac 是注入次数下界，可靠。
+            def _omf_lifetime_suppress(c):
+                if c.get("project", "") == "global" and c.get("chunk_type") == "design_constraint":
+                    _oac = c.get("access_count", 0) or 0
+                    if _oac >= 5:
+                        _tl = _injection_timeline.get(c.get("id", ""))
+                        if _tl and len(_tl) >= 4:
+                            return True
+                        if not _tl:
+                            return True
+                return False
             # iter1669: omf_fallback_protect — fallback 恢复的 chunk 不被 omf 二次清空
             _omf_filtered = [(s, c) for s, c in top_k
                              if c.get("id", "") in _fallback_protected_ids
                              or (_local_sparse and c.get("project", "") == project)
-                             or _omf_7d_src.get(c.get("id", ""), 0) < _omf_chunk_ceiling(c)]
+                             or (_omf_7d_src.get(c.get("id", ""), 0) < _omf_chunk_ceiling(c)
+                                 and not _omf_lifetime_suppress(c))]
             if _omf_filtered:
                 if len(top_k) != len(_omf_filtered):
                     _deferred.log(DMESG_DEBUG, "retriever",
