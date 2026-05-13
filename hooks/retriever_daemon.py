@@ -4378,6 +4378,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         # iter1632: immutable_conn_stale_fix — 同上
                         import sqlite3 as _sli_sql
                         _sli_conn = _sli_sql.connect(str(STORE_DB), timeout=2)
+                        # iter1761: sli_least_accessed_priority — sync retriever.py
                         _sli_r = _sli_conn.execute(
                             "SELECT id, summary, content, importance, last_accessed, "
                             "chunk_type, COALESCE(access_count,0), created_at, "
@@ -4386,7 +4387,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             "COALESCE(retrievability,1.0), COALESCE(source_reliability,0.7), "
                             "COALESCE(emotional_weight,0.0), COALESCE(emotional_valence,0.0) "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                            "ORDER BY importance DESC LIMIT 1",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
                             (project,)
                         ).fetchone()
                         _sli_conn.close()

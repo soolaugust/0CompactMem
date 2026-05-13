@@ -2435,11 +2435,17 @@ def main():
             _sli_local_ids = {r.get("id") for r in fts_results if r.get("project") == project}
             if not _sli_local_ids:
                 try:
+                    # iter1761: sli_least_accessed_priority — 优先补入 ac 最低的本地 chunk
+                    # 根因（数据驱动，2026-05-14）：git:a4ee2fcfacc4(4 local) 中 import-72946(ac=0,imp=0.50)
+                    #   从未被注入。_sli 取 importance DESC → 总选 sem_68b32157(ac=2,imp=0.78)，
+                    #   该 chunk 随后被 7d/session suppress → 全灭空召回。ac=0 chunk 永无机会。
+                    # 修复：ORDER BY access_count ASC, importance DESC（对齐 iter1665）。
+                    #   低 ac chunk 用户尚未内化，信息增量最高；且不易被 suppress 拦截。
                     _sli_row = conn.execute(
                         "SELECT id, summary, content, chunk_type, importance, "
                         "COALESCE(access_count,0), created_at, COALESCE(lru_gen,0), project "
                         "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                        "ORDER BY importance DESC LIMIT 1",
+                        "ORDER BY access_count ASC, importance DESC LIMIT 1",
                         (project,)
                     ).fetchone()
                     if _sli_row:
