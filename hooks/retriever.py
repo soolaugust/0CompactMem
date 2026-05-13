@@ -4876,8 +4876,13 @@ def main():
                 if _fb_hd_pool and max(s for s, _ in _fb_hd_pool) < _fb_hd_floor:
                     _fb_hd_pool = None
                 if _fb_hd_pool:
+                    # iter1699: dc_fallback_deprioritize — HD path sync
+                    def _fb_hd_dc_penalty(c):
+                        if c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
+                            return 0.3
+                        return 1.0
                     _fb_hd_sorted = sorted(_fb_hd_pool,
-                                           key=lambda x: x[0] * (0.5 ** (_recent_7d_counts.get(x[1].get("id", ""), 0) / 2)),
+                                           key=lambda x: x[0] * (0.5 ** (_recent_7d_counts.get(x[1].get("id", ""), 0) / 2)) * _fb_hd_dc_penalty(x[1]),
                                            reverse=True)
                     _fb_hd = _fb_hd_sorted[0]
                     _last_hash_hd = _read_hash()
@@ -7529,8 +7534,17 @@ def main():
                 if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None  # 全部候选相关性极低，不强制注入
                 if _fb_pool:
+                    # iter1699: dc_fallback_deprioritize — DC ac>=5 fallback 降权
+                    # 根因（数据驱动，2026-05-13）：33% trace 为 dc-only 注入。DC 因 BM25 keyword
+                    #   精确匹配在 pre-suppress 阶段 score 最高，fallback 恢复时总被优先选中。
+                    #   本项目 DC ac>=5 已内化(cooldown 10d 到期后仍被 fallback 拉回)，信息增量=0。
+                    # 修复：DC ac>=5 排序权重 *0.3，让非 DC 候选优先；仅影响排序不排除（避免空召回）。
+                    def _fb_dc_penalty(c):
+                        if c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
+                            return 0.3
+                        return 1.0
                     _fb_sorted = sorted(_fb_pool,
-                                        key=lambda x: x[0] * (0.5 ** (_fb_7d.get(x[1].get("id", ""), 0) / 2)),
+                                        key=lambda x: x[0] * (0.5 ** (_fb_7d.get(x[1].get("id", ""), 0) / 2)) * _fb_dc_penalty(x[1]),
                                         reverse=True)
                     _fb = _fb_sorted[0]
                     if _last_hash and len(_fb_sorted) > 1:
