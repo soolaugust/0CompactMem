@@ -8611,7 +8611,9 @@ def main():
         # 数据驱动（2026-05-11）：53/76 空召回有候选但 score<floor 未注入。
         #   多数项目 _db_chunk_count=7~24（1-18 local + 6 global），BM25 vocab 极有限
         #   导致 max_score 天然 0.05~0.09。0.08 floor 拦截 >60% 有效候选。
-        _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+        # iter1760: small_db_floor_raise — <50 floor 0.08→0.10
+        # 数据驱动（2026-05-14）：6.6% 注入 score 0.08-0.10，全为跨主题噪声
+        _score_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
         # iter1685: sparse_floor_cap — sparse 项目 floor 不超过 0.05（sync daemon）
         if _local_sparse and _local_chunk_count > 0 and _score_floor > 0.05:
             _score_floor = 0.05

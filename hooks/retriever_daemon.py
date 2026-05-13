@@ -6479,7 +6479,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
         # iter1517: daemon_small_db_floor_sync — 同步 retriever.py iter1507
         # iter1541: tiny_db_score_floor_relax — sync retriever.py
-        _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+        # iter1760: small_db_floor_raise — <50 floor 0.08→0.10 (sync retriever.py)
+        _score_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
         # iter1685: sparse_floor_cap — sparse 项目 floor 不超过 0.05
         # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(1 local, db=6) daemon floor=0.12，
         #   但 _db_chunk_count 可能因 WAL checkpoint 延迟读到旧值(>=50)，
