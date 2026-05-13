@@ -6312,6 +6312,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter1517: daemon_small_db_floor_sync — 同步 retriever.py iter1507
         # iter1541: tiny_db_score_floor_relax — sync retriever.py
         _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+        # iter1685: sparse_floor_cap — sparse 项目 floor 不超过 0.05
+        # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(1 local, db=6) daemon floor=0.12，
+        #   但 _db_chunk_count 可能因 WAL checkpoint 延迟读到旧值(>=50)，
+        #   导致 sparse 项目 floor 过高 → fallback chunk(score=0.001~0.084) 全灭 → 100% 空召回。
+        #   sparse 项目 FTS5 vocab 极有限（<20 token），BM25 score 天然 <0.10，
+        #   高 floor 与 sparse 现实矛盾。用 _local_sparse_d 做最终 cap。
+        if _local_sparse_d and _local_chunk_count_d > 0 and _score_floor > 0.05:
+            _score_floor = 0.05
         # iter1602: zero_local_cross_project_floor — local=0 项目提高 floor
         # iter1637: zero_local_floor_raise — 0.15→0.25
         # 数据驱动（2026-05-13）：abspath:7e3095aef7a6(local=0) 5/12 注入 4 条跨项目噪声

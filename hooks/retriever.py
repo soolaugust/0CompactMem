@@ -8304,6 +8304,9 @@ def main():
         #   多数项目 _db_chunk_count=7~24（1-18 local + 6 global），BM25 vocab 极有限
         #   导致 max_score 天然 0.05~0.09。0.08 floor 拦截 >60% 有效候选。
         _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+        # iter1685: sparse_floor_cap — sparse 项目 floor 不超过 0.05（sync daemon）
+        if _local_sparse and _local_chunk_count > 0 and _score_floor > 0.05:
+            _score_floor = 0.05
         # iter1602: zero_local_cross_project_floor — local=0 项目提高 floor
         # iter1637: zero_local_floor_raise — 0.15→0.25
         # 数据驱动（2026-05-13）：abspath:7e3095aef7a6(local=0) 5/12 注入 4 条跨项目噪声
