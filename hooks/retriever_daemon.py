@@ -6041,12 +6041,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 修复：_fb_pool 最高分 < 0.05 时跳过，落到 db_ultimate_fallback（有分钟轮转多样性）。
                 # iter940: floor_raise — 0.05→0.10（sync retriever.py）
                 # iter996: micro_db_floor_relax — <=5 自有 chunk 库 floor 0.10→0.01（sync）
-                _fb_floor = 0.01 if _db_chunk_count <= 5 else 0.10
+                _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse_d) else 0.10
+                # iter1700: daemon_fb_zero_local_floor — sync iter1691/1692
+                if _local_chunk_count_d == 0:
+                    _fb_floor = max(_fb_floor, 0.18)
                 if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None
                 if _fb_pool:
+                    # iter1700: daemon_dc_fallback_deprioritize — sync iter1699
+                    def _fb_dc_penalty_d(c):
+                        if c[_CI_CT] == "design_constraint" and (c[_CI_AC] or 0) >= 5:
+                            return 0.3
+                        return 1.0
                     _fb_sorted = sorted(_fb_pool,
-                                        key=lambda x: x[0] * (0.5 ** (_fb_7d_d.get(x[1][_CI_ID], 0) / 2)),
+                                        key=lambda x: x[0] * (0.5 ** (_fb_7d_d.get(x[1][_CI_ID], 0) / 2)) * _fb_dc_penalty_d(x[1]),
                                         reverse=True)
                     _fb = _fb_sorted[0]
                     if last_hash and len(_fb_sorted) > 1:
