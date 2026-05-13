@@ -5970,12 +5970,14 @@ def main():
                 import sqlite3 as _div_sql
                 _div_conn = _div_sql.connect(str(STORE_DB))
                 # 查同 project 中 importance >= 0.5、非 top1、未被 session 内注入的 chunk
+                # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
+                _div_ac_cap = 5
                 _div_rows = _div_conn.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
                     "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
-                    "AND importance >= 0.5 AND id != ? "
+                    "AND importance >= 0.5 AND id != ? AND access_count < ? "
                     "ORDER BY access_count ASC, importance DESC LIMIT 8",
-                    (project, _top1_id)).fetchall()
+                    (project, _top1_id, _div_ac_cap)).fetchall()
                 _div_conn.close()
                 # 过滤 session 内已注入的 和 24h 已注入 >=3 次的
                 # iter943: diversity_pair_7d_suppress — 对齐 suppress_final_gate 7d 阈值

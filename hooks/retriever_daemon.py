@@ -4647,12 +4647,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 try:
                     import sqlite3 as _div_sql_hd
                     _div_conn_hd = _div_sql_hd.connect(str(STORE_DB))
+                    # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
+                    _div_ac_cap_hd = 5
                     _div_rows_hd = _div_conn_hd.execute(
                         "SELECT id, summary, content, chunk_type, importance, access_count "
                         "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
-                        "AND importance >= 0.5 AND id != ? "
+                        "AND importance >= 0.5 AND id != ? AND access_count < ? "
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
-                        (project, _top1_id_hd)).fetchall()
+                        (project, _top1_id_hd, _div_ac_cap_hd)).fetchall()
                     _div_conn_hd.close()
                     _div_7d_ceiling_hd = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 6)  # iter1207: pair_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                     _div_rows_hd = [r for r in _div_rows_hd
@@ -5061,12 +5063,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             try:
                 import sqlite3 as _div_sql_d
                 _div_conn_d = _div_sql_d.connect(str(STORE_DB))
+                # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
+                _div_ac_cap_d = 5
                 _div_rows_d = _div_conn_d.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
                     "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
-                    "AND importance >= 0.5 AND id != ? "
+                    "AND importance >= 0.5 AND id != ? AND access_count < ? "
                     "ORDER BY access_count ASC, importance DESC LIMIT 8",
-                    (project, _top1_id_d)).fetchall()
+                    (project, _top1_id_d, _div_ac_cap_d)).fetchall()
                 _div_conn_d.close()
                 # iter867: 过滤 session 内已注入的 chunk
                 _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
