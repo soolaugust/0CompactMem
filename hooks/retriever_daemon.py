@@ -4452,23 +4452,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         else:
             if priority == "LITE":
                 # iter1645: daemon sync iter1643 lite_sparse_local_rescue
-                if _local_sparse_d and _local_chunk_count_d > 0:
+                # iter1763: daemon_lite_rescue_align — sync retriever.py iter1694
+                #   修复1: access_count DESC→ASC（优先注入用户未见知识）
+                #   修复2: LIMIT 1→5 + 6h>=1 dedup 轮转（消除单条垄断）
+                #   修复3: 扩展到所有 _local_chunk_count_d>0（sync iter1693）
+                _lsr_imp_floor_d = 0.0 if _local_sparse_d else 0.70
+                if _local_chunk_count_d > 0:
                     try:
-                        _lsr_d = conn.execute(
+                        _lsr_rows_d = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                            "ORDER BY importance DESC, access_count DESC LIMIT 1",
-                            (project,)
-                        ).fetchone()
-                        if _lsr_d and _recent_6h_counts.get(_lsr_d[0], 0) < 2:
+                            "AND importance >= ? "
+                            "ORDER BY importance DESC, access_count ASC LIMIT 5",
+                            (project, _lsr_imp_floor_d)
+                        ).fetchall()
+                        for _lsr_d in _lsr_rows_d:
+                            if _recent_6h_counts.get(_lsr_d[0], 0) >= 1:
+                                continue
                             fts_results = [{"id": _lsr_d[0], "summary": _lsr_d[1],
                                             "content": _lsr_d[2], "chunk_type": _lsr_d[3] or "",
                                             "importance": _lsr_d[4] or 0.5}]
                             use_fts = True
                             _deferred.log(DMESG_DEBUG, "retriever",
-                                          f"iter1645_daemon_lite_sparse_rescue: "
+                                          f"iter1763_daemon_lite_rescue_align: sparse={_local_sparse_d} "
                                           f"id={_lsr_d[0][:12]} imp={_lsr_d[4]:.2f}",
                                           session_id=session_id, project=project)
+                            break
                     except Exception:
                         pass
                 if use_fts:
