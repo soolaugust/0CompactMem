@@ -4566,11 +4566,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-13）：daemon 路径缺少 recall_fatigue，
         #   ac=5 的 git commit/feishu CLI chunk 经 daemon 逃逸衰减，7 天注入 5-7 次。
         # iter1723: recall_fatigue_never_injected_bypass — 从未注入的 chunk 跳过 fatigue
+        # iter1725: fatigue_use_real_inject_count — sync retriever.py
         if sysctl("retriever.recall_fatigue_enabled"):
             _rf_thresh = sysctl("retriever.recall_fatigue_ac_threshold")
             _rf_rate = sysctl("retriever.recall_fatigue_rate")
             final = [
-                (s / (1.0 + _rf_rate * max(0, (c[_CI_AC] or 0) - _rf_thresh)), c)
+                (s / (1.0 + _rf_rate * max(0, len(_itl_lifetime.get(c[_CI_ID], [])) - _rf_thresh)), c)
                 if _itl_lifetime.get(c[_CI_ID]) else (s, c)
                 for s, c in final
             ]
@@ -5017,11 +5018,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
 
         # iter1721: daemon_recall_fatigue — sync retriever.py iter1715/1720 (FULL path)
         # iter1723: recall_fatigue_never_injected_bypass (FULL path sync)
+        # iter1725: fatigue_use_real_inject_count (FULL path sync)
         if sysctl("retriever.recall_fatigue_enabled"):
             _rf_thresh = sysctl("retriever.recall_fatigue_ac_threshold")
             _rf_rate = sysctl("retriever.recall_fatigue_rate")
             final = [
-                (s / (1.0 + _rf_rate * max(0, (c[_CI_AC] or 0) - _rf_thresh)), c)
+                (s / (1.0 + _rf_rate * max(0, len(_itl_lifetime.get(c[_CI_ID], [])) - _rf_thresh)), c)
                 if _itl_lifetime.get(c[_CI_ID]) else (s, c)
                 for s, c in final
             ]

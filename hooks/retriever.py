@@ -4222,8 +4222,11 @@ def main():
                 if _sysctl("retriever.recall_fatigue_enabled"):
                     _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
                     _rf_rate = _sysctl("retriever.recall_fatigue_rate")
+                    # iter1725: fatigue_use_real_inject_count — 用真实注入次数替代 access_count
+                    # 根因（数据驱动，2026-05-13）：daemon retrieval 虚高 access_count(ac=5)
+                    #   但真实注入 7 次。fatigue 用 ac 衰减仅 13%，用 inject_count 衰减 31%。
                     final = [
-                        (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                        (s / (1.0 + _rf_rate * max(0, len(_injection_timeline.get(c.get("id", ""), [])) - _rf_thresh)), c)
                         if _injection_timeline.get(c.get("id", "")) else (s, c)
                         for s, c in final
                     ]
@@ -5766,12 +5769,13 @@ def main():
         # ── iter1715: Cross-Session Recall Fatigue ────────────────────────────
         # 高 access_count chunk 跨 session 垄断注入位；按 ac 超额程度衰减 score。
         # iter1723: recall_fatigue_never_injected_bypass (FULL path sync)
+        # iter1725: fatigue_use_real_inject_count (FULL path sync)
         try:
             if _sysctl("retriever.recall_fatigue_enabled"):
                 _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
                 _rf_rate = _sysctl("retriever.recall_fatigue_rate")
                 final = [
-                    (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                    (s / (1.0 + _rf_rate * max(0, len(_injection_timeline.get(c.get("id", ""), [])) - _rf_thresh)), c)
                     if _injection_timeline.get(c.get("id", "")) else (s, c)
                     for s, c in final
                 ]
