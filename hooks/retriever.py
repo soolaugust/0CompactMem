@@ -6331,14 +6331,15 @@ def main():
                 #   ac>=5 用户已见 5+ 次，信息完全内化，需更高 relevance 才值得再注入。
                 # 修复：斜率 0.015→0.025；ac=5→0.025, ac=6→0.050, ac=9→0.125。
                 #   ac>10 段调整基准保持连续（0.15 + log）。
+                # iter1681: constraint_penalty_steepen — 0.025→0.04
                 if _ac < 4:
                     _ac_penalty = 0.0
                 elif _ac <= 10:
-                    _ac_penalty = (_ac - 4) * 0.025
+                    _ac_penalty = (_ac - 4) * 0.04
                 elif _ac <= 15:
-                    _ac_penalty = 0.15 + min(0.10, _m609.log1p(_ac - 10) * 0.05)
+                    _ac_penalty = 0.24 + min(0.10, _m609.log1p(_ac - 10) * 0.05)
                 else:
-                    _ac_penalty = 0.25 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
+                    _ac_penalty = 0.34 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
                 # iter856: global_chunk_relevance_floor — global chunk 跨项目注入需更高相关性
                 # 根因（数据驱动，2026-05-05）：feishu CLI (global) 在 kernel 项目中
