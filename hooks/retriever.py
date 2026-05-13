@@ -2884,6 +2884,16 @@ def main():
             if _acc >= _tmv_acc_threshold:
                 _tmv_mult = _tmv_saturation_discount(_acc)
                 score *= _tmv_mult
+            # iter1686: dc_low_ac_decay — ac=3-4 design_constraint 轻度衰减
+            # 根因（数据驱动，2026-05-13）：dc 占注入 41%，44% trace dc-only。
+            #   ac>=5 dc 已有 dc_graduated_decay(*0.7/*0.5)，但 ac=3-4 dc 完全无衰减(*1.0)。
+            #   "微信公众号"(ac=4)/"用户偏好"(ac=3) 凭 BM25 keyword 精确匹配满分胜出，
+            #   挤压同 query 下 decision/procedure 类高信息增量 chunk。
+            # 修复：ac=3 *0.88, ac=4 *0.82。温和衰减不会跌破 min_thresh(0.10-0.18)，
+            #   但足以让非 DC 候选在 DRR 多样性选择前获得排名竞争力。
+            if (chunk.get("chunk_type") == "design_constraint"
+                    and not _hard_suppressed and _acc is not None and 3 <= _acc < 5):
+                score *= 0.88 if _acc == 3 else 0.82
             # ── iter613: Graduated Session Density Gate ──────────────────
             # 根因：固定 >=4 → *0.70 太温和，高 relevance chunk 仍排名第一。
             #   3192147e 在同 session 内被注入 3 次，0.70 惩罚不足以压下。

@@ -4038,6 +4038,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         elif (chunk[_CI_AC] or 0) >= 5:
                             _sat_mult *= 0.7
                     score *= _sat_mult
+                # iter1686: dc_low_ac_decay — ac=3-4 design_constraint 轻度衰减（sync retriever.py）
+                elif (chunk[_CI_CT] == "design_constraint"
+                      and score > 0 and 3 <= (chunk[_CI_AC] or 0) < 5):
+                    score *= 0.88 if (chunk[_CI_AC] or 0) == 3 else 0.82
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -4276,6 +4280,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         elif (chunk.get("access_count", 0) or 0) >= 5:
                             _sat_mult *= 0.7
                     score *= _sat_mult
+                # iter1686: dc_low_ac_decay — ac=3-4 design_constraint 轻度衰减（sync retriever.py）
+                elif (chunk.get("chunk_type") == "design_constraint"
+                      and score > 0 and 3 <= (chunk.get("access_count", 0) or 0) < 5):
+                    _dc_ac = chunk.get("access_count", 0) or 0
+                    score *= 0.88 if _dc_ac == 3 else 0.82
             return score
 
         def _gc_dict_to_ci(c):
