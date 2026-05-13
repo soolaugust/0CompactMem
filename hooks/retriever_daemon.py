@@ -4011,7 +4011,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else _cutoff_10d
                         else:
                             # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
-                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_72h)
+                            # iter1712: ac3_cooldown_shorten — ac=3 用 48h（sync retriever.py）
+                            _cd_cut = _cutoff_14d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_10d if (chunk[_CI_AC] or 0) >= 7 else (_cutoff_72h if (chunk[_CI_AC] or 0) >= 4 else _cutoff_48h))
                         # iter1151: staggered_cooldown_jitter_daemon — 对齐 retriever.py iter1145
                         _cd_jh_d = (hash(chunk[_CI_ID]) % 49)
                         _cd_cut = (_dt648.fromisoformat(_cd_cut) - _td648(hours=_cd_jh_d)).isoformat()
