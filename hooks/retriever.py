@@ -506,10 +506,18 @@ def _vdso_fast_exit() -> bool:
 
                 # L1: prompt_hash + chunk_version 完全匹配
                 # iter805: 新 session 首次请求不走 TLB 缓存（必须完整检索+注入）
-                if chunk_ver == tlb_ver and prompt_hash in slots and not _gen_expired and _sid_has_inj:
-                    # iter780: empty_result_tlb — 空结果缓存避免重复检索空转
+                # iter1741: tlb_empty_bypass_sid — 空结果缓存不需要 _sid_has_inj
+                #   根因（数据驱动，2026-05-14）：hash=4681435d 在 22 个不同 session 中
+                #   连续全灭（7d suppress 封锁全部候选），但每个新 session _sid_has_inj=False
+                #   → TLB L1 miss → 重复执行 full 检索（~30ms）→ 全灭 → 零注入 → 下个
+                #   session 继续循环。空结果重复检索不产生任何注入，纯属 CPU 浪费。
+                #   _sid_has_inj 的目的是确保新 session 首次请求走完整检索获得注入机会，
+                #   但 __empty__ 已经证明该 prompt 不会产生注入，跳过完整检索是安全的。
+                # iter1741: tlb_empty_bypass_sid — 空结果 TLB 不需要 _sid_has_inj
+                if chunk_ver == tlb_ver and prompt_hash in slots and not _gen_expired:
                     if slots[prompt_hash].get("injection_hash") == "__empty__":
-                        sys.exit(0)  # TLB L1 hit (empty result cached)
+                        sys.exit(0)  # TLB L1 hit (empty, skip sid check)
+                if chunk_ver == tlb_ver and prompt_hash in slots and not _gen_expired and _sid_has_inj:
                     try:
                         with open(HASH_FILE, encoding="utf-8") as _f:
                             last_hash = _f.read().strip()
@@ -4685,7 +4693,7 @@ def main():
                         #   47 个 global chunk 中只有 3-5 个触发此条件，不会导致空召回。
                         _sp_ac = c.get("access_count", 0) or 0
                         _sp_tl = _injection_timeline.get(c["id"])
-                        _sp_lt = max(len(_sp_tl), _sp_ac) if _sp_tl else 0
+                        _sp_lt = max(len(_sp_tl) if _sp_tl else 0, _sp_ac)
                         if not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint"
                                 and _sp_ac >= 4 and _sp_lt >= 4):
                             return True
@@ -7207,7 +7215,7 @@ def main():
                         # iter1468: sparse_saturated_dc_pierce — sync hard_deadline path
                         _sp_ac = c.get("access_count", 0) or 0
                         _sp_tl = _injection_timeline.get(c["id"])
-                        _sp_lt = max(len(_sp_tl), _sp_ac) if _sp_tl else 0
+                        _sp_lt = max(len(_sp_tl) if _sp_tl else 0, _sp_ac)
                         if not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint"
                                 and _sp_ac >= 4 and _sp_lt >= 4):
                             return True

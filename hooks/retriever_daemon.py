@@ -2982,10 +2982,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         last_hash = _read_hash()  # iter201: read once here, reused at L_same_hash + L_reason_base
         # iter804: session_first_inject_guard — 新 session 首次请求必须走完整检索
         _sid_has_inj = session_id in _sessions_with_injection
+        # iter1741: tlb_empty_bypass_sid — 空结果 TLB 不需要 _sid_has_inj
+        if chunk_ver == tlb_ver and prompt_hash in slots and slots[prompt_hash].get("injection_hash") == "__empty__":
+            return
         if chunk_ver == tlb_ver and _sid_has_inj:
-            # iter780: empty_result_tlb — 空结果缓存避免重复检索空转
-            if prompt_hash in slots and slots[prompt_hash].get("injection_hash") == "__empty__":
-                return
             if prompt_hash in slots and slots[prompt_hash].get("injection_hash") == last_hash:
                 return
             if last_hash:
