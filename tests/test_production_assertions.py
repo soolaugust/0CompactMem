@@ -53,7 +53,7 @@ def _setup_db() -> sqlite3.Connection:
             chunk_state TEXT DEFAULT 'ACTIVE'
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts USING fts5(
-            summary, content, content='memory_chunks', content_rowid='rowid'
+            rowid_ref, summary, content
         );
         CREATE TABLE IF NOT EXISTS recall_traces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,14 +82,16 @@ def _setup_db() -> sqlite3.Connection:
 
 
 def _insert_chunk(conn, chunk_id, summary="test", chunk_type="decision",
-                  project="test_proj", access_count=1, content=""):
+                  project="test_proj", access_count=1, content="",
+                  created_at=None):
     conn.execute(
-        "INSERT INTO memory_chunks (id, summary, content, chunk_type, project, access_count) VALUES (?,?,?,?,?,?)",
-        (chunk_id, summary, content, chunk_type, project, access_count)
+        "INSERT INTO memory_chunks (id, summary, content, chunk_type, project, access_count, created_at) VALUES (?,?,?,?,?,?,COALESCE(?,datetime('now')))",
+        (chunk_id, summary, content, chunk_type, project, access_count, created_at)
     )
+    _rid = conn.execute("SELECT rowid FROM memory_chunks WHERE id=?", (chunk_id,)).fetchone()[0]
     conn.execute(
-        "INSERT INTO memory_chunks_fts (rowid, summary, content) VALUES ((SELECT rowid FROM memory_chunks WHERE id=?), ?, ?)",
-        (chunk_id, summary, content)
+        "INSERT INTO memory_chunks_fts (rowid_ref, summary, content) VALUES (?, ?, ?)",
+        (str(_rid), summary, content)
     )
     conn.commit()
 
@@ -196,11 +198,12 @@ def test_T6_zero_access_rate_pass():
 def test_T7_zero_access_rate_fail():
     """高零访问率 → fail"""
     conn = _setup_db()
+    _old = "2026-01-01T00:00:00"
     # 2 个有访问，8 个无访问 = 80% > 35%
     for i in range(2):
-        _insert_chunk(conn, f"c{i}", access_count=3)
+        _insert_chunk(conn, f"c{i}", access_count=3, created_at=_old)
     for i in range(2, 10):
-        _insert_chunk(conn, f"c{i}", access_count=0)
+        _insert_chunk(conn, f"c{i}", access_count=0, created_at=_old)
 
     r = pa.audit_zero_access_rate(conn)
     assert not r.passed, f"80% should fail: {r.message}"
