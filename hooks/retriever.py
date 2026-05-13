@@ -4846,6 +4846,12 @@ def main():
                     # iter1378: fallback_ceiling_never_injected — sync FULL/LITE path
                     _tl_hd = _injection_timeline.get(c.get("id", ""))
                     if not _tl_hd:
+                        # iter1747: fallback_no_timeline_ac_cap — timeline GC 后用 ac 兜底
+                        _ntl_ac = c.get("access_count", 0) or 0
+                        if _ntl_ac >= 5:
+                            return 1
+                        if _ntl_ac >= 4 and c.get("project", "") == "global":
+                            return 2
                         return _fb_hd_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
                     # iter1738: fallback_saturated_ceiling_tighten — sync FULL path
@@ -7584,6 +7590,12 @@ def main():
                     # iter1378: fallback_ceiling_never_injected — timeline 空=从未注入，不应被 ac 误杀
                     _tl_fb = _injection_timeline.get(c.get("id", ""))
                     if not _tl_fb:
+                        # iter1747: fallback_no_timeline_ac_cap — timeline GC 后用 ac 兜底
+                        _ntl_ac = c.get("access_count", 0) or 0
+                        if _ntl_ac >= 5:
+                            return 1
+                        if _ntl_ac >= 4 and c.get("project", "") == "global":
+                            return 2
                         return _fb_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
                     # iter1738: fallback_saturated_ceiling_tighten — ac>=5+lt>=5 ceiling 2→1
@@ -8264,6 +8276,12 @@ def main():
                         # iter1378: fallback_ceiling_never_injected — sync FULL path
                         _tl_lite = _itl758.get(c.get("id", ""))
                         if not _tl_lite:
+                            # iter1747: fallback_no_timeline_ac_cap — sync HD/FULL path
+                            _ntl_ac = c.get("access_count", 0) or 0
+                            if _ntl_ac >= 5:
+                                return 1
+                            if _ntl_ac >= 4 and c.get("project", "") == "global":
+                                return 2
                             return _fb_lite_ceiling
                         # iter1576: lifetime_fallback_ceiling_cap
                         if len(_tl_lite) >= 4 and (c.get("access_count", 0) or 0) >= 4:
