@@ -5247,6 +5247,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _pre_gate = len(_extra_constraints)
             # iter595+596+598: access_count monopoly gate + inject_hard_cap + zero_relevance
             _inject_hard_cap = sysctl("retriever.constraint_inject_hard_cap")
+            # iter1705: constraint_path_small_db_hardcap — sync retriever.py 6292-6295
+            if _local_bw_window <= 30 and (not _inject_hard_cap or _inject_hard_cap > 0.10):
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
             # iter608: session_constraint_cap — 从 session injection file 读取计数
             _d_session_inj_counts = {}
             _d_session_cap = 2
