@@ -8687,10 +8687,11 @@ def main():
                 # 修复：增加中间层 real_inj>=5 + score<sat_floor + 小库 → suppress。
                 _sat_mid_thresh = 5
                 # iter1755: lifetime_suppress_lower — real_inj>=6 提升 floor 到 0.50
-                # 数据驱动（2026-05-14）：top 3 chunk real_inj=5~7 占总注入 48%，
-                #   iter1754 阈值=8 从未触发（max real_inj=7）。降到 6 命中前 3 垄断 chunk。
-                #   real_inj>=6 = 至少 6 次真实注入，用户已深度内化，score<0.50 = 弱匹配无增量。
-                _LIFETIME_SAT_FLOOR = 0.50
+                # iter1756: lifetime_suppress_same_project_leniency — 同项目降低 floor
+                # 数据驱动（2026-05-14）：0.30-0.50 区间 8 次注入，6 次 CROSS_PROJ 噪声
+                #   仅 2 次 SAME_PROJ 有价值（score=0.44/0.37）。统一 0.50 误杀同项目相关知识。
+                #   跨项目保持 0.50（阻挡 BM25 碰词噪声），同项目降到 0.30（放行高相关匹配）。
+                _LIFETIME_SAT_FLOOR = 0.30 if c.get("project") == project else 0.50
                 _lifetime_hit = _sat_real_inj >= 6 and s < _LIFETIME_SAT_FLOOR
                 _sat_hit = (
                     _lifetime_hit
