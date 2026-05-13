@@ -2825,8 +2825,13 @@ def main():
             #   因 session suppress floor=5 > ac=3，跨 session cooldown(iter1251)无法阻止同 session 密集注入。
             # 修复：floor 5→3 对齐 cooldown floor(iter1251)，ac>=3 同 session 内仅注入 1 次。
             _sess_sup_floor = 5 if _tiny_db and not _cd_is_global else 3
+            # iter1677: sparse_session_suppress_relax — sparse 项目 session suppress 阈值 1→2
+            # 根因（数据驱动，2026-05-13）：git:a4ee2fcfacc4(6 local chunk) 同 session 13 trace，
+            #   session suppress >=1 后仅 5 次成功注入(38%)，其余 8 次全灭(cands=59 → top_k=[])。
+            #   sparse 项目无替代候选，同 chunk 二次注入仍有价值（不同 query 上下文）。
+            _sess_sup_limit = 2 if _local_sparse else 1
             if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= _sess_sup_floor:
-                if _session_injection_counts.get(chunk.get("id", ""), 0) >= 1:
+                if _session_injection_counts.get(chunk.get("id", ""), 0) >= _sess_sup_limit:
                     score = 0.0
                     _hard_suppressed = True
             # iter1378: saturation_never_injected_bypass — timeline 空=从未注入，跳过 ac-based 衰减
