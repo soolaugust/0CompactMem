@@ -2813,11 +2813,14 @@ def main():
                     _cd_jitter_h = (zlib.crc32(_cd_id.encode()) % 49)  # 0-48 hours deterministic jitter
                     _cd_cutoff_adj = (_dt647.fromisoformat(_cd_cutoff) - _td647(hours=_cd_jitter_h)).isoformat()
                     # iter1708: cooldown_relevance_bypass — 高相关性跳过 cooldown
-                    # 根因（数据驱动，2026-05-13）：dc 工具约束(feishu CLI/git commit/微信)
-                    #   cooldown=5d(tiny_db)，用户实际操作该工具时(relevance>=0.5)仍被封锁。
-                    #   "已内化"假设仅对低相关性成立；高相关性=正在使用=需要约束提醒。
-                    # 修复：relevance>=0.5 豁免 cooldown。6h/24h/7d burst suppress 仍有效兜底。
-                    if _cd_last > _cd_cutoff_adj and relevance < 0.5:
+                    # iter1709: tighten_relevance_bypass — 收紧 bypass 阈值防注入垄断
+                    #   根因（数据驱动，2026-05-13）：feishu CLI(ac=5) 等 dc 以 relevance=0.5-0.7
+                    #   反复绕过 cooldown，7d 注入 5 次垄断注入位。0.5 阈值太宽松——BM25 对
+                    #   含关键词的 prompt 天然给高分，不代表用户真正需要该约束提醒。
+                    #   ac>=8 的 chunk 已被多次内化，即使高相关也不应豁免 cooldown。
+                    # 修复：0.5→0.8 + ac>=8 不豁免。6h/24h/7d burst suppress 仍兜底。
+                    _cd_bypass_relevance = relevance >= 0.8 and _acc < 8
+                    if _cd_last > _cd_cutoff_adj and not _cd_bypass_relevance:
                         score = 0.0
                         _hard_suppressed = True
             # iter1180: session_cooldown_sync — session 内 cooldown 补充
