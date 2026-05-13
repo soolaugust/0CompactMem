@@ -4669,7 +4669,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _div_chunk_hd = (_div_pick_hd[0], _div_pick_hd[1], _div_pick_hd[2],
                                         _div_pick_hd[4], 0, 0, _div_pick_hd[5], None, None, None,
                                         _div_pick_hd[3], None)
-                        positive.append((positive[0][0] * 0.25, _div_chunk_hd))
+                        # iter1713: diversity_pair_floor_safe — score 保底=floor
+                        _div_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        positive.append((max(positive[0][0] * 0.25, _div_floor_hd), _div_chunk_hd))
                         _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                       f"iter864_diversity_pair_hd: db_pick {_div_pick_hd[0][:12]} "
                                       f"imp={_div_pick_hd[4]:.2f} ac={_div_pick_hd[5]}",
@@ -5088,7 +5090,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _div_chunk_d = (_div_pick_d[0], _div_pick_d[1], _div_pick_d[2],
                                    _div_pick_d[4], 0, 0, _div_pick_d[5], None, None, None,
                                    _div_pick_d[3], None)
-                    _div_score_d = positive[0][0] * 0.25
+                    # iter1713: diversity_pair_floor_safe — score 保底=floor 防 floor_gate 二杀
+                    _div_floor_d = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    _div_score_d = max(positive[0][0] * 0.25, _div_floor_d)
                     positive.append((_div_score_d, _div_chunk_d))
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter867_diversity_rotation: db_pick {_div_pick_d[0][:12]} "
