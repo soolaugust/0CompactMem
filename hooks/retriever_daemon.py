@@ -5009,11 +5009,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _cut_21d_hd = (_now_hd - _td648hd(days=21)).isoformat()
                         _itl_p_hd = {k: [t for t in v if t > _cut_21d_hd] for k, v in _itl_ex_hd.items()}
                         _itl_p_hd = {k: v for k, v in _itl_p_hd.items() if v}
-                        _now_iso_hd = _now_hd.isoformat()
-                        for _aid_hd in accessed_ids:
-                            _itl_p_hd.setdefault(_aid_hd, []).append(_now_iso_hd)
-                        with open(_itl_path_hd, 'w', encoding="utf-8") as _itf_hw:
-                            _itf_hw.write(json.dumps(_itl_p_hd, ensure_ascii=False))
+                        # iter1744: daemon_timeline_no_append — daemon 不写入新 timeline 条目
+                        # 根因（数据驱动，2026-05-14）：22/85(26%) timeline 条目来自 daemon，
+                        #   膨胀 sat_floor 的 real_inj 计数。import-72946(ac=0,tl=2) 全部来自 daemon，
+                        #   用户从未在 context 中看到该 chunk 但 real_inj=2 触发 suppress。
+                        #   daemon 注入对用户不可见，不应计入 suppress 统计。
+                        # 修复：daemon write-back 只做 21d GC pruning，不 append 新条目。
+                        if _itl_p_hd != _itl_ex_hd:
+                            with open(_itl_path_hd, 'w', encoding="utf-8") as _itf_hw:
+                                _itf_hw.write(json.dumps(_itl_p_hd, ensure_ascii=False))
                     except Exception:
                         pass
                     _write_shadow_trace(project, accessed_ids, session_id)
@@ -7230,12 +7234,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _kept = [t for t in _v if t > _cutoff_21d]
                     if _kept:
                         _itl_pruned[_k] = _kept
-                for _inj_id in _accessed_ids:
-                    if _inj_id not in _itl_pruned:
-                        _itl_pruned[_inj_id] = []
-                    _itl_pruned[_inj_id].append(_now_ts)
-                with open(_itl_path, 'w', encoding="utf-8") as _itf_w:
-                    _itf_w.write(json.dumps(_itl_pruned, ensure_ascii=False))
+                # iter1744: daemon_timeline_no_append — daemon 不写入新 timeline 条目
+                # 根因（数据驱动，2026-05-14）：daemon 注入对用户不可见（不出现在 context window），
+                #   但 timeline 条目会膨胀 sat_floor real_inj → 误杀有价值 chunk。
+                # 修复：只做 21d GC pruning，不 append 新条目。仅在 GC 改变了内容时写回。
+                if _itl_pruned != _itl_existing:
+                    with open(_itl_path, 'w', encoding="utf-8") as _itf_w:
+                        _itf_w.write(json.dumps(_itl_pruned, ensure_ascii=False))
             except Exception:
                 pass
             _write_shadow_trace(_project, _shadow_ids, _session_id)
