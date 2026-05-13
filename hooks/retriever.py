@@ -8654,12 +8654,16 @@ def main():
                         # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(local=0)
                         #   0aff0d67/c9accb7b(global,dc,score=0.01) 经 pair_preserve 注入。
                         #   local=0 时所有候选都是跨项目，pair 同样是噪声。
+                        # iter1735: pair_preserve_dc_gate — global dc ac>=4 排除（sync iter1608/1698）
                         _sf_below = [] if _local_chunk_count == 0 else [
                             (s, c) for s, c in top_k if s < _score_floor
                             and s > 0.0
                             and not (c.get("access_count", 0) >= 7
                                      and (c.get("project", "") == "global"
-                                          or c.get("project", "") != project))]
+                                          or c.get("project", "") != project))
+                            and not (c.get("chunk_type") == "design_constraint"
+                                     and c.get("project", "") == "global"
+                                     and (c.get("access_count", 0) or 0) >= 4)]
                         if _sf_below:
                             _sf_kept_pair = max(_sf_below, key=lambda x: x[0])
                             _sf_above.append(_sf_kept_pair)
