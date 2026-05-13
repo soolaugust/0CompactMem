@@ -4839,10 +4839,18 @@ def main():
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2
                                   and (c.get("access_count", 0) or 0) < 7]
                 # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选(hard_deadline sync)
+                # iter1695: sparse_local_cooldown_bypass — local chunk 跳过 cooldown
+                #   根因（数据驱动，2026-05-13）：git:78dc99a5695f(1 local,ac=8) 5/11 连续 2 次空召回。
+                #   FTS5 命中 3-4 候选但 suppress 全灭 → sparse_fallback_uncap 兜底，
+                #   但 _hd_cooldown_ok 因 ac=8 + 72h cooldown 未过 → 唯一 local chunk 被排除 → 空召回。
+                #   sparse 项目 local chunk 是唯一知识源，不应因 cooldown 永久封锁。
+                # 修复：local chunk（project==当前项目且非 global）跳过 cooldown 检查。
                 if not _fb_hd_cap and _local_sparse:
                     _fb_hd_cap = sorted(
                         [(s, c) for s, c in _pre_suppress_top_k_hd
-                         if _hd_cooldown_ok(c) and _fb_hd_relevance_ok(c)],
+                         if (c.get("project", "") == project and c.get("project", "") != "global"
+                             or _hd_cooldown_ok(c))
+                         and _fb_hd_relevance_ok(c)],
                         key=lambda x: (x[1].get("access_count", 0) or 0, -x[0])
                     )[:2]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
