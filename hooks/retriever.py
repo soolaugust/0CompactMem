@@ -8562,11 +8562,17 @@ def main():
                 #   design_constraint 是静态规则，内化后边际信息=0，与 global dc 性质相同。
                 # 修复：dc + ac>=4 统一走 sat_floor，无论 global/non-global。
                 _is_dc = c.get("chunk_type") == "design_constraint"
+                # iter1730: sat_floor_use_real_inject_count — 对齐 iter1728/1725
+                # 根因（数据驱动，2026-05-13）：MTK ALB(ac=12,real_inj=0)、uclamp(ac=8,real_inj=0)
+                #   被 sat_floor suppress，但从未真正注入给用户。ac 膨胀源自 daemon/TLB probe。
+                # 修复：sat_floor 判定用 real inject count（_injection_timeline），不用膨胀的 ac。
+                _sat_cid = c.get("id", "")
+                _sat_real_inj = len(_injection_timeline.get(_sat_cid, []))
                 _sat_hit = (
                     (_is_dc
-                     and (c.get("access_count") or 0) >= 4
+                     and _sat_real_inj >= 4
                      and s < _GLOBAL_SAT_FLOOR)
-                    or ((c.get("access_count") or 0) >= _LOCAL_SAT_AC_THRESH
+                    or (_sat_real_inj >= _LOCAL_SAT_AC_THRESH
                         and s < _GLOBAL_SAT_FLOOR))
                 if _sat_hit:
                     # iter1566: saturated_floor_strip_fallback — 阻止 saturated chunk 经 _fallback_protected 逃逸 floor_gate
@@ -9348,15 +9354,16 @@ def main():
         # iter1155: sdg_threshold_widen — ac>=7→5 覆盖 ac=5-6 中饱和逃逸
         if top_k and len(top_k) > 2 and not _micro_db:
             # iter1156: sdg_low_score_prune — 低分 saturated chunk 无条件移除
+            # iter1730: sat_floor_use_real_inject_count — sync sdg path
             _sdg_lowscore = [(s, c) for s, c in top_k
-                            if (c.get("access_count", 0) or 0) >= 5 and s < 0.10]
+                            if len(_injection_timeline.get(c.get("id", ""), [])) >= 5 and s < 0.10]
             if _sdg_lowscore and len(top_k) > len(_sdg_lowscore):
                 top_k = [(s, c) for s, c in top_k
-                         if not ((c.get("access_count", 0) or 0) >= 5 and s < 0.10)]
+                         if not (len(_injection_timeline.get(c.get("id", ""), [])) >= 5 and s < 0.10)]
             _sdg_max = max(1, (len(top_k) + 1) // 2)  # ceil(len/2)
-            _sdg_saturated = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 5]
+            _sdg_saturated = [(s, c) for s, c in top_k if len(_injection_timeline.get(c.get("id", ""), [])) >= 5]
             if len(_sdg_saturated) > _sdg_max:
-                _sdg_fresh = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 5]
+                _sdg_fresh = [(s, c) for s, c in top_k if len(_injection_timeline.get(c.get("id", ""), [])) < 5]
                 # 保留 score 最高的 _sdg_max 个 saturated
                 _sdg_saturated.sort(key=lambda x: x[0], reverse=True)
                 _sdg_kept = _sdg_saturated[:_sdg_max]
