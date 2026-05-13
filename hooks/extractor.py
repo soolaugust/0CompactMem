@@ -1288,7 +1288,12 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         #   "sim_threshold 触发 diversity penalty" hits=1(diversity)
         #   "反复注入" hits=1(注入率?)  "hook_input…FTS5 完全不执行" hits=1(FTS5)
         r'sim_threshold|diversity.penalty|反复注入|hook_input|零记忆|'
-        r'prompt\s*提取|query\s*始终空)',
+        r'prompt\s*提取|query\s*始终空|'
+        # iter1684: iteration_id_gate — "iter\d{3,4}" 是 memory-os 迭代器版本标识
+        # 数据驱动（2026-05-13）：4 条 ac=0 swapped chunks 含 "iter1534"/"iter1507/1525" 等，
+        #   hits=1 不够 decision 阈值 2 逃逸。"iter+数字" 是最强迭代器自引用信号。
+        #   "ac<0"/"ac>=N" 是 retriever 内部 access_count 阈值讨论。
+        r'iter\d{3,4}|\bac\s*[<>=]+\s*\d)',
         summary
     ))
     # iter1584: truncated_fragment_gate — 以右括号开头的碎片 + 任何 selfref 命中即拒绝
