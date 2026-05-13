@@ -4294,7 +4294,7 @@ def main():
             # iter1368: sparse_cross_floor_tighten — 0.10→0.18 拦截低相关跨项目噪声
             # 数据驱动（2026-05-10）：abspath:7e3095aef7a6(1 local chunk) 被注入 5 条
             #   kernel/PE chunk（score≈0.10-0.15），用户在非 kernel 项目中无价值。
-            _cross_floor = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
+            _cross_floor = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
             positive = [(s, c) for s, c in positive
                         if c.get("project", "") in ("", project) or s >= _cross_floor]
             # iter826: single_result_pair_inject (hard_deadline path)
@@ -5816,7 +5816,7 @@ def main():
         # iter1697: zero_local_cross_floor_full_sync — 对齐 HD 路径 iter1690
         # 根因（数据驱动，2026-05-13）：FULL 路径缺少 local=0 的 0.25 保护，
         #   abspath:7e3095aef7a6(local=0) 经 FULL 路径注入 MTK/git commit 跨项目噪声(score=0.05)。
-        _cross_floor_f = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
+        _cross_floor_f = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
         positive = [(s, c) for s, c in positive
                     if c.get("project", "") in ("", project) or s >= _cross_floor_f]
         # iter843: pair_dedup_aware — 配对候选预过滤 dedup threshold
@@ -7941,7 +7941,7 @@ def main():
         # iter1697: cross_project_floor_lite — LITE 路径补充 cross_floor 过滤（对齐 HD/FULL）
         # 根因（数据驱动，2026-05-13）：LITE 路径缺少 cross_project_relevance_floor，
         #   local=0 项目低分跨项目 chunk(score=0.01~0.05) 直达 suppress_final_gate_lite。
-        _cross_floor_lite = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
+        _cross_floor_lite = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
         top_k = [(s, c) for s, c in top_k
                  if c.get("project", "") in ("", project) or s >= _cross_floor_lite]
         _pre_suppress_top_k_lite = list(top_k)  # iter793: snapshot before suppress
