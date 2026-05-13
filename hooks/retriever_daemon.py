@@ -6079,6 +6079,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _fb_ac_d >= 4:
                             return max(2, _fb_ceiling_d - 2)
                         return _fb_ceiling_d
+                    # iter1746: lifetime_independent_ceiling — daemon sync
+                    if _lt_fb >= 6:
+                        return 2
                     if _fb_ac_d >= 7:
                         return 2
                     elif _fb_ac_d >= 5:
@@ -6086,6 +6089,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter1549: ac4_tiny_db_7d_cap2 — sync fallback ceiling path
                     elif _fb_ac_d >= 4:
                         return 2 if _s672_tiny else max(2, _fb_ceiling_d - 2)
+                    elif _fb_ac_d >= 3:
+                        return min(_fb_ceiling_d, 3 if _s672_tiny else 2)  # iter1746: fb_ac3_cap sync
                     return _fb_ceiling_d
                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
                 # iter1093: daemon_fallback_cooldown — fallback 也必须检查 cooldown

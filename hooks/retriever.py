@@ -4861,6 +4861,9 @@ def main():
                         if _fb_ac_hd >= 4:
                             return max(2, _fb_hd_ceiling - 2)
                         return _fb_hd_ceiling
+                    # iter1746: lifetime_independent_ceiling — HD sync
+                    if _lt_len_hd >= 6:
+                        return 2
                     if _fb_ac_hd >= 7:
                         return 1
                     elif _fb_ac_hd >= 5:
@@ -7596,10 +7599,19 @@ def main():
                         return 2
                     if c.get("project", "") == "global" and _fb_ac >= 4:
                         return max(2, _fb_ceiling - 2)
+                    # iter1746: lifetime_independent_ceiling — lt>=6 不依赖 ac 独立 cap
+                    # 根因（数据驱动，2026-05-14）：import-90139(PE LKMM,ac=3,lt=6) 被注入 6 次
+                    #   但 ac=3 跳过所有 ac-based ceiling，ceiling=7 无限制。lt 高表明已充分内化。
+                    if _lt_len >= 6:
+                        return 2
                     if _fb_ac >= 7:
                         return 1
                     elif _fb_ac >= 5:
                         return max(2, _fb_ceiling - 1)
+                    # iter1746: fb_ac3_cap_full_sync — 对齐 HD 路径 iter1488
+                    # 根因：HD 路径 ac>=3 cap=3/2，FULL 路径缺失 → ac=3-4 chunk 经 FULL fallback 逃逸
+                    elif _fb_ac >= 3:
+                        return min(_fb_ceiling, 3 if _db_chunk_count < 50 else 2)
                     return _fb_ceiling
                 # iter1363: fallback_global_relevance_gate — FULL 路径同步
                 _fb_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance} if _pre_score_relevance else {}
