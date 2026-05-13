@@ -8789,7 +8789,14 @@ def main():
                     # 根因（数据驱动，2026-05-12）：git:78dc99a5695f 5月11日 2 次空召回 ftrace 均无
                     #   iter1525/iter1568 日志。LITE 路径 conn 在 FTS 阶段后可能被 close/重用，
                     #   导致 conn.execute() 抛 ProgrammingError 被 except pass 吞掉。
-                    if _local_sparse:
+                    # iter1736: floor_gate_universal_local_rescue — 扩展兜底覆盖所有有本地知识的项目
+                    # 根因（数据驱动，2026-05-13）：git:a4ee2fcfacc4(6 local, _local_sparse=False)
+                    #   floor_gate 全灭后因 _local_sparse=False 跳过 DB 兜底 → 70% 空召回。
+                    #   FTS5 候选全为跨项目 chunk（prompt 关键词不匹配本地 chunk），
+                    #   iter1599 依赖 _pre_suppress_top_k 有本地 chunk（往往没有）→ 空。
+                    # 修复：条件从 _local_sparse 放宽到 _local_chunk_count>0。
+                    #   任何有本地知识的项目 floor_gate 全灭时都从 DB 补充本地 chunk。
+                    if _local_chunk_count > 0:
                         try:
                             import sqlite3 as _slp1605
                             _slp_conn = _slp1605.connect(str(STORE_DB))
