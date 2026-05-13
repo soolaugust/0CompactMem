@@ -3991,7 +3991,7 @@ def main():
                             "SELECT id, summary, content, chunk_type, importance "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                             "AND importance >= ? "
-                            "ORDER BY importance DESC, access_count DESC LIMIT 5",
+                            "ORDER BY importance DESC, access_count ASC LIMIT 5",
                             (project, _lsr_imp_floor)
                         ).fetchall()
                         for _lsr_row in _lsr_rows:
