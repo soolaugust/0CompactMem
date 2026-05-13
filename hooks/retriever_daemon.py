@@ -5708,7 +5708,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cross = (_cp != project and _cp != "global")
                     _is_global = (_cp == "global")
                     if _sf663d_tiny_db:
-                        _t = 7  # iter1477: tiny_db_suppress_relax — 5→7
+                        _t = 5  # iter1762: tiny_db_7d_tighten — 7→5 去垄断(ac5 thresh 4→2)
                     elif _sf663d_small_db:
                         _t = 4 if s >= 0.5 else 3  # iter1497: small_db sync retriever.py
                     else:
@@ -5866,7 +5866,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cross = (_cp != project and _cp != "global")
                 _is_global = (_cp == "global")
                 if _fg887d_tiny:
-                    _t = 7  # iter1477: tiny_db_suppress_relax — 5→7
+                    _t = 5  # iter1762: tiny_db_7d_tighten — 7→5 sync(iter1477)
                 elif _fg887d_small:
                     _t = 4 if s >= 0.5 else 3  # iter1497: small_db sync retriever.py
                 else:
