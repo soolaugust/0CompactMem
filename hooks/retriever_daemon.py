@@ -4020,12 +4020,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
                 # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减
-                if score > 0 and (chunk[_CI_AC] or 0) >= 12:
+                # iter1682: sparse_saturation_shield — local_sparse 本地 chunk 跳过 saturation 衰减
+                _sparse_sat_d = _local_sparse_d and _is_local_d
+                if score > 0 and not _sparse_sat_d and (chunk[_CI_AC] or 0) >= 12:
                     if _db_chunk_count < 100:
                         score *= 0.1
                     else:
                         score = 0.0
-                elif (chunk[_CI_AC] or 0) >= 5:
+                elif not _sparse_sat_d and (chunk[_CI_AC] or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
                     if (chunk[_CI_AC] or 0) >= 10:
                         _sat_mult *= 0.5
@@ -4256,12 +4258,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
                 # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减
-                if score > 0 and (chunk.get("access_count", 0) or 0) >= 12:
+                # iter1682: sparse_saturation_shield — sync retriever.py
+                _sparse_sat_d2 = _local_sparse_d and (chunk.get("project", "") == project)
+                if score > 0 and not _sparse_sat_d2 and (chunk.get("access_count", 0) or 0) >= 12:
                     if _db_chunk_count < 100:
                         score *= 0.1
                     else:
                         score = 0.0
-                elif (chunk.get("access_count", 0) or 0) >= 5:
+                elif not _sparse_sat_d2 and (chunk.get("access_count", 0) or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
                     if (chunk.get("access_count", 0) or 0) >= 10:
                         _sat_mult *= 0.5

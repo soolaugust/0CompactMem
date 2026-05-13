@@ -2836,14 +2836,21 @@ def main():
                     _hard_suppressed = True
             # iter1378: saturation_never_injected_bypass — timeline 空=从未注入，跳过 ac-based 衰减
             _never_injected = not _injection_timeline.get(chunk.get("id", ""))
-            if not _never_injected and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 12:
+            # iter1682: sparse_saturation_shield — local_sparse 本地 chunk 跳过 saturation 衰减
+            # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(1 local,ac=8) 9/9 次检索全部
+            #   floor_gate_skip。sat_mult=0.5 将 score 从 0.18→0.09 < floor=0.12。
+            #   iter1172/1200/1280/1313 保护了 suppress/cooldown/7d，唯独 saturation 遗漏。
+            #   该 chunk 是项目唯一本地知识，衰减等于永久封锁。
+            # 修复：_local_sparse + 本地 chunk → 跳过 saturation 衰减（与其他 sparse shield 对齐）。
+            _sparse_sat_shield = _local_sparse and chunk.get("project", "") == project
+            if not _never_injected and not _sparse_sat_shield and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 12:
                 # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减而非硬杀
                 if _db_chunk_count < 100:
                     score *= 0.1
                 else:
                     score = 0.0
                     _hard_suppressed = True
-            elif not _never_injected and (not _micro_db or _cd_is_cross_project) and _acc >= 5:
+            elif not _never_injected and not _sparse_sat_shield and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 5:
                 # iter1070: deep_saturated_floor — ac>=10 衰减加速
                 # 根因（数据驱动，2026-05-07）：ac=10/11 chunk（Android诊断/PE分析/git commit）
                 #   衰减 *0.3/*0.2，FTS base=0.6 时得 0.18/0.12→仍通过 min_thresh(0.10-0.18)。
