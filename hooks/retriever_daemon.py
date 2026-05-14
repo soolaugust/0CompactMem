@@ -4891,6 +4891,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   if s >= 0.03 or (c[_CI_CP] if len(c) > _CI_CP else "") == project]
                     if _cpng_hd_d:
                         top_k = _cpng_hd_d
+                # iter1821: zero_local_cross_project_filter (daemon HD sync iter1810)
+                if _local_chunk_count_d == 0 and top_k:
+                    _zl_d_hd = [(s, c) for s, c in top_k
+                                if (c[_CI_CP] if len(c) > _CI_CP else "") in ("", "global", project)]
+                    if _zl_d_hd:
+                        top_k = _zl_d_hd
                 top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235: positional
                 # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
                 current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
@@ -6509,6 +6515,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
             except Exception:
                 pass
+        # iter1821: zero_local_cross_project_filter (daemon LITE sync iter1810)
+        if _local_chunk_count_d == 0 and top_k:
+            _zl_d_lt = [(s, c) for s, c in top_k
+                        if (c[_CI_CP] if len(c) > _CI_CP else "") in ("", "global", project)]
+            if _zl_d_lt:
+                top_k = _zl_d_lt
         top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235
         # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
         current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
@@ -7213,6 +7225,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-05）：top_k_ids 在 line 4771 基于旧 top_k 计算，
         #   但 suppress_final_gate/fallback 可能修改 top_k，导致 accessed_ids 与
         #   top_k_data 不一致 → 11% trace 的 top_k_json=[] 污染 recall_counts。
+        # iter1821: zero_local_cross_project_filter (daemon FULL sync iter1810)
+        if _local_chunk_count_d == 0 and top_k:
+            _zl_d_full = [(s, c) for s, c in top_k
+                          if (c[_CI_CP] if len(c) > _CI_CP else "") in ("", "global", project)]
+            if _zl_d_full:
+                top_k = _zl_d_full
         # iter1039: freeze_accessed_ids — tuple 不可变，消除 writeback 线程读取时潜在的引用失效
         #   数据驱动（2026-05-07）：40% trace 记录 injected=0,top_k=[] 但 dmesg 确认注入成功。
         #   _accessed_ids 默认参数绑定 list 对象，writeback 线程延迟执行时偶发读到空。
