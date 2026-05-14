@@ -6258,6 +6258,40 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
             except Exception:
                 pass
+        # ── iter1839: cold_start_probe_daemon — sync retriever.py iter1780/1811 ──
+        # 根因（数据驱动，2026-05-15）：retriever.py LITE 路径有 cold_start_probe_lite
+        #   (ac<=1 本地 chunk 曝光探针)，daemon 缺失同步。
+        #   git:78dc99a5695f 的 58c70136(imp=0.85,ac=0) 创建 25 天，daemon 路径无探针。
+        # 修复：top_k 非空时替换最低分 chunk，为空时 append。与 iter1780 逻辑对齐。
+        _csd_ac_thresh = int(sysctl("retriever.cold_start_ac_threshold") or 1)
+        _csd_has_cold = any((c[_CI_AC] or 0) <= _csd_ac_thresh for _, c in top_k) if top_k else False
+        if _local_chunk_count_d > 0 and not _csd_has_cold:
+            try:
+                _csd_row = conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    "AND access_count<=? AND importance>=0.7 "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                    (project, _csd_ac_thresh)).fetchone()
+                if _csd_row and _csd_row[0] not in {c[_CI_ID] for _, c in top_k}:
+                    _csd_chunk = (_csd_row[0], _csd_row[1], _csd_row[2],
+                                  _csd_row[4] or 0.5, None, _csd_row[3] or "",
+                                  _csd_row[5] or 0) + (None,) * 6
+                    _csd_score = float(_csd_row[4] or 0.5)
+                    if top_k:
+                        _csd_worst = min(range(len(top_k)), key=lambda i: top_k[i][0])
+                        _csd_score = max(top_k[_csd_worst][0], _csd_score)
+                        top_k[_csd_worst] = (_csd_score, _csd_chunk)
+                    else:
+                        top_k.append((_csd_score, _csd_chunk))
+                    _fallback_protected_ids.add(_csd_row[0])
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter1839_cold_start_probe: "
+                                  f"{'replaced' if len(top_k) > 1 else 'appended'} "
+                                  f"id={_csd_row[0][:12]} imp={_csd_row[4]:.2f} ac={_csd_row[5]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
         if not top_k:
             # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
             # iter829: fallback_rotation — 排除上次已注入 chunk 避免 same_hash 死循环
