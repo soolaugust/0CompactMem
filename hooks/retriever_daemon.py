@@ -4054,6 +4054,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif (chunk[_CI_CT] == "design_constraint"
                       and score > 0 and 3 <= (chunk[_CI_AC] or 0) < 5):
                     score *= 0.88 if (chunk[_CI_AC] or 0) == 3 else 0.82
+            # iter1802: exploration_boost — sync retriever.py iter1795/1796
+            # 从未注入的本地高价值 chunk 乘法提权，给予首次曝光机会。
+            if (score > 0
+                    and not _itl_lifetime.get(chunk[_CI_ID])
+                    and (chunk[_CI_CP] or "") == project
+                    and (chunk[_CI_IMP] or 0) >= 0.7):
+                score *= 2.0
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -4309,6 +4316,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                       and score > 0 and 3 <= (chunk.get("access_count", 0) or 0) < 5):
                     _dc_ac = chunk.get("access_count", 0) or 0
                     score *= 0.88 if _dc_ac == 3 else 0.82
+            # iter1802: exploration_boost — sync retriever.py iter1795/1796
+            if (score > 0
+                    and not _itl_lifetime.get(chunk.get("id", ""))
+                    and chunk.get("project", "") == project
+                    and (chunk.get("importance") or 0) >= 0.7):
+                score *= 2.0
             return score
 
         def _gc_dict_to_ci(c):
