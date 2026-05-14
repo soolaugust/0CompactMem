@@ -4516,7 +4516,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _local_chunk_count_d > 0:
                     try:
                         _lsr_rows_d = conn.execute(
-                            "SELECT id, summary, content, chunk_type, importance "
+                            "SELECT id, summary, content, chunk_type, importance, "
+                            "COALESCE(access_count,0), project "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                             "AND importance >= ? "
                             "ORDER BY importance DESC, access_count ASC LIMIT 5",
@@ -4527,7 +4528,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                 continue
                             fts_results = [{"id": _lsr_d[0], "summary": _lsr_d[1],
                                             "content": _lsr_d[2], "chunk_type": _lsr_d[3] or "",
-                                            "importance": _lsr_d[4] or 0.5}]
+                                            "importance": _lsr_d[4] or 0.5,
+                                            "access_count": _lsr_d[5],
+                                            "project": _lsr_d[6] or project}]
                             use_fts = True
                             _deferred.log(DMESG_DEBUG, "retriever",
                                           f"iter1763_daemon_lite_rescue_align: sparse={_local_sparse_d} "
