@@ -6712,12 +6712,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _ri = _sat_real_inj_d(c)
                 _same_proj = _sat_floor_proj(c) == project
                 _lt_floor = 0.30 if _same_proj else 0.50
+                # iter1827: sat_floor_same_project_leniency — sync retriever.py
+                _sat_eff = 0.15 if _same_proj else _GLOBAL_SAT_FLOOR
                 return (
                     (_ri >= 6 and s < _lt_floor)
-                    or (_is_dc and _ri >= 4 and s < _GLOBAL_SAT_FLOOR)
-                    or (_ri >= _sat_mid_thresh and s < _GLOBAL_SAT_FLOOR
+                    or (_is_dc and _ri >= 4 and s < _sat_eff)
+                    or (_ri >= _sat_mid_thresh and s < _sat_eff
                         and _db_chunk_count < 50)
-                    or (_ri >= _LOCAL_SAT_AC_THRESH and s < _GLOBAL_SAT_FLOOR))
+                    or (_ri >= _LOCAL_SAT_AC_THRESH and s < _sat_eff))
             top_k = [(s, c) if not _sat_hit_d(s, c)
                      else (_sat_stripped.add(c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) or 0.0, c)
                      for s, c in top_k]

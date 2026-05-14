@@ -9222,17 +9222,22 @@ def main():
                 #   仅 2 次 SAME_PROJ 有价值（score=0.44/0.37）。统一 0.50 误杀同项目相关知识。
                 #   跨项目保持 0.50（阻挡 BM25 碰词噪声），同项目降到 0.30（放行高相关匹配）。
                 _LIFETIME_SAT_FLOOR = 0.30 if c.get("project") == project else 0.50
+                # iter1827: sat_floor_same_project_leniency — 同项目 dc/qe 降低 sat_floor
+                # 数据驱动（2026-05-14）：主项目 48% 单条注入，pair 候选被 sat_floor=0.25
+                #   压成 0.0 后消失。同项目 BM25 score 0.15-0.25 仍有语义相关性，
+                #   保留为 pair 候选可增加知识组合率。跨项目保持 0.25 防噪声。
+                _SAT_FLOOR_EFF = 0.15 if c.get("project") == project else _GLOBAL_SAT_FLOOR
                 _lifetime_hit = _sat_real_inj >= 6 and s < _LIFETIME_SAT_FLOOR
                 _sat_hit = (
                     _lifetime_hit
                     or (_is_dc
                         and _sat_real_inj >= 4
-                        and s < _GLOBAL_SAT_FLOOR)
+                        and s < _SAT_FLOOR_EFF)
                     or (_sat_real_inj >= _sat_mid_thresh
-                        and s < _GLOBAL_SAT_FLOOR
+                        and s < _SAT_FLOOR_EFF
                         and _db_chunk_count < 50)
                     or (_sat_real_inj >= _LOCAL_SAT_AC_THRESH
-                        and s < _GLOBAL_SAT_FLOOR))
+                        and s < _SAT_FLOOR_EFF))
                 if _sat_hit:
                     # iter1566: saturated_floor_strip_fallback — 阻止 saturated chunk 经 _fallback_protected 逃逸 floor_gate
                     c.pop("_fallback_protected", None)
