@@ -4777,9 +4777,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _div_conn_hd = _div_sql_hd.connect(str(STORE_DB))
                     # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
                     _div_ac_cap_hd = 5
+                    # iter1851: diversity_pair_cross_project — sync retriever.py
                     _div_rows_hd = _div_conn_hd.execute(
                         "SELECT id, summary, content, chunk_type, importance, access_count "
-                        "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                        "FROM memory_chunks WHERE (project = ? OR project = 'global' "
+                        "OR (access_count = 0 AND importance >= 0.8)) "
+                        "AND chunk_state = 'ACTIVE' "
                         "AND importance >= 0.5 AND id != ? AND access_count < ? "
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
                         (project, _top1_id_hd, _div_ac_cap_hd)).fetchall()
@@ -5317,9 +5320,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _div_conn_d = _div_sql_d.connect(str(STORE_DB))
                 # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
                 _div_ac_cap_d = 5
+                # iter1851: diversity_pair_cross_project — sync retriever.py
                 _div_rows_d = _div_conn_d.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
-                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "FROM memory_chunks WHERE (project = ? OR project = 'global' "
+                    "OR (access_count = 0 AND importance >= 0.8)) "
+                    "AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? AND access_count < ? "
                     "ORDER BY access_count ASC, importance DESC LIMIT 8",
                     (project, _top1_id_d, _div_ac_cap_d)).fetchall()

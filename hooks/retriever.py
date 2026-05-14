@@ -6473,9 +6473,15 @@ def main():
                 # 查同 project 中 importance >= 0.5、非 top1、未被 session 内注入的 chunk
                 # iter1711: diversity_pair_ac_cap — 排除已内化 chunk 防垄断搭车
                 _div_ac_cap = 5
+                # iter1851: diversity_pair_cross_project — 跨项目高imp chunk参与diversity
+                # 根因（数据驱动，2026-05-15）：58c70136(cgroup uclamp, ac=0, imp=0.85, proj=78dc99)
+                #   因 WHERE project=? 被排除，30d 零注入零曝光。
+                # 修复：扩展查询：本项目 OR global OR (ac=0 + imp>=0.8 跨项目)。
                 _div_rows = _div_conn.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
-                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "FROM memory_chunks WHERE (project = ? OR project = 'global' "
+                    "OR (access_count = 0 AND importance >= 0.8)) "
+                    "AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? AND access_count < ? "
                     "ORDER BY access_count ASC, importance DESC LIMIT 8",
                     (project, _top1_id, _div_ac_cap)).fetchall()
@@ -6750,9 +6756,12 @@ def main():
             try:
                 import sqlite3 as _pfd_sql
                 _pfd_conn = _pfd_sql.connect(str(STORE_DB))
+                # iter1851: diversity_pair_cross_project — sync main path
                 _pfd_rows = _pfd_conn.execute(
                     "SELECT id, summary, content, chunk_type, importance, access_count "
-                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "FROM memory_chunks WHERE (project = ? OR project = 'global' "
+                    "OR (access_count = 0 AND importance >= 0.8)) "
+                    "AND chunk_state = 'ACTIVE' "
                     "AND importance >= 0.5 AND id != ? AND access_count <= 4 "
                     "ORDER BY access_count ASC, importance DESC LIMIT 5",
                     (project, _pfd_top1_id)).fetchall()
