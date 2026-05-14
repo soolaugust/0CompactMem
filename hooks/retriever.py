@@ -5106,32 +5106,36 @@ def main():
                     if not _tl_hd:
                         # iter1747: fallback_no_timeline_ac_cap — timeline GC 后用 ac 兜底
                         _ntl_ac = c.get("access_count", 0) or 0
+                        # iter1846: fallback_ceiling_zero — HD sync
+                        if _ntl_ac >= 7:
+                            return 0
                         if _ntl_ac >= 5:
-                            return 1
+                            return 0
                         if _ntl_ac >= 4 and c.get("project", "") == "global":
-                            return 2
+                            return 1
                         return _fb_hd_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
                     # iter1738: fallback_saturated_ceiling_tighten — sync FULL path
                     _lt_len_hd = len(_tl_hd)
                     _fb_ac_hd = c.get("access_count", 0) or 0
+                    # iter1846: ceiling 1→0 封堵 7d 重置逃逸 — HD sync
                     if _lt_len_hd >= 5 and _fb_ac_hd >= 5:
-                        return 1
+                        return 0
                     if _lt_len_hd >= 4 and _fb_ac_hd >= 4:
-                        return 2
+                        return 1
                     if c.get("project", "") == "global":
                         if _fb_ac_hd >= 5:
-                            return 1  # iter1738: sync — was 2
+                            return 0  # iter1846: sync
                         if _fb_ac_hd >= 4:
-                            return max(2, _fb_hd_ceiling - 2)
+                            return max(1, _fb_hd_ceiling - 3)
                         return _fb_hd_ceiling
                     # iter1746: lifetime_independent_ceiling — HD sync
                     if _lt_len_hd >= 6:
-                        return 2
-                    if _fb_ac_hd >= 7:
                         return 1
+                    if _fb_ac_hd >= 7:
+                        return 0
                     elif _fb_ac_hd >= 5:
-                        return max(2, _fb_hd_ceiling - 2)
+                        return max(1, _fb_hd_ceiling - 2)
                     elif _fb_ac_hd >= 3:
                         return min(_fb_hd_ceiling, 3 if _db_chunk_count < 50 else 2)  # iter1488: fb_ac3_cap — 对齐主路径 ac>=3 cap
                     return _fb_hd_ceiling
@@ -8131,10 +8135,15 @@ def main():
                     if not _tl_fb:
                         # iter1747: fallback_no_timeline_ac_cap — timeline GC 后用 ac 兜底
                         _ntl_ac = c.get("access_count", 0) or 0
+                        # iter1846: fallback_ceiling_zero — timeline GC 后 ac>=7 完全禁止 fallback
+                        # 数据驱动（2026-05-15）：7e4b9f6b(ac=7,lt=5) 7d 窗口重置后 ceiling=1,
+                        #   7d=0<1 通过 → fallback 恢复 → 周而复始垄断。ceiling=0 彻底封堵。
+                        if _ntl_ac >= 7:
+                            return 0
                         if _ntl_ac >= 5:
-                            return 1
+                            return 0
                         if _ntl_ac >= 4 and c.get("project", "") == "global":
-                            return 2
+                            return 1
                         return _fb_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
                     # iter1738: fallback_saturated_ceiling_tighten — ac>=5+lt>=5 ceiling 2→1
@@ -8144,21 +8153,22 @@ def main():
                     #   周而复始导致垄断。收紧到 1：7d 有任何记录即禁止 fallback 恢复。
                     _lt_len = len(_tl_fb)
                     _fb_ac = c.get("access_count", 0) or 0
+                    # iter1846: ceiling 1→0 封堵 7d 重置逃逸
                     if _lt_len >= 5 and _fb_ac >= 5:
-                        return 1
+                        return 0
                     if _lt_len >= 4 and _fb_ac >= 4:
-                        return 2
+                        return 1
                     if c.get("project", "") == "global" and _fb_ac >= 4:
-                        return max(2, _fb_ceiling - 2)
+                        return max(1, _fb_ceiling - 3)
                     # iter1746: lifetime_independent_ceiling — lt>=6 不依赖 ac 独立 cap
                     # 根因（数据驱动，2026-05-14）：import-90139(PE LKMM,ac=3,lt=6) 被注入 6 次
                     #   但 ac=3 跳过所有 ac-based ceiling，ceiling=7 无限制。lt 高表明已充分内化。
                     if _lt_len >= 6:
-                        return 2
-                    if _fb_ac >= 7:
                         return 1
+                    if _fb_ac >= 7:
+                        return 0
                     elif _fb_ac >= 5:
-                        return max(2, _fb_ceiling - 1)
+                        return max(1, _fb_ceiling - 2)
                     # iter1746: fb_ac3_cap_full_sync — 对齐 HD 路径 iter1488
                     # 根因：HD 路径 ac>=3 cap=3/2，FULL 路径缺失 → ac=3-4 chunk 经 FULL fallback 逃逸
                     elif _fb_ac >= 3:

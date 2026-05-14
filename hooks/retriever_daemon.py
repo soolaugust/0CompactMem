@@ -6334,23 +6334,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter1738: fallback_saturated_ceiling_tighten — sync retriever.py
                     _lt_fb = (_itl_lifetime.get(c[_CI_ID], (0,))[0] if _itl_lifetime else 0)
                     _fb_ac_d = c[_CI_AC] or 0
+                    # iter1846: ceiling 1→0 封堵 7d 重置逃逸 — daemon sync
                     if _lt_fb >= 5 and _fb_ac_d >= 5:
-                        return 1
+                        return 0
                     if _lt_fb >= 4 and _fb_ac_d >= 4:
-                        return 2
+                        return 1
                     if c.get("project", "") == "global":
                         if _fb_ac_d >= 5:
-                            return 1  # iter1738: sync — was 2
+                            return 0  # iter1846: sync
                         if _fb_ac_d >= 4:
-                            return max(2, _fb_ceiling_d - 2)
+                            return max(1, _fb_ceiling_d - 3)
                         return _fb_ceiling_d
                     # iter1746: lifetime_independent_ceiling — daemon sync
                     if _lt_fb >= 6:
-                        return 2
+                        return 1
                     if _fb_ac_d >= 7:
-                        return 2
+                        return 0
                     elif _fb_ac_d >= 5:
-                        return max(2, _fb_ceiling_d - 2)  # iter1152: local_mid_saturated_tighten
+                        return max(1, _fb_ceiling_d - 2)  # iter1846: sync
                     # iter1549: ac4_tiny_db_7d_cap2 — sync fallback ceiling path
                     elif _fb_ac_d >= 4:
                         return 2 if _s672_tiny else max(2, _fb_ceiling_d - 2)
