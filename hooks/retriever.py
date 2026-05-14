@@ -8765,6 +8765,39 @@ def main():
                                   f"imp={_ps842_lite_best[0]:.2f}",
                                   session_id=session_id, project=project)
 
+        # ── iter1780: cold_start_probe_lite — LITE 路径 ac=0 本地 chunk 曝光探针 ──
+        # 根因（数据驱动，2026-05-14）：58c70136(cgroup uclamp,imp=0.85,ac=0) 创建 25 天
+        #   从未被注入。cold_start 仅在 FULL 路径(line 6517)生效，LITE 路径完全无探针。
+        #   5/6 session git:78dc99a5695f 7 次 LITE 空召回(cands=11-25)，唯一 local chunk
+        #   (ac=0) 因 FTS5 零词级匹配从未进入候选 → 永不曝光。
+        # 修复：LITE top_k 非空且全为 ac>=3 时，查 DB 找本地 ac=0+imp>=0.7 chunk 替换最低分。
+        if top_k and _local_chunk_count > 0 and all((c.get("access_count", 0) or 0) >= 3 for _, c in top_k):
+            try:
+                import sqlite3 as _csl_sql
+                _csl_conn = _csl_sql.connect(str(STORE_DB))
+                _csl_row = _csl_conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance "
+                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    "AND access_count=0 AND importance>=0.7 "
+                    "ORDER BY importance DESC LIMIT 1",
+                    (project,)).fetchone()
+                _csl_conn.close()
+                if _csl_row and _csl_row[0] not in {c.get("id", "") for _, c in top_k}:
+                    _csl_worst_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
+                    _csl_chunk = {"id": _csl_row[0], "summary": _csl_row[1],
+                                  "content": _csl_row[2], "chunk_type": _csl_row[3] or "",
+                                  "importance": _csl_row[4] or 0.5,
+                                  "access_count": 0, "project": project,
+                                  "_fallback_protected": True, "_cold_probe": True}
+                    _csl_score = max(top_k[_csl_worst_idx][0], float(_csl_row[4] or 0.5))
+                    top_k[_csl_worst_idx] = (_csl_score, _csl_chunk)
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1780_cold_start_probe_lite: replaced idx={_csl_worst_idx} "
+                                  f"with id={_csl_row[0][:12]} imp={_csl_row[4]:.2f}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
+
         # ── iter868: final_single_pair — 最终单条配对安全网 ──────────────────
         # 根因（数据驱动，2026-05-05）：35% 注入仍为单条（12/34 traces），
         #   iter826/827/840/842/864 pair 逻辑全部 0 触发。
