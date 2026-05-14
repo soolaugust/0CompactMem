@@ -2606,16 +2606,16 @@ def main():
             #   平滑衰减让低频 chunk 自然胜出，不触发 fallback。
             _rfd_rc = _recall_counts.get(chunk.get("id", ""), 0)
             _rfd_ac = chunk.get("access_count", 0) or 0
-            if _rfd_rc >= 3 and _rfd_ac >= 4:
+            # iter1787: rfd_ac_boost — ac 维度加速衰减 + 门槛 rc>=3→2
+            # 数据驱动（2026-05-14）：ac=5+rc=3 衰减仅 0.625，ac=5+rc=4 衰减 0.45，
+            #   高 ac chunk 衰减后分数仍胜出低频 chunk。rc>=2 开始衰减+ac boost：
+            #   ac=5,rc=3→0.50  ac=5,rc=4→0.36  ac=4,rc=3→0.625（不变）
+            if _rfd_rc >= 2 and _rfd_ac >= 4:
                 # iter1783: small_db_rfd_steepen — <50 库衰减斜率 0.3→0.6
-                # 数据驱动（2026-05-14）：27-chunk 库 top5 占注入 48%，
-                #   rc=5 时 0.3 斜率仅衰减到 0.53，高分 dc 衰减后仍胜出。
-                #   0.6 斜率：rc=4→0.45, rc=5→0.36, rc=7→0.25，低频 chunk 自然补位。
                 _rfd_slope = 0.6 if _db_chunk_count < 50 else 0.3
-                _rfd_mult = 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 2))
+                _rfd_ac_boost = 1.5 if _rfd_ac >= 5 else 1.0
+                _rfd_mult = 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 1) * _rfd_ac_boost)
                 # iter1784: rfd_floor_clamp — 衰减不低于 score_floor 防 floor_gate 误杀
-                # 数据驱动：db=21(floor=0.10) 的 rc=4 chunk score=0.25→0.091<0.10 → floor_gate 全灭。
-                # RFD 目的是降低竞争力让新 chunk 胜出，不是触发 floor_gate 空召回。
                 _rfd_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                 if _local_sparse and _local_chunk_count > 0:
                     _rfd_floor = 0.05
