@@ -5040,15 +5040,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if len(_seen_dd_dh) < len(top_k):
                         top_k = list(_seen_dd_dh.values())
                     # iter1842: score_floor_gate_lite — daemon LITE 路径同步 score_floor
+                    # iter1843: lite_floor_gate_allbelow — 全灭时清空(对齐 FULL iter1043)
                     _sf_lite_d = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_sparse_d and _local_chunk_count_d > 0 and _sf_lite_d > 0.05:
                         _sf_lite_d = 0.05
                     if _local_chunk_count_d == 0 and _sf_lite_d < 0.10:
                         _sf_lite_d = 0.10
-                    if len(top_k) > 1:
-                        _sf_ab_ld = [(s, c) for s, c in top_k if s >= _sf_lite_d]
-                        if _sf_ab_ld and len(_sf_ab_ld) < len(top_k):
-                            top_k = _sf_ab_ld
+                    if top_k:
+                        _sf_ab_ld = [(s, c) for s, c in top_k
+                                     if s >= _sf_lite_d or c.get("_fallback_protected")]
+                        if _sf_ab_ld:
+                            if len(_sf_ab_ld) < len(top_k):
+                                top_k = _sf_ab_ld
+                        else:
+                            top_k = []
                     # iter238: _TYPE_PREFIX hoisted to module level (was local dict, 0.356us → 0.128us)
                     inject_lines = ["【相关历史记录（BM25 召回）】"]
                     constraint_items, normal_items = [], []

@@ -5615,19 +5615,32 @@ def main():
                             top_k = _zl_global_l
 
                     # iter1842: score_floor_gate_lite — LITE 路径对齐 FULL score_floor
+                    # iter1843: lite_floor_gate_allbelow — 全灭时清空(对齐 FULL iter1043)
+                    #   根因（数据驱动，2026-05-15）：27-chunk 库 floor=0.10，候选 score=0.05/0.01
+                    #   全低于 floor 但 _sf_above_l=[] 未处理 → 低分垃圾直接注入。
+                    #   FULL 路径 floor_gate_skip 全灭时 top_k=[]，LITE 遗漏。
+                    # 修复：全灭时清空 top_k；单条也检查 floor（去掉 len>1 限制）。
                     _sf_lite = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_sparse and _local_chunk_count > 0 and _sf_lite > 0.05:
                         _sf_lite = 0.05
                     if _local_chunk_count == 0 and _sf_lite < 0.10:
                         _sf_lite = 0.10
-                    if len(top_k) > 1:
-                        _sf_above_l = [(s, c) for s, c in top_k if s >= _sf_lite]
-                        if _sf_above_l and len(_sf_above_l) < len(top_k):
-                            top_k = _sf_above_l
+                    if top_k:
+                        _sf_above_l = [(s, c) for s, c in top_k
+                                       if s >= _sf_lite or c.get("_fallback_protected")]
+                        if _sf_above_l:
+                            if len(_sf_above_l) < len(top_k):
+                                top_k = _sf_above_l
+                                _deferred.log(DMESG_INFO, "retriever",
+                                              f"iter1843_score_floor_gate_lite: removed "
+                                              f"{len(top_k) - len(_sf_above_l)} below floor={_sf_lite}",
+                                              session_id=session_id, project=project)
+                        else:
                             _deferred.log(DMESG_INFO, "retriever",
-                                          f"iter1842_score_floor_gate_lite: removed "
-                                          f"{len(top_k)} below floor={_sf_lite}",
+                                          f"iter1843_lite_floor_gate_allbelow: all {len(top_k)} "
+                                          f"below floor={_sf_lite}, clearing",
                                           session_id=session_id, project=project)
+                            top_k = []
 
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
                     # iter1464: global_dc_7d_monopoly — sync LITE path
