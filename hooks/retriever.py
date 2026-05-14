@@ -2656,8 +2656,12 @@ def main():
                     # 数据驱动（2026-05-14）：6 个 ac=5 chunk ratio=1.61 penalty=0.886 近乎无效，
                     #   30d 各注入 5 次占总注入位 36%(30/84)，ac=0-1 chunk 共获 4 次(5%)。
                     #   ac>=5 知识已充分内化(用户见过 5+次)，信息增量极低，应让位新鲜知识。
+                    # iter1814: bpp_soft_floor — hard suppress→extreme soft penalty
+                    # 数据驱动（2026-05-14）：BPP hard suppress 在 _score_chunk 内清零,
+                    #   chunk 不进 _pre_suppress_top_k → fallback 无法恢复 → 全灭空召回。
+                    #   改为 *0.01：有候选时被 score_floor 过滤让位，全灭时 fallback 可恢复。
                     if _share_ratio >= 1.5 and _rfd_ac >= 5:
-                        _hard_suppressed = True
+                        score *= 0.01
                     elif _share_ratio >= 2.0 and _rfd_ac >= 4:
                         _hard_suppressed = True
                     elif _share_ratio > 1.5:
