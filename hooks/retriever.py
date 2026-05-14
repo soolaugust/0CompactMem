@@ -6942,8 +6942,15 @@ def main():
                 #   feishu CLI (imp=0.95) 和 git commit author (imp=0.95) 通过此豁免
                 #   在 memory-os/kernel 迭代中被无关注入 24h 4~5 次。
                 #   根治：所有 constraint 统一要求最低 relevance，不再豁免。
+                # iter1817: first_touch_exempt — ac=0 global constraint 豁免 zero_relevance
+                # 数据驱动（2026-05-14）：9d07bb29(用户偏好,ac=1,global) 自 5/3 创建仅注入 1 次，
+                #   58c70136(uclamp P99,ac=0) 自 4/20 创建从未注入。两者 imp>=0.85。
+                #   原因：session-agnostic 知识与技术 query 零词重叠，被 Jaccard=0 永久封杀。
+                #   ac=0 表示用户从未见过该知识，应给予一次首次曝光机会（"first touch"）。
+                #   注入后 ac→1，后续 6h/24h/7d suppress 正常接管，不会形成垄断。
                 if _rel == 0:
-                    return False
+                    if not (_ac_abs == 0 and c.get("project") == "global"):
+                        return False
                 _ac = _ac_abs
                 # iter641: two_phase_relevance_gate — 阈值与 constraint_ac_cap 对齐
                 # ac>15 进入陡斜率（constraint 通道比主路径更严格）
