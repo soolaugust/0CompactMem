@@ -8962,7 +8962,12 @@ def main():
         #   cold_start_probe 0 次触发——因 top_k 总包含 ac=1/2 的 chunk 不满足 all(>=3)。
         #   实际需求：只要 top_k 中没有 ac=0 chunk（避免自替换），就应探测 ac=0 曝光。
         _csl_topk_has_cold = any((c.get("access_count", 0) or 0) == 0 for _, c in top_k) if top_k else False
-        if top_k and _local_chunk_count > 0 and not _csl_topk_has_cold:
+        # iter1811: cold_probe_empty_topk — top_k 为空时仍触发 cold probe
+        # 根因（数据驱动，2026-05-14）：git:78dc99a5695f 9 次 LITE 全部 top_k=[]
+        #   (cands=11-25 全被 suppress/threshold 过滤)。58c70136(ac=0,imp=0.85) 创建 25 天
+        #   从未注入——cold_start_probe 的 `if top_k` 前提条件阻止了空 top_k 时探测。
+        # 修复：top_k 为空时也允许 DB probe，直接 append 而非替换。
+        if _local_chunk_count > 0 and not _csl_topk_has_cold:
             try:
                 import sqlite3 as _csl_sql
                 _csl_conn = _csl_sql.connect(str(STORE_DB))
@@ -8974,17 +8979,22 @@ def main():
                     (project,)).fetchone()
                 _csl_conn.close()
                 if _csl_row and _csl_row[0] not in {c.get("id", "") for _, c in top_k}:
-                    _csl_worst_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
                     _csl_chunk = {"id": _csl_row[0], "summary": _csl_row[1],
                                   "content": _csl_row[2], "chunk_type": _csl_row[3] or "",
                                   "importance": _csl_row[4] or 0.5,
                                   "access_count": 0, "project": project,
                                   "_fallback_protected": True, "_cold_probe": True}
-                    _csl_score = max(top_k[_csl_worst_idx][0], float(_csl_row[4] or 0.5))
-                    top_k[_csl_worst_idx] = (_csl_score, _csl_chunk)
+                    _csl_score = float(_csl_row[4] or 0.5)
+                    if top_k:
+                        _csl_worst_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
+                        _csl_score = max(top_k[_csl_worst_idx][0], _csl_score)
+                        top_k[_csl_worst_idx] = (_csl_score, _csl_chunk)
+                    else:
+                        top_k.append((_csl_score, _csl_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
-                                  f"iter1780_cold_start_probe_lite: replaced idx={_csl_worst_idx} "
-                                  f"with id={_csl_row[0][:12]} imp={_csl_row[4]:.2f}",
+                                  f"iter1780_cold_start_probe_lite: "
+                                  f"{'replaced' if len(top_k) > 1 else 'appended'} "
+                                  f"id={_csl_row[0][:12]} imp={_csl_row[4]:.2f}",
                                   session_id=session_id, project=project)
             except Exception:
                 pass
