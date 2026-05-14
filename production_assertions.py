@@ -911,9 +911,11 @@ def check_negative_ac_invariant(conn: sqlite3.Connection, fix: bool = False) -> 
 
 def audit_empty_recall_rate(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
     """
-    监控 7d 内空召回率（injected=0 且非 same_hash 的 trace 比例）。
+    监控 14d 内空召回率（injected=0 且非 same_hash 的 trace 比例）。
     空召回 = 检索执行了但没注入任何知识，是用户可感知的质量退化。
-    阈值：每个有 >=5 traces 的项目空召回率应 < 50%。
+    阈值：每个有 >=3 traces 的项目空召回率应 < 50%。
+    iter1864: 窗口 7d→14d, 最低 trace 数 5→3。数据驱动：7d 内最活跃项目仅 8 条 trace，
+      低活跃项目 <5 条完全跳过检查 → 空召回率异常无法被捕获。14d+3 覆盖更多项目。
     """
     r = AssertionResult("empty_recall_rate", "assumption")
     t0 = time.time()
@@ -923,12 +925,12 @@ def audit_empty_recall_rate(conn: sqlite3.Connection, fix: bool = False) -> Asse
             "  COUNT(*) as total, "
             "  SUM(CASE WHEN injected=0 AND reason NOT LIKE '%same_hash%' THEN 1 ELSE 0 END) as empty "
             "FROM recall_traces "
-            "WHERE timestamp > datetime('now', '-7 days') "
-            "GROUP BY project HAVING total >= 5"
+            "WHERE timestamp > datetime('now', '-14 days') "
+            "GROUP BY project HAVING total >= 3"
         ).fetchall()
         if not rows:
             r.passed = True
-            r.message = "No projects with >=5 traces in 7d (skip)"
+            r.message = "No projects with >=3 traces in 14d (skip)"
             r.duration_ms = (time.time() - t0) * 1000
             return r
         violations = []
@@ -944,7 +946,7 @@ def audit_empty_recall_rate(conn: sqlite3.Connection, fix: bool = False) -> Asse
         else:
             r.passed = False
             r.message = (f"{len(violations)} project(s) have >=50% empty recall rate "
-                         f"in 7d — suppress may be too aggressive")
+                         f"in 14d — suppress may be too aggressive")
             r.actual = violations
             r.expected = "<50% empty recall per project"
     except Exception as e:
