@@ -3413,11 +3413,17 @@ def main():
                     # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) 5/4 在 8-30min 内
                     #   被 3 session 注入，6h thresh=3 需累积才 suppress，TOCTOU 使全部逃逸。
                     #   iter1251 已将 cooldown floor 降到 ac=3，gap 应对齐。
-                    if _mg_ac >= 3:
+                    # iter1855: gap_floor_ac1 — ac>=1 短窗口 TOCTOU 保护
+                    # 数据驱动（2026-05-15）：0aff0d67(global dc, 当时 ac<3) 在 47 秒内被同 session
+                    #   注入 2 次，零信息增量。ac<3 完全无 gap 保护。
+                    #   6% 注入为同 session 重复(4/72)，其中 2 次间隔<1min 属 TOCTOU。
+                    # 修复：ac>=1 享受 3min gap（仅防 TOCTOU 并发）；ac>=3 保持 10min。
+                    _mg_gap_min = 10 if _mg_ac >= 3 else 3
+                    if _mg_ac >= 1:
                         _mg_list = _injection_timeline.get(chunk.get("id", ""), [])
                         if _mg_list:
                             _mg_last = max(_mg_list)
-                            _mg_cutoff = (_now647 - _td647(minutes=10)).isoformat()
+                            _mg_cutoff = (_now647 - _td647(minutes=_mg_gap_min)).isoformat()
                             if _mg_last > _mg_cutoff:
                                 score = 0.0
                                 _hard_suppressed = True
