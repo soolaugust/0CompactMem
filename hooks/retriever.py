@@ -4103,7 +4103,14 @@ def main():
                             break
                     except Exception:
                         pass
-                if not use_fts:
+                # iter1794: zero_local_lite_rescue — local=0 项目 LITE FTS5 miss 时不直接退出
+                # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0) LITE 路径
+                #   _local_chunk_count=0 → rescue 跳过 → use_fts=False → exit(0) → 空召回。
+                #   local=0 项目所有知识在跨项目中，LITE 应继续走 BM25 fallback 而非直接退出。
+                # 修复：local=0 时不 exit，让 LITE 继续走 BM25 路径尝试跨项目匹配。
+                if not use_fts and _local_chunk_count == 0:
+                    use_fts = False  # 保持 False，让后续 BM25 fallback 路径接手
+                elif not use_fts:
                     # LITE + FTS5 miss: 无相关知识，直接退出（不注入噪音）
                     conn.close()
                     if len(_deferred) > 0:
@@ -4634,6 +4641,22 @@ def main():
                             _deferred.log(DMESG_WARN, "retriever",
                                           f"iter1779_sef_exhausted_local_rescue_hd: imp={_exh_best_hd[0]:.2f} "
                                           f"id={_exh_best_hd[1].get('id','')[:12]} local={_local_chunk_count}",
+                                          session_id=session_id, project=project)
+                    # iter1794: zero_local_cross_project_rescue — local=0 项目跨项目知识兜底
+                    # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0) 57% 空召回。
+                    #   所有 fallback 因 local=0 跳过(iter1623/1683/1734)，但该项目唯一知识源是跨项目。
+                    #   score>=0.10 的跨项目候选有实质 FTS5 匹配，不是噪声。
+                    # 修复：local=0 + final 中有 score>=0.10 跨项目 chunk → 取最相关 1 条注入。
+                    elif _local_chunk_count == 0 and final:
+                        _zlcr_cands = [(s, c) for s, c in final if s >= 0.10
+                                       and _session_injection_counts.get(c.get("id", ""), 0) < 2]
+                        if _zlcr_cands:
+                            _zlcr_best = max(_zlcr_cands, key=lambda x: x[0])
+                            _zlcr_best[1]["_fallback_protected"] = True
+                            positive = [(max(_zlcr_best[0], 0.10), _zlcr_best[1])]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1794_zero_local_cross_rescue_hd: score={_zlcr_best[0]:.3f} "
+                                          f"id={_zlcr_best[1].get('id','')[:12]}",
                                           session_id=session_id, project=project)
             # ── iter840: fallback_pair_inject (hard_deadline path) ──
             # 根因：iter826 在 fallback 之前检查 positive==1，fallback 产出的单条不被覆盖。
@@ -6455,6 +6478,19 @@ def main():
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter1779_sef_exhausted_local_rescue: imp={_exh_best[0]:.2f} "
                                       f"id={_exh_best[1].get('id','')[:12]} local={_local_chunk_count}",
+                                      session_id=session_id, project=project)
+
+                # iter1794: zero_local_cross_project_rescue — local=0 项目跨项目知识兜底 (FULL)
+                elif _local_chunk_count == 0 and final:
+                    _zlcr_cands_f = [(s, c) for s, c in final if s >= 0.10
+                                     and _session_injection_counts.get(c.get("id", ""), 0) < 2]
+                    if _zlcr_cands_f:
+                        _zlcr_best_f = max(_zlcr_cands_f, key=lambda x: x[0])
+                        _zlcr_best_f[1]["_fallback_protected"] = True
+                        positive = [(max(_zlcr_best_f[0], 0.10), _zlcr_best_f[1])]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1794_zero_local_cross_rescue_full: score={_zlcr_best_f[0]:.3f} "
+                                      f"id={_zlcr_best_f[1].get('id','')[:12]}",
                                       session_id=session_id, project=project)
 
         # ── iter840: fallback_pair_inject (FULL path) ──
