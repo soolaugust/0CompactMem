@@ -8804,7 +8804,12 @@ def main():
         #   5/6 session git:78dc99a5695f 7 次 LITE 空召回(cands=11-25)，唯一 local chunk
         #   (ac=0) 因 FTS5 零词级匹配从未进入候选 → 永不曝光。
         # 修复：LITE top_k 非空且全为 ac>=3 时，查 DB 找本地 ac=0+imp>=0.7 chunk 替换最低分。
-        if top_k and _local_chunk_count > 0 and all((c.get("access_count", 0) or 0) >= 3 for _, c in top_k):
+        # iter1785: cold_probe_relax — 放宽条件 all(ac>=3) → 无 ac=0 chunk 在 top_k 中
+        # 数据驱动（2026-05-14）：sem_c4531bbd(ac=0,imp=0.85) 创建 14 天从未曝光，
+        #   cold_start_probe 0 次触发——因 top_k 总包含 ac=1/2 的 chunk 不满足 all(>=3)。
+        #   实际需求：只要 top_k 中没有 ac=0 chunk（避免自替换），就应探测 ac=0 曝光。
+        _csl_topk_has_cold = any((c.get("access_count", 0) or 0) == 0 for _, c in top_k) if top_k else False
+        if top_k and _local_chunk_count > 0 and not _csl_topk_has_cold:
             try:
                 import sqlite3 as _csl_sql
                 _csl_conn = _csl_sql.connect(str(STORE_DB))
