@@ -2600,6 +2600,15 @@ def main():
                 query_alpha=_dyn_alpha,
                 chunk_type=chunk.get("chunk_type", ""),  # iter375: type-differential decay
             )
+            # ── iter1782: recall_frequency_decay — 高频注入已内化 chunk 平滑衰减 ──
+            # 数据驱动（2026-05-14）：27-chunk 库中 top5 chunk 占 58 次注入的 48%，
+            #   均为 ac>=4 已内化知识。hard suppress 导致空召回 fallback 反弹，
+            #   平滑衰减让低频 chunk 自然胜出，不触发 fallback。
+            _rfd_rc = _recall_counts.get(chunk.get("id", ""), 0)
+            _rfd_ac = chunk.get("access_count", 0) or 0
+            if _rfd_rc >= 3 and _rfd_ac >= 4:
+                score *= 1.0 / (1.0 + 0.3 * (_rfd_rc - 2))
+
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
             # retrievability < 0.15 的 chunk 被视为"高度遗忘"状态：
