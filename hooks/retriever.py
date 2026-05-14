@@ -4507,7 +4507,11 @@ def main():
             # iter1368: sparse_cross_floor_tighten — 0.10→0.18 拦截低相关跨项目噪声
             # 数据驱动（2026-05-10）：abspath:7e3095aef7a6(1 local chunk) 被注入 5 条
             #   kernel/PE chunk（score≈0.10-0.15），用户在非 kernel 项目中无价值。
-            _cross_floor = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
+            # iter1828: zero_local_cross_floor_raise — local=0 项目提高跨项目门槛
+            # 数据驱动（2026-05-14）：abspath:7e3095aef7a6(local=0) 30d 内 8 次注入全是
+            #   跨项目噪声(migration QE/feishu CLI/Patch 工作流)，score 0.12-0.20，用户零价值。
+            #   local=0 项目无本地知识,注入低分跨项目知识=纯噪声。提高到 0.30 只放行高相关知识。
+            _cross_floor = 0.30 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
             positive = [(s, c) for s, c in positive
                         if c.get("project", "") in ("", project) or s >= _cross_floor]
             # iter826: single_result_pair_inject (hard_deadline path)
