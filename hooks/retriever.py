@@ -2401,7 +2401,12 @@ def main():
         #   _local_sparse=False(4>3) → global_unified_thresh=2 → 9 global chunk 7d>=2 全灭
         #   → cands=59 空召回。4 local chunk 仍高度依赖 global 作为补充知识源。
         # 修复：边界 3→5，覆盖 4-5 local chunk 项目的 global 保护需求。
-        _local_chunk_count = _db_chunk_count  # fallback
+        # iter1776: safe_local_fallback — fallback=0 而非 _db_chunk_count
+        # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0) 5/12 两次注入
+        #   全是跨项目噪声(migration QE + feishu CLI)。conn 失败时 fallback=_db_chunk_count(27)
+        #   → _local_chunk_count=27>0 绕过所有 local=0 保护 → dead_zone_fallback 注入垃圾。
+        # 修复：fallback=0（保守：宁可少注入也不注入噪声）。
+        _local_chunk_count = 0
         try:
             _local_chunk_count = _rc_conn.execute(
                 "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'", (project,)
