@@ -3830,8 +3830,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter1639: sync iter1624 zero_7d_historical_penalty — 7d=0 但历史高注入激活 diversity
             # iter1676: graduated_synthetic_7d_sync — sync retriever.py iter1651
             _total_inj_d = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
-            if _r7d_sc == 0 and _total_inj_d >= 5 and _db_chunk_count > 5:
-                _r7d_sc = min(3, 1 + (_total_inj_d - 5) // 2)
+            if _r7d_sc == 0 and _total_inj_d >= 4 and _db_chunk_count > 5:
+                _r7d_sc = min(3, 1 + (_total_inj_d - 4) // 2)
             if _r7d_sc > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
@@ -4163,8 +4163,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter1639: sync iter1624 zero_7d_historical_penalty
             # iter1676: graduated_synthetic_7d_sync — sync retriever.py iter1651
             _total_inj_d2 = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
-            if _r7d_sd == 0 and _total_inj_d2 >= 5 and _db_chunk_count > 5:
-                _r7d_sd = min(3, 1 + (_total_inj_d2 - 5) // 2)
+            if _r7d_sd == 0 and _total_inj_d2 >= 4 and _db_chunk_count > 5:
+                _r7d_sd = min(3, 1 + (_total_inj_d2 - 4) // 2)
             if _r7d_sd > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db
                 _dp_factor_d = 0.55 if _db_chunk_count < 100 else 0.35

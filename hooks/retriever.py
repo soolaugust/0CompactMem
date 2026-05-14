@@ -3131,11 +3131,13 @@ def main():
             # 修复：7d=0 + total_inj>=5 时，用 synthetic_7d=1 触发 diversity penalty，
             #   让 cumulative_boost 中的 total_inj 加权生效。衰减温和（等效 7d=1）。
             _total_inj_pre = len(_injection_timeline.get(chunk.get("id", ""), []))
-            if _r7d_dp == 0 and _total_inj_pre >= 5 and _db_chunk_count > 5:
+            if _r7d_dp == 0 and _total_inj_pre >= 4 and _db_chunk_count > 5:
                 # iter1651: graduated_synthetic_7d — 累计注入越多 synthetic 越高
-                # 根因（数据驱动，2026-05-13）：inj=7 chunk synthetic=1 衰减仅 35%，
-                #   高 FTS base 仍胜出重新垄断。按 total_inj 分级使高频 chunk 衰减更强。
-                _r7d_dp = min(3, 1 + (_total_inj_pre - 5) // 2)
+                # iter1832: synthetic_7d_threshold_lower — 阈值 5→4 覆盖 inj=4 逃逸
+                #   数据驱动（2026-05-14）：6 个 inj=4 chunk 7d=0 时完全逃逸 synthetic_7d，
+                #   "memory验证路径"(inj=4,ac=4)/"Corrections规则"(inj=4,ac=2) 以高 FTS base
+                #   重新垄断注入位。门槛 5→4 使其获得 synthetic=1 温和衰减。
+                _r7d_dp = min(3, 1 + (_total_inj_pre - 4) // 2)
             if _r7d_dp > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 # 根因（数据驱动，2026-05-06）：51-chunk 库（刚越过 50 边界）
