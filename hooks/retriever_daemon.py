@@ -5376,6 +5376,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"iter776_suppress_zero_fallback: imp={_sef_best[0]:.2f} "
                                   f"id={_sef_best[1][_CI_ID][:12]}",
                                   session_id=session_id, project=project)
+                # iter1771: sparse_wipeout_rescue — sync retriever.py
+                # suppress 全灭(score全0) + sparse 项目 → 从 final 取本项目 local chunk 兜底
+                elif _local_sparse_d and _sef_by_imp and _sef_full_max == 0 and _local_chunk_count_d > 0:
+                    _swr_local_d = [(imp, c) for imp, c in _sef_by_imp
+                                    if (c[_CI_CP] or "") == project]
+                    if _swr_local_d:
+                        _swr_best_d = max(_swr_local_d, key=lambda x: x[0])
+                        _fallback_protected_ids.add(_swr_best_d[1][_CI_ID])
+                        _fb_floor_swr_d = 0.05 if _db_chunk_count < 20 else 0.08
+                        top_k = [(_fb_floor_swr_d, _swr_best_d[1])]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter1771_sparse_wipeout_rescue: imp={_swr_best_d[0]:.2f} "
+                                      f"id={_swr_best_d[1][_CI_ID][:12]}",
+                                      session_id=session_id, project=project)
 
         # ── design_constraint 强制注入 ──
         # iter219: chunk_type [] not .get() — schema guarantees field exists (TEXT nullable)

@@ -4539,6 +4539,25 @@ def main():
                                       f"iter776_suppress_zero_fallback_hd: imp={_sef_hd_best[0]:.2f} "
                                       f"id={_sef_hd_best[1].get('id','')[:12]}",
                                       session_id=session_id, project=project)
+                    # iter1771: sparse_wipeout_rescue — suppress 全灭(score全0)时 sparse 项目兜底
+                    # 根因（数据驱动，2026-05-14）：git:78dc99a5695f(1 local,ac=0,imp=0.85)
+                    #   14d 内 9 次请求全空召回。suppress 把所有 chunk score→0 → _sef_hd_max=0
+                    #   → 正常 fallback(>=noise_floor) 和 dead_zone(0<max<0.05) 都不触发。
+                    #   iter1734 suppress_wipeout_no_fallback 假设"全灭=无相关知识"，
+                    #   但 sparse 项目 local chunk 是唯一知识源，被 suppress 误杀后应兜底注入。
+                    # 修复：全灭 + _local_sparse 时，从 final 中取本项目 local chunk 最高 imp 注入。
+                    elif _local_sparse and _sef_hd_imp and _sef_hd_max == 0 and _local_chunk_count > 0:
+                        _swr_local = [(imp, c) for imp, c in _sef_hd_imp
+                                      if c.get("project", "") == project]
+                        if _swr_local:
+                            _swr_best = max(_swr_local, key=lambda x: x[0])
+                            _swr_best[1]["_fallback_protected"] = True
+                            _fb_floor_swr = 0.05 if _db_chunk_count < 20 else 0.08
+                            positive = [(_fb_floor_swr, _swr_best[1])]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1771_sparse_wipeout_rescue: imp={_swr_best[0]:.2f} "
+                                          f"id={_swr_best[1].get('id','')[:12]}",
+                                          session_id=session_id, project=project)
             # ── iter840: fallback_pair_inject (hard_deadline path) ──
             # 根因：iter826 在 fallback 之前检查 positive==1，fallback 产出的单条不被覆盖。
             if len(positive) == 1 and len(final) >= 3:
