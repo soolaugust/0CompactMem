@@ -2652,7 +2652,13 @@ def main():
                     # iter1806: bpp_hard_suppress_lower — ratio>=2.0 + ac>=4 升级 hard suppress
                     # 数据驱动（2026-05-14）：rc=7 ratio=2.25 逃逸旧门槛 2.5，soft penalty
                     #   0.53× 在 27-chunk 小库中仍胜出（候选不足）。降至 2.0 覆盖 ratio=2.25。
-                    if _share_ratio >= 2.0 and _rfd_ac >= 4:
+                    # iter1813: bpp_saturated_internalized_suppress — ac>=5 ratio>=1.5 hard suppress
+                    # 数据驱动（2026-05-14）：6 个 ac=5 chunk ratio=1.61 penalty=0.886 近乎无效，
+                    #   30d 各注入 5 次占总注入位 36%(30/84)，ac=0-1 chunk 共获 4 次(5%)。
+                    #   ac>=5 知识已充分内化(用户见过 5+次)，信息增量极低，应让位新鲜知识。
+                    if _share_ratio >= 1.5 and _rfd_ac >= 5:
+                        _hard_suppressed = True
+                    elif _share_ratio >= 2.0 and _rfd_ac >= 4:
                         _hard_suppressed = True
                     elif _share_ratio > 1.5:
                         _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
