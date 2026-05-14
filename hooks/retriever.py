@@ -4200,7 +4200,8 @@ def main():
                         #   6h dedup >= 2 几乎不生效（单 session 很少连续 2 次 LITE miss）。
                         # 修复：取 top-5 候选 + 6h>=1 跳过 → 轮转注入不同 chunk，消除单条垄断。
                         _lsr_rows = conn.execute(
-                            "SELECT id, summary, content, chunk_type, importance "
+                            "SELECT id, summary, content, chunk_type, importance, "
+                            "COALESCE(access_count,0) "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                             "AND importance >= ? "
                             "ORDER BY importance DESC, access_count ASC LIMIT 5",
@@ -4212,6 +4213,7 @@ def main():
                             _lsr_chunk = {
                                 "id": _lsr_row[0], "summary": _lsr_row[1], "content": _lsr_row[2],
                                 "chunk_type": _lsr_row[3] or "", "importance": _lsr_row[4] or 0.5,
+                                "project": project, "access_count": _lsr_row[5],
                             }
                             fts_results = [_lsr_chunk]
                             use_fts = True
@@ -8552,7 +8554,7 @@ def main():
                     #   db_ultimate_fallback 已包含 global（iter969），此处遗漏。
                     # 修复：加 OR project='global'，扩大候选池打破 hash 锁定。
                     _dp_rows = conn.execute(
-                        f"SELECT id, summary, content, chunk_type, importance, access_count "
+                        f"SELECT id, summary, content, chunk_type, importance, access_count, project "
                         f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                         f"AND id NOT IN ({_dp_exclude}) "
                         f"ORDER BY access_count ASC, importance DESC LIMIT 10",
@@ -8564,7 +8566,7 @@ def main():
                     # 修复：候选池空时去掉 7d_exclude 重查，宁可注入已见过的也不零注入。
                     if not _dp_rows:
                         _dp_rows = conn.execute(
-                            f"SELECT id, summary, content, chunk_type, importance, access_count "
+                            f"SELECT id, summary, content, chunk_type, importance, access_count, project "
                             f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                             f"AND id NOT IN ({','.join(repr(x) for x in _sh_top_k_ids) if _sh_top_k_ids else repr('')}) "
                             f"ORDER BY access_count ASC, importance DESC LIMIT 10",
@@ -8577,7 +8579,9 @@ def main():
                         _dp_row = _dp_rows[_dp_idx]
                         _dp_chunk = {"id": _dp_row[0], "summary": _dp_row[1],
                                      "content": _dp_row[2], "chunk_type": _dp_row[3] or "",
-                                     "importance": _dp_row[4] or 0.5}
+                                     "importance": _dp_row[4] or 0.5,
+                                     "access_count": _dp_row[5] or 0,
+                                     "project": _dp_row[6] or project}
                         if top_k:
                             _sh_min_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
                             top_k[_sh_min_idx] = (0.01, _dp_chunk)
