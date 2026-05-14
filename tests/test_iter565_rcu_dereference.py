@@ -88,14 +88,17 @@ def _insert_traces(conn, project: str, chunk_id: str, count: int,
                    session_id: str = "test-session"):
     """插入 N 条包含指定 chunk 的 recall_traces（injected=1）。"""
     import uuid
+    from datetime import datetime, timezone, timedelta
+    _now = datetime.now(timezone.utc)
     for i in range(count):
         trace_id = str(uuid.uuid4())
         top_k = json.dumps([{"id": chunk_id, "summary": "test", "score": 0.9}])
+        ts = (_now - timedelta(hours=i)).isoformat()
         conn.execute(
             "INSERT INTO recall_traces (id, timestamp, session_id, project, "
             "prompt_hash, candidates_count, top_k_json, injected, reason, duration_ms) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (trace_id, f"2026-05-02T{10+i:02d}:00:00+00:00", session_id,
+            (trace_id, ts, session_id,
              project, f"hash_{i}", 10, top_k, 1, "test", 50.0)
         )
     conn.commit()
@@ -293,26 +296,30 @@ def test_multi_chunk_recall_counts():
     conn = _create_test_db(db_path)
 
     import uuid
+    from datetime import datetime, timezone, timedelta
+    _now = datetime.now(timezone.utc)
     for i in range(10):
         top_k = json.dumps([
             {"id": "chunk_a", "summary": "a", "score": 0.9},
             {"id": "chunk_b", "summary": "b", "score": 0.7},
         ])
+        ts = (_now - timedelta(hours=i)).isoformat()
         conn.execute(
             "INSERT INTO recall_traces (id, timestamp, session_id, project, "
             "prompt_hash, candidates_count, top_k_json, injected, reason, duration_ms) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), f"2026-05-02T{10+i:02d}:00:00+00:00", "sess",
+            (str(uuid.uuid4()), ts, "sess",
              "proj_f", f"h_{i}", 10, top_k, 1, "test", 50.0)
         )
     # 5 条只包含 chunk_a
     for i in range(5):
         top_k = json.dumps([{"id": "chunk_a", "summary": "a", "score": 0.9}])
+        ts = (_now - timedelta(hours=10+i)).isoformat()
         conn.execute(
             "INSERT INTO recall_traces (id, timestamp, session_id, project, "
             "prompt_hash, candidates_count, top_k_json, injected, reason, duration_ms) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), f"2026-05-02T{20+i:02d}:00:00+00:00", "sess",
+            (str(uuid.uuid4()), ts, "sess",
              "proj_f", f"h2_{i}", 10, top_k, 1, "test", 50.0)
         )
     conn.commit()

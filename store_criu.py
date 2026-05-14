@@ -338,52 +338,43 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
                         session_id: str = "",
                         max_days: int = 14) -> dict:
     """
-    统计每个 chunk 在最近 window 条 injected=1 traces 中被选入 top_k 的次数。
-    迭代312：新增 session_id 参数（保留兼容旧接口）。
-    迭代580：madvise_cold — 统计范围从 injected=1 扩展到所有 trace。
-    迭代604：feedback_loop_break — 回退为只统计 injected=1 的 trace。
-      iter580 统计所有 trace 造成正反馈死锁：被 hard_gate 拦截的 chunk 仍出现在
-      skipped_same_hash trace 的 top_k_json → rc 永不衰减 → 永远被拦截。
-      iter596-601 已在 scoring+constraint 两路径加 hard_gate，不再需要靠膨胀 rc
-      来触发拦截。回退为只统计真正注入的 trace，让被拦截的 chunk 自然衰减。
-        统计"冷热"不能只看成功的 page access，还要算被 TLB cached 拦截的访问。
-    iter1786：rc_time_bound — 条数窗口 + 时间窗口(14d)取交集。
-      低频项目 window=30 跨越数周，过期注入持续压制 chunk → RFD 永久衰减。
-      加 max_days 确保统计窗口不超过 14 天，低频项目 rc 自然归零。
-
-    Args:
-        conn: 数据库连接
-        project: 项目 ID
-        window: 回溯的 trace 条数（默认 30）
-        session_id: 当前 session ID（保留参数，不影响全局计数）
-        max_days: 时间窗口上限天数（默认 14）
+    统计每个 chunk 在最近 window 条 injected=1 traces 中被选入 top_k 的加权次数。
+    iter1870: rc_time_decay — 加时间衰减权重，越旧的注入贡献越低。
+      根因（数据驱动，2026-05-15）：5/4-5/5 密集 session 产生 rc=6 至今压制 chunk，
+      10 天前的注入与当前工作无关但仍占满 bandwidth quota → 全灭空召回。
+      修复：<=3d 权重 1.0，3-7d 权重 0.5，>7d 权重 0.25。
+      import-90139(rc=6, 5/6 来自 5/4-5/5) 有效 rc: 6*0.25=1.5 → 不再触发 hard_suppress。
 
     Returns:
-        dict: {chunk_id: recall_count}  ← 全局计数（兼容旧接口）
+        dict: {chunk_id: weighted_recall_count}
     """
     try:
-        # iter604: feedback_loop_break — 只统计 injected=1 的 trace。
-        # iter669: bw_window_nonempty — 额外过滤 top_k_json='[]' 的空 trace。
-        # 根因：60% injected trace 的 top_k_json 为空数组（无 chunk 达到注入阈值），
-        #   空 trace 占据 LIMIT 窗口但不贡献任何 chunk 计数，导致有效窗口缩水。
-        #   例：LIMIT 30 中只有 12 条非空 → 分子最大只能到 12，分母却是 30。
-        # iter1786: rc_time_bound — 加 14d 时间约束，防止低频项目窗口跨越数周。
         cur = conn.execute(
-            "SELECT top_k_json FROM recall_traces "
+            "SELECT top_k_json, timestamp FROM recall_traces "
             "WHERE project=? AND top_k_json IS NOT NULL AND top_k_json != '[]' AND injected=1 "
             "AND timestamp > datetime('now', '-' || ? || ' days') "
             "ORDER BY rowid DESC LIMIT ?",
             (project, max_days, window)
         )
         counts = {}
-        for (top_k_json,) in cur.fetchall():
+        from datetime import datetime, timezone, timedelta
+        _now = datetime.now(timezone.utc)
+        _3d_ago = (_now - timedelta(days=3)).isoformat()
+        _7d_ago = (_now - timedelta(days=7)).isoformat()
+        for top_k_json, ts in cur.fetchall():
+            if ts and ts < _7d_ago:
+                weight = 0.25
+            elif ts and ts < _3d_ago:
+                weight = 0.5
+            else:
+                weight = 1.0
             try:
                 top_k = json.loads(top_k_json) if isinstance(top_k_json, str) else top_k_json
                 if isinstance(top_k, list):
                     for item in top_k:
                         if isinstance(item, dict) and "id" in item:
                             cid = item["id"]
-                            counts[cid] = counts.get(cid, 0) + 1
+                            counts[cid] = counts.get(cid, 0) + weight
             except Exception:
                 continue
         return counts
