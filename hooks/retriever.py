@@ -2675,6 +2675,12 @@ def main():
                 _arc_threshold = max(8, int(_db_chunk_count * 0.3))
                 if not _hard_suppressed and _rfd_rc >= 6 and _rfd_ac >= _arc_threshold:
                     _hard_suppressed = True
+                # iter1820: bpp_lowsample_absolute_cap — 样本不足时绝对 recall cap 兜底
+                # 根因（数据驱动，2026-05-14）：_rc_total<13 时 BPP 比例计算整段跳过，
+                #   但 rc=5~7 的垄断 chunk(ac>=5) 无任何 penalty → 持续占据注入位。
+                #   绝对 cap 不依赖比例，只看 chunk 自身历史：rc>=5+ac>=5 = 已充分内化。
+                if not _hard_suppressed and _rfd_rc >= 5 and _rfd_ac >= 5 and _rc_total < _bpp_floor:
+                    score *= 0.01
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
