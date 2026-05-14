@@ -9515,29 +9515,43 @@ def main():
                             #   global/跨项目 chunk，本地 chunk 未进 FTS 候选池 → _fgr_local=[]
                             #   → 选跨项目最高 imp → 注入噪声或被下游 dedup 拦截 → 空召回。
                             # 修复：从 DB 直接拉本地 chunk（与 iter1665 对齐），不注入跨项目噪声。
+                            # iter1830: fgr_rescue_rotate — DB rescue 轮转（对齐 LITE iter1694）
+                            # 根因（数据驱动，2026-05-14）：LIMIT 1 永远选同一条 chunk，
+                            #   session dedup 拦截后再次全灭。17-chunk 项目有多条可用知识被浪费。
+                            # 修复：取 top-5 + 跳过 session 内已注入 + 6h>=1 → 轮转曝光不同知识。
                             try:
                                 import sqlite3 as _fgr1729
                                 _fgr_conn = _fgr1729.connect(str(STORE_DB))
-                                _fgr_row = _fgr_conn.execute(
+                                _fgr_rows = _fgr_conn.execute(
                                     "SELECT id, summary, content, chunk_type, importance "
                                     "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                                    "ORDER BY access_count ASC, importance DESC LIMIT 5",
                                     (project,)
-                                ).fetchone()
+                                ).fetchall()
                                 _fgr_conn.close()
-                                if _fgr_row:
-                                    _fgr_c = {"id": _fgr_row[0], "summary": _fgr_row[1],
-                                              "content": _fgr_row[2], "chunk_type": _fgr_row[3] or "",
-                                              "importance": _fgr_row[4] or 0.5,
+                                _fgr_picked = None
+                                for _fgr_row in _fgr_rows:
+                                    if _session_injection_counts.get(_fgr_row[0], 0) >= 1:
+                                        continue
+                                    if _recent_6h_counts.get(_fgr_row[0], 0) >= 1:
+                                        continue
+                                    _fgr_picked = _fgr_row
+                                    break
+                                if not _fgr_picked and _fgr_rows:
+                                    _fgr_picked = _fgr_rows[0]
+                                if _fgr_picked:
+                                    _fgr_c = {"id": _fgr_picked[0], "summary": _fgr_picked[1],
+                                              "content": _fgr_picked[2], "chunk_type": _fgr_picked[3] or "",
+                                              "importance": _fgr_picked[4] or 0.5,
                                               "_fallback_protected": True}
                                     top_k = [(_score_floor, _fgr_c)]
                                     _deferred.log(DMESG_WARN, "retriever",
-                                                  f"iter1729_fgr_local_db_rescue: "
-                                                  f"id={_fgr_row[0][:12]} imp={_fgr_row[4]:.2f}",
+                                                  f"iter1830_fgr_rescue_rotate: "
+                                                  f"id={_fgr_picked[0][:12]} imp={_fgr_picked[4]:.2f}",
                                                   session_id=session_id, project=project)
                             except Exception as _fgr_err:
                                 _deferred.log(DMESG_WARN, "retriever",
-                                              f"iter1729_fgr_local_db_rescue_fail: {_fgr_err}",
+                                              f"iter1830_fgr_rescue_rotate_fail: {_fgr_err}",
                                               session_id=session_id, project=project)
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
