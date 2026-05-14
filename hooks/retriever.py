@@ -6909,6 +6909,8 @@ def main():
                                 continue
                             if _injection_timeline.get(_cs_id):
                                 continue
+                            if _session_injection_counts.get(_cs_id, 0) > 0:
+                                continue
                             _cs_chunk = {"id": _cs_id, "summary": _cs_r[1],
                                          "chunk_type": _cs_r[2], "importance": _cs_r[3],
                                          "tags": _cs_r[4], "content": _cs_r[5],
@@ -9193,7 +9195,8 @@ def main():
                     "ORDER BY access_count ASC, importance DESC LIMIT 1",
                     (project, _csl_ac_thresh)).fetchone()
                 _csl_conn.close()
-                if _csl_row and _csl_row[0] not in {c.get("id", "") for _, c in top_k}:
+                if (_csl_row and _csl_row[0] not in {c.get("id", "") for _, c in top_k}
+                        and _session_injection_counts.get(_csl_row[0], 0) == 0):
                     _csl_chunk = {"id": _csl_row[0], "summary": _csl_row[1],
                                   "content": _csl_row[2], "chunk_type": _csl_row[3] or "",
                                   "importance": _csl_row[4] or 0.5,
