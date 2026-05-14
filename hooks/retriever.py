@@ -5942,8 +5942,14 @@ def main():
                             wconn.commit()
                             wconn.close()
                         else:
+                            _hd_inj_ftrace = None
+                            if _deferred._buf:
+                                _hd_inj_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-20:]]
+                                if _hd_inj_msgs:
+                                    _hd_inj_ftrace = json.dumps(_hd_inj_msgs, ensure_ascii=False)
                             _write_trace(session_id, project, prompt_hash, candidates_count,
-                                         top_k_data, 1, reason, duration_ms, conn=wconn)
+                                         top_k_data, 1, reason, duration_ms, conn=wconn,
+                                         ftrace_json=_hd_inj_ftrace)
                             _deferred.flush(wconn)
                             wconn.commit()
                             wconn.close()
@@ -10815,9 +10821,18 @@ def main():
                 wconn.commit()
                 wconn.close()
                 sys.exit(0)
+            # iter1863: lite_inject_ftrace — 成功注入也写 ftrace 诊断
+            # 根因（数据驱动，2026-05-15）：65% 注入为单条，pair 机制 0 次在 ftrace 中出现。
+            #   LITE 成功注入路径不传 ftrace_json → 无法诊断 pair/cold_probe/floor_gate 决策。
+            # 修复：与空召回路径(iter1594)对齐，从 _deferred._buf 提取 ftrace。
+            _inj_ftrace = None
+            if _deferred._buf:
+                _inj_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-20:]]
+                if _inj_msgs:
+                    _inj_ftrace = json.dumps(_inj_msgs, ensure_ascii=False)
             _write_trace(session_id, project, prompt_hash,
                          candidates_count, _effective_top_k, 1, reason,
-                         duration_ms, conn=wconn)
+                         duration_ms, conn=wconn, ftrace_json=_inj_ftrace)
             _deferred.flush(wconn)
             _fts_tag = 'Y' if use_fts else f'N(glb_disc={_bm25_global_discount})'
             # ── B10: per-source injection stats (vmstat-style observability) ──
