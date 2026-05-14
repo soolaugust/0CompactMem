@@ -4528,7 +4528,8 @@ def main():
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
                         # iter1618: floor_safe_inline — 内联 floor 计算含 local=0 提升
-                        _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        # iter1778: fb_floor_sync_score_floor — 同步 _score_floor(iter1760: <50→0.10)
+                        _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                         if _local_chunk_count == 0 and _fb_floor_hd < 0.25:
                             _fb_floor_hd = 0.25
                         positive = [(max(_sef_hd_best[0] * 0.1, _fb_floor_hd), _sef_hd_best[1])]
@@ -4549,7 +4550,8 @@ def main():
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
                         # iter1618: floor_safe_inline — 同上
-                        _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        # iter1778: fb_floor_sync_score_floor — 同步 _score_floor(iter1760: <50→0.10)
+                        _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                         if _local_chunk_count == 0 and _fb_floor_hd < 0.25:
                             _fb_floor_hd = 0.25
                         positive = [(max(_sef_hd_best[0] * 0.01, _fb_floor_hd), _sef_hd_best[1])]
@@ -4594,6 +4596,20 @@ def main():
                             _deferred.log(DMESG_WARN, "retriever",
                                           f"iter1772_nonsparse_wipeout_rescue: imp={_nswr_best[0]:.2f} "
                                           f"id={_nswr_best[1].get('id','')[:12]} local={_local_chunk_count}",
+                                          session_id=session_id, project=project)
+                    # iter1779: sef_exhausted_local_rescue — HD 路径同步 FULL iter1779
+                    elif not _sef_hd_imp and _local_chunk_count > 0 and _sef_hd_max == 0:
+                        _exh_local_hd = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                                         if c.get("project", "") == project
+                                         and (c.get("access_count", 0) or 0) < 30]
+                        if _exh_local_hd:
+                            _exh_best_hd = max(_exh_local_hd, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
+                            _exh_best_hd[1]["_fallback_protected"] = True
+                            _fb_floor_exh_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.10)
+                            positive = [(_fb_floor_exh_hd, _exh_best_hd[1])]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1779_sef_exhausted_local_rescue_hd: imp={_exh_best_hd[0]:.2f} "
+                                          f"id={_exh_best_hd[1].get('id','')[:12]} local={_local_chunk_count}",
                                           session_id=session_id, project=project)
             # ── iter840: fallback_pair_inject (hard_deadline path) ──
             # 根因：iter826 在 fallback 之前检查 positive==1，fallback 产出的单条不被覆盖。
@@ -6335,7 +6351,8 @@ def main():
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe — score 不低于 floor，防止 floor_gate 二杀
                     # iter1618: floor_safe_inline — 内联 floor 计算含 local=0 提升
-                    _fb_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    # iter1778: fb_floor_sync_score_floor — 同步 _score_floor(iter1760: <50→0.10)
+                    _fb_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_chunk_count == 0 and _fb_floor < 0.25:
                         _fb_floor = 0.25
                     positive = [(max(_sef_best[0] * 0.1, _fb_floor), _sef_best[1])]
@@ -6352,7 +6369,8 @@ def main():
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe
                     # iter1618: floor_safe_inline — 同上
-                    _fb_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    # iter1778: fb_floor_sync_score_floor — 同步 _score_floor(iter1760: <50→0.10)
+                    _fb_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_chunk_count == 0 and _fb_floor < 0.25:
                         _fb_floor = 0.25
                     positive = [(max(_sef_best[0] * 0.01, _fb_floor), _sef_best[1])]
@@ -6385,6 +6403,24 @@ def main():
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter1772_sparse_wipeout_rescue_full: imp={_swr_best_f[0]:.2f} "
                                       f"id={_swr_best_f[1].get('id','')[:12]}",
+                                      session_id=session_id, project=project)
+                # iter1779: sef_exhausted_local_rescue — _sef_by_imp 全空时跳过 7d 限制取本地 chunk
+                # 根因（数据驱动，2026-05-14）：abspath:51963532bc1b(local=1) 15 次 hash_changed|full 空召回。
+                #   _fb_7d_ok_full 过滤后 _sef_by_imp=[] → 所有 fallback 分支跳过 → 空召回。
+                #   sparse_wipeout_rescue 需 _sef_by_imp 非空，但 7d 限制已将唯一本地 chunk 排除。
+                # 修复：_sef_by_imp 空 + 有本地 chunk 时，从 final 无 7d 限制取本地最高 imp chunk。
+                elif not _sef_by_imp and _local_chunk_count > 0 and _sef_full_max == 0:
+                    _exh_local = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                                  if c.get("project", "") == project
+                                  and (c.get("access_count", 0) or 0) < 30]
+                    if _exh_local:
+                        _exh_best = max(_exh_local, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
+                        _exh_best[1]["_fallback_protected"] = True
+                        _fb_floor_exh = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.10)
+                        positive = [(_fb_floor_exh, _exh_best[1])]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1779_sef_exhausted_local_rescue: imp={_exh_best[0]:.2f} "
+                                      f"id={_exh_best[1].get('id','')[:12]} local={_local_chunk_count}",
                                       session_id=session_id, project=project)
 
         # ── iter840: fallback_pair_inject (FULL path) ──
