@@ -6849,9 +6849,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             pass
                     # iter1599: floor_gate_pre_suppress_rescue — floor_gate 全灭兜底
                     # iter1737: elif→if — DB rescue 失败后也应走此兜底（sync retriever.py iter1605）
-                    if not top_k and _pre_suppress_top_k and _local_chunk_count_d > 0:
+                    # iter1829: fallback_empty_pre_suppress_rescue — sync retriever.py
+                    if not top_k and _local_chunk_count_d > 0:
                         _fgr_local_d = [(s, c) for s, c in _pre_suppress_top_k
-                                        if (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") == project]
+                                        if (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") == project] if _pre_suppress_top_k else []
                         if _fgr_local_d:
                             _fgr_best_d = max(_fgr_local_d,
                                               key=lambda x: (x[1][_CI_IMP] if isinstance(x[1], (list, tuple)) and len(x[1]) > _CI_IMP else 0))

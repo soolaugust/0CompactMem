@@ -9488,9 +9488,15 @@ def main():
                     #   注入 mtk ALB(imp=0.90) 和 migration 统计(imp=0.92)，与 memory-os 开发无关。
                     #   local=0 表明该项目从未产生本地知识，所有候选均为跨项目，信息增量=0。
                     # 修复：local=0 跳过此兜底，保持空召回（不注入噪声 > 注入无关知识）。
-                    if not top_k and _pre_suppress_top_k and _local_chunk_count > 0:
+                    # iter1829: fallback_empty_pre_suppress_rescue — _pre_suppress_top_k 为空时也走 DB rescue
+                    # 根因（数据驱动，2026-05-14）：git:a0ab16e8cafc(17 local) 5/2+5/5 共 11 次全灭，
+                    #   cands=10-34 但 _score_chunk hard_suppress 全部 score=0 → positive=[]
+                    #   → _pre_suppress_top_k=[] → 条件 `and _pre_suppress_top_k` 为 False
+                    #   → DB rescue 也被跳过 → 零注入。17 个本地 chunk 全部被 suppress 不合理。
+                    # 修复：去掉 _pre_suppress_top_k 非空前提，空时直接走 DB rescue。
+                    if not top_k and _local_chunk_count > 0:
                         _fgr_local = [(s, c) for s, c in _pre_suppress_top_k
-                                      if c.get("project") == project]
+                                      if c.get("project") == project] if _pre_suppress_top_k else []
                         if _fgr_local:
                             _fgr_best = max(_fgr_local,
                                             key=lambda x: x[1].get("importance", 0))
