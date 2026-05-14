@@ -5011,9 +5011,8 @@ def main():
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
                         _ps842_hd_score = top_k[0][0] * 0.25
-                        # iter1562: pair_inherit_floor_protect
-                        if top_k[0][1].get("_fallback_protected"):
-                            _ps842_hd_best[1]["_fallback_protected"] = True
+                        # iter1812: pair_unconditional_floor_protect — 同步 iter868
+                        _ps842_hd_best[1]["_fallback_protected"] = True
                         top_k.append((_ps842_hd_score, _ps842_hd_best[1]))
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"iter842_pair_from_final_hd: paired "
@@ -7844,9 +7843,8 @@ def main():
                               and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
-                # iter1562: pair_inherit_floor_protect
-                if top_k[0][1].get("_fallback_protected"):
-                    _ps_best[1]["_fallback_protected"] = True
+                # iter1812: pair_unconditional_floor_protect — 同步 iter868
+                _ps_best[1]["_fallback_protected"] = True
                 top_k.append(_ps_best)
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter832_post_suppress_pair: paired {_ps_best[1].get('id','')[:12]} "
@@ -7874,9 +7872,8 @@ def main():
                 _ps842_best = max(_ps842_cands, key=lambda x: x[0])
                 if _ps842_best[0] >= 0.3:
                     _ps842_score = top_k[0][0] * 0.25
-                    # iter1562: pair_inherit_floor_protect — pair 继承 dead_zone _fallback_protected
-                    if top_k[0][1].get("_fallback_protected"):
-                        _ps842_best[1]["_fallback_protected"] = True
+                    # iter1812: pair_unconditional_floor_protect — 同步 iter868
+                    _ps842_best[1]["_fallback_protected"] = True
                     top_k.append((_ps842_score, _ps842_best[1]))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter842_pair_from_final: paired {_ps842_best[1].get('id','')[:12]} "
@@ -7948,9 +7945,8 @@ def main():
                                     "content": _dp895_pick[2], "chunk_type": _dp895_pick[3] or "",
                                     "importance": _dp895_pick[4] or 0.5}
                     _dp895_score = top_k[0][0] * 0.2  # 配对 score 为主条的 20%
-                    # iter1562: pair_inherit_floor_protect
-                    if top_k[0][1].get("_fallback_protected"):
-                        _dp895_chunk["_fallback_protected"] = True
+                    # iter1812: pair_unconditional_floor_protect — 同步 iter868
+                    _dp895_chunk["_fallback_protected"] = True
                     top_k.append((_dp895_score, _dp895_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
@@ -8941,9 +8937,8 @@ def main():
                 _ps842_lite_best = max(_ps842_lite_cands, key=lambda x: x[0])
                 if _ps842_lite_best[0] >= 0.3:
                     _ps842_lite_score = top_k[0][0] * 0.25
-                    # iter1562: pair_inherit_floor_protect
-                    if top_k[0][1].get("_fallback_protected"):
-                        _ps842_lite_best[1]["_fallback_protected"] = True
+                    # iter1812: pair_unconditional_floor_protect — 同步 iter868 修复
+                    _ps842_lite_best[1]["_fallback_protected"] = True
                     top_k.append((_ps842_lite_score, _ps842_lite_best[1]))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter842_pair_from_final_lite: paired "
@@ -9043,10 +9038,13 @@ def main():
                     _f868_pick = _f868_cands[_f868_idx]
                     _f868_chunk = {"id": _f868_pick[0], "summary": _f868_pick[1],
                                    "content": _f868_pick[2], "chunk_type": _f868_pick[3],
-                                   "importance": _f868_pick[4], "access_count": _f868_pick[5]}
-                    # iter1565: pair_inherit_floor_protect — final_single_pair 继承 _fallback_protected
-                    if top_k[0][1].get("_fallback_protected"):
-                        _f868_chunk["_fallback_protected"] = True
+                                   "importance": _f868_pick[4], "access_count": _f868_pick[5],
+                                   "_fallback_protected": True}
+                    # iter1812: pair_unconditional_floor_protect — pair 无条件标记防 score_floor_gate 误杀
+                    # 根因（数据驱动，2026-05-14）：49% 注入仅 1 条 chunk。iter868 pair score=top1*0.20，
+                    #   对 top1=0.30 的情况 pair_score=0.06 < floor=0.10 → pair 被 score_floor_gate 移除。
+                    #   pair 是系统主动配对的辅助上下文，不应因低 score 被 floor 误杀。
+                    # 修复：pair chunk 无条件标记 _fallback_protected（同 cold_probe line 8986）。
                     _f868_score = top_k[0][0] * 0.20
                     top_k.append((_f868_score, _f868_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
