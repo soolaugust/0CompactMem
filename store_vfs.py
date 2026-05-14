@@ -1076,6 +1076,22 @@ def fts5_checkpoint(conn: sqlite3.Connection) -> dict:
         if _pinned_swapped:
             stats["swap_in_pinned"] = len(_pinned_swapped)
 
+    # iter1822: swap_in_recent_access — 最近 14d 被访问的 SWAPPED chunk 自动恢复
+    # 根因（数据驱动，2026-05-14）：import-62257(Kernel Patch 邮件标签, ac=1, last_accessed=5/5)
+    #   被 swap 但用户仍在做 kernel patch 工作(7d 内 2 次 trace)。无 pin 则无法恢复。
+    # 修复：last_accessed 在 14d 内的 SWAPPED chunk 自动恢复 ACTIVE（Phase 2 补建 FTS）。
+    if _has_state_col_pre:
+        _recent_swapped = conn.execute("""
+            SELECT id FROM memory_chunks
+            WHERE chunk_state IN ('SWAPPED', 'SWAP')
+              AND last_accessed > datetime('now', '-14 days')
+        """).fetchall()
+        for (_rs_id,) in _recent_swapped:
+            conn.execute(
+                "UPDATE memory_chunks SET chunk_state='ACTIVE' WHERE id=?", (_rs_id,))
+        if _recent_swapped:
+            stats["swap_in_recent"] = len(_recent_swapped)
+
     # Phase 1.5: 清理 SWAPPED chunk 的 FTS 条目
     # iter995: swapped_fts_cleanup — SWAPPED chunk 不应被 FTS 检索命中
     # 根因（数据驱动，2026-05-06）：3 条 chunk_state='SWAPPED' 仍有 FTS 条目，
