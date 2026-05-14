@@ -170,14 +170,12 @@ def access_bonus(access_count: int) -> float:
     # iter831: diminishing return for over-exposed chunks
     if access_count > 8:
         ab *= 1.0 / (1.0 + (access_count - 8) * 0.1)
-    # iter1647: internalized_knowledge_decay — ac>=5 bonus 渐进归零
-    # iter1824: internalized_decay_strengthen — 起点 6→5, 系数 0.015→0.04
-    # 数据驱动（2026-05-14）：ac=5 chunk(git commit/feishu CLI) 30d 注入 5-7 次占 45%,
-    #   access_bonus=0.116 仍构成竞争优势，经 fallback/pair 逃逸 suppress。
-    #   ac=5 时 bonus 应归零：用户已见 5 次，信息增量≈0，让位新鲜知识。
-    # 效果：ac=5→ab-0.04≈0.08(↓40%), ac=6→ab-0.08≈0.05, ac=7→ab-0.12≈0(归零)
-    if access_count >= 5:
-        ab = max(0.0, ab - 0.04 - (access_count - 5) * 0.04)
+    # iter1825: internalized_decay_start4 — 起点 5→4 消除 ac=4/5 倒挂
+    # 数据驱动（2026-05-14）：ac=4 bonus=0.116 > ac=5 bonus=0.089，倒挂 30%。
+    #   ac=4 chunk(inj=4) 占 20% 注入位，因 bonus 优势经 fallback 逃逸 suppress。
+    #   ac>=4=用户已见 4 次，开始衰减合理。ac=4→0.076(↓34%), ac=5→0.036, ac>=7→0。
+    if access_count >= 4:
+        ab = max(0.0, ab - 0.04 - (access_count - 4) * 0.04)
     return ab
 
 

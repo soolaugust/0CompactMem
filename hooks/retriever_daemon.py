@@ -3680,9 +3680,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 修复：ac>8 时 ab 乘以 1/(1+(ac-8)*0.1)，ac=12→0.71x, ac=20→0.45x
             if _ac > 8:
                 ab *= 1.0 / (1.0 + (_ac - 8) * 0.1)
-            # iter1647: internalized_knowledge_decay — sync scorer.py
-            if _ac >= 6:
-                ab = ab - (_ac - 6) * 0.015
+            # iter1825: internalized_decay_start4 — sync scorer.py
+            if _ac >= 4:
+                ab = ab - 0.04 - (_ac - 4) * 0.04
                 if ab < 0.0:
                     ab = 0.0
             # freshness_bonus
@@ -4090,9 +4090,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter831: access_diminishing_return (dict path)
             if _ac > 8:
                 ab *= 1.0 / (1.0 + (_ac - 8) * 0.1)
-            # iter1647: internalized_knowledge_decay (dict path) — sync scorer.py
-            if _ac >= 6:
-                ab = ab - (_ac - 6) * 0.015
+            # iter1825: internalized_decay_start4 (dict path) — sync scorer.py
+            if _ac >= 4:
+                ab = ab - 0.04 - (_ac - 4) * 0.04
                 if ab < 0.0:
                     ab = 0.0
             fb = _sc_fb_max - age_ca * _sc_fb_scale  # iter254: drop grace guard (corpus max age_ca = 1.2d avg)
