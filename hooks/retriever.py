@@ -6643,11 +6643,18 @@ def main():
                 _cs_max = _sysctl("retriever.cold_start_max_inject")
                 _positive_ids = {c["id"] for _, c in positive}
                 # 从 final 候选中筛选：高 imp、零访问、不在 positive 中
+                # iter1803: cold_start_zero_local_guard — local=0 项目仅从 global chunk 选候选
+                # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0) cold_start
+                #   从全库 FTS 候选中选 ac=0 跨项目 kernel chunk(imp=0.85)注入。
+                #   memory-os 工作中注入 sched_ext 知识完全无关。
+                #   local=0 时 FTS 候选全为跨项目，cold_start 按 imp 选取 = 随机噪声。
+                # 修复：local=0 时 cold_start 仅接受 global chunk（跨项目主题知识不注入）。
                 _cold_candidates = [
                     (imp_val, c) for s, c in final
                     if c.get("id", "") not in _positive_ids
                     and (c.get("access_count", 0) or 0) == 0
                     and float(c.get("importance", 0) or 0) >= _cs_imp_threshold
+                    and (_local_chunk_count > 0 or c.get("project") == "global")
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
                 # iter1768: cold_start_db_probe — 候选池无 ac=0 时直接从 DB 探针
