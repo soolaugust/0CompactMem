@@ -6454,9 +6454,15 @@ def main():
         #   → IWCSI 强制曝光1个最高 imp 的零召回 chunk（打破死锁）
         # 触发条件：FULL 模式 + positive 不足 effective_top_k + 未超 soft deadline
         _cold_start_injected = 0
+        # iter1774: cold_start_deadline_hard — soft deadline 误杀 cold_start
+        # 根因（数据驱动，2026-05-14）：sem_c4531bbd(imp=0.854,ac=0) 创建 24 天从未注入。
+        #   cold_start 从未触发（ftrace/dmesg 零记录）。soft deadline=50ms 在 17-chunk 库
+        #   BM25+suppress 后经常刚好超时，cold_start 是最后一个阶段被 skip。
+        #   cold_start 本身仅 1 次 DB 查询（<1ms），不应被 soft deadline 挡住。
+        # 修复：改用 hard deadline（80ms），确保 cold_start 在正常耗时内不被跳过。
         if (priority == "FULL"
                 and _sysctl("retriever.cold_start_enabled")
-                and not _check_deadline("cold_start")):
+                and not _check_deadline("cold_start", is_hard=True)):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
                 _cs_max = _sysctl("retriever.cold_start_max_inject")
@@ -6525,6 +6531,11 @@ def main():
                                       f"cold_start: injected={_cold_start_injected} "
                                       f"imp>={_cs_imp_threshold:.2f}"
                                       f"{' (db_probe)' if any(c.get('_cold_probe') for _,c in positive[-_cold_start_injected:]) else ''}",
+                                      session_id=session_id, project=project)
+                    else:
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"cold_start: no_candidates cold_cands={len(_cold_candidates)} "
+                                      f"positive={len(positive)}/{effective_top_k} local={_local_chunk_count}",
                                       session_id=session_id, project=project)
             except Exception:
                 pass  # cold_start 失败不阻塞主流程
