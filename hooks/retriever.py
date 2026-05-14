@@ -2612,7 +2612,14 @@ def main():
                 #   rc=5 时 0.3 斜率仅衰减到 0.53，高分 dc 衰减后仍胜出。
                 #   0.6 斜率：rc=4→0.45, rc=5→0.36, rc=7→0.25，低频 chunk 自然补位。
                 _rfd_slope = 0.6 if _db_chunk_count < 50 else 0.3
-                score *= 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 2))
+                _rfd_mult = 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 2))
+                # iter1784: rfd_floor_clamp — 衰减不低于 score_floor 防 floor_gate 误杀
+                # 数据驱动：db=21(floor=0.10) 的 rc=4 chunk score=0.25→0.091<0.10 → floor_gate 全灭。
+                # RFD 目的是降低竞争力让新 chunk 胜出，不是触发 floor_gate 空召回。
+                _rfd_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+                if _local_sparse and _local_chunk_count > 0:
+                    _rfd_floor = 0.05
+                score = max(score * _rfd_mult, _rfd_floor) if score > _rfd_floor else score * _rfd_mult
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
