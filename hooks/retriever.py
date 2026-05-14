@@ -6762,10 +6762,14 @@ def main():
         #   不应被 deadline 拦截。实测 FULL 路径到此阶段已 400ms+ 每次都超 hard_deadline=200ms，
         #   导致 cold_start 从未触发（24 天 ac=0 chunk 零曝光）。
         #   同时去掉 FULL-only 限制：LITE 密集 session 中 ac=0 同样需要曝光机会。
-        if (_sysctl("retriever.cold_start_enabled")):
+        # iter1836: cold_start_default_on — 默认启用，不依赖 sysctl flag
+        # 根因（数据驱动，2026-05-14）：sysctl 中无 cold_start_enabled key → None → falsy，
+        #   导致 cold_start 从未在 retriever.py 主路径生效。ac=0 chunk 24 天零曝光。
+        # 修复：默认 True，仅当显式设为 False 时关闭。threshold/max 加硬编码默认值。
+        if (_sysctl("retriever.cold_start_enabled") is not False):
             try:
-                _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
-                _cs_max = _sysctl("retriever.cold_start_max_inject")
+                _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold") or 0.50
+                _cs_max = _sysctl("retriever.cold_start_max_inject") or 1
                 _positive_ids = {c["id"] for _, c in positive}
                 # 从 final 候选中筛选：高 imp、零访问、不在 positive 中
                 # iter1803: cold_start_zero_local_guard — local=0 项目仅从 global chunk 选候选

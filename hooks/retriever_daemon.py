@@ -4767,10 +4767,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
             # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon HD
             # iter1770: cold_start_replace — positive 满时替换已内化低分 chunk
-            if (sysctl("retriever.cold_start_enabled")
+            # iter1836: cold_start_default_on — sync retriever.py (HD path)
+            if (sysctl("retriever.cold_start_enabled") is not False
                     and _local_chunk_count_d > 0):
                 try:
-                    _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
+                    _cs_imp_t = sysctl("retriever.cold_start_imp_threshold") or 0.50
                     _cs_pos_ids = {c[_CI_ID] for _, c in positive}
                     _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
                     _cs_rows = _cs_conn.execute(
@@ -5295,10 +5296,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
 
         # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon FULL
         # iter1770: cold_start_replace — positive 满时替换已内化低分 chunk
-        if (sysctl("retriever.cold_start_enabled")
+        # iter1836: cold_start_default_on — sync retriever.py (FULL path)
+        if (sysctl("retriever.cold_start_enabled") is not False
                 and _local_chunk_count_d > 0):
             try:
-                _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
+                _cs_imp_t = sysctl("retriever.cold_start_imp_threshold") or 0.50
                 _cs_pos_ids = {c[_CI_ID] for _, c in positive}
                 _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
                 _cs_rows = _cs_conn.execute(
