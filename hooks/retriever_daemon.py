@@ -3893,7 +3893,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   DB<100 chunk 时 24h:3→5, 7d:5→8（低分）/ 24h:3→6, 7d:5→10（高分）
             #   根因：40 chunk × 频繁对话 → 2次/24h 即封锁 → 注入率骤降
             # iter767: tiered_small_db — 分级小库阈值
-            _s672_micro = _db_chunk_count <= 5  # iter801: micro_db — suppress 全禁用
+            _s672_micro = _db_chunk_count <= 10  # iter1789: micro_db_widen 5→10
             _s672_tiny = _db_chunk_count < 50  # iter848: 边界 40→50
             _s672_small = _db_chunk_count < 100
             # iter806: small_db_suppress_tighten — 24h 4/3→3/2, 7d 7/5→5/4
@@ -4168,7 +4168,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
             # iter767: tiered_small_db — 分级小库阈值（同 _score_chunk）
-            _s672d_micro = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
+            _s672d_micro = _db_chunk_count <= 10  # iter1789: micro_db_widen 5→10
             _s672d_tiny = _db_chunk_count < 50  # iter848: 边界 40→50
             _s672d_small = _db_chunk_count < 100
             # iter806: small_db_suppress_tighten — sync with retriever.py

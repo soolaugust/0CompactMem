@@ -2390,7 +2390,12 @@ def main():
         except Exception:
             pass
 
-        _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
+        # iter1789: micro_db_widen — 边界 5→10 防 6-8 chunk 项目空召回
+        # 数据驱动（2026-05-14）：visible=6-8 的 3 个项目空召回率 76-100%，
+        #   根因是刚好超出 micro_db(<=5) 保护，global dc ac>=5 被 7d thresh=1 永久封杀。
+        #   visible<=10 的项目知识量极少，suppress 导致唯一知识来源被封杀。
+        #   主项目 git:a0ab16e8cafc(visible=21) 不受影响。
+        _micro_db = _db_chunk_count <= 10
         # iter1172: local_sparse_shield — local<=3 时本地 chunk 享受 micro_db 级别保护
         # 根因（数据驱动，2026-05-08）：git:78dc99a5695f(2 local + 6 global = 8 total)
         #   _micro_db=False(8>5)，6h suppress 在 15min 内连续 6 次空召回。
