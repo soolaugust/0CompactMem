@@ -9377,7 +9377,10 @@ def main():
         #   导致 max_score 天然 0.05~0.09。0.08 floor 拦截 >60% 有效候选。
         # iter1760: small_db_floor_raise — <50 floor 0.08→0.10
         # 数据驱动（2026-05-14）：6.6% 注入 score 0.08-0.10，全为跨主题噪声
-        _score_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+        # iter1884: small_db_floor_widen — <20→<30（数据驱动，2026-05-15）
+        # 24-chunk 库 18% 已注入 chunk score 在 0.05-0.10，useful feedback 最低 score=0.05。
+        # floor=0.10 误杀有价值注入。20-29 chunk 库 BM25 IDF 仍偏弱，0.05 更合适。
+        _score_floor = 0.05 if _db_chunk_count < 30 else (0.10 if _db_chunk_count < 50 else 0.12)
         # iter1685: sparse_floor_cap — sparse 项目 floor 不超过 0.05（sync daemon）
         if _local_sparse and _local_chunk_count > 0 and _score_floor > 0.05:
             _score_floor = 0.05
