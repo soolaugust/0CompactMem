@@ -2446,38 +2446,34 @@ def main():
             if not _sli_local_ids:
                 try:
                     # iter1761: sli_least_accessed_priority — 优先补入 ac 最低的本地 chunk
-                    # 根因（数据驱动，2026-05-14）：git:a4ee2fcfacc4(4 local) 中 import-72946(ac=0,imp=0.50)
-                    #   从未被注入。_sli 取 importance DESC → 总选 sem_68b32157(ac=2,imp=0.78)，
-                    #   该 chunk 随后被 7d/session suppress → 全灭空召回。ac=0 chunk 永无机会。
-                    # 修复：ORDER BY access_count ASC, importance DESC（对齐 iter1665）。
-                    #   低 ac chunk 用户尚未内化，信息增量最高；且不易被 suppress 拦截。
-                    _sli_row = conn.execute(
+                    # iter1873: sli_all_local — sparse 项目补入全部本地 chunk（不再 LIMIT 1）
+                    # 根因（数据驱动，2026-05-15）：git:a4ee2fcfacc4(3 local) FTS 不匹配任何本地 chunk，
+                    #   iter1600 LIMIT 1 只补入 1 条 → 其余 2 条永远无机会被注入（ac 停滞）。
+                    #   sparse 项目最多 5 条本地 chunk，全部补入不增加计算负担。
+                    # 修复：LIMIT 5 补入所有本地 chunk，各自按 ac 计算 rank 乘数参与竞争。
+                    _sli_rows = conn.execute(
                         "SELECT id, summary, content, chunk_type, importance, "
                         "COALESCE(access_count,0), created_at, COALESCE(lru_gen,0), project "
                         "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                        "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                        "ORDER BY access_count ASC, importance DESC LIMIT 5",
                         (project,)
-                    ).fetchone()
-                    if _sli_row:
+                    ).fetchall()
+                    if _sli_rows:
                         _sli_min_rank = min(r.get("fts_rank", 1.0) for r in fts_results)
-                        # iter1833: sli_ac0_rank_boost — 从未注入的本地 chunk 提高 rank 乘数
-                        # 根因（数据驱动，2026-05-14）：git:78dc99a5695f(1 local, ac=0) 100% 空召回。
-                        #   iter1600 补入时 rank*0.5=0.08 < floor_gate(0.10) → 永远被拦。
-                        #   ac=0 chunk 用户从未内化，信息增量最高，应优先突破 floor。
-                        # 修复：ac=0 乘数 0.5→0.9；ac=1 乘数 0.7；其余保持 0.5。
-                        _sli_ac = _sli_row[5] or 0
-                        _sli_mult = 0.9 if _sli_ac == 0 else (0.7 if _sli_ac <= 1 else 0.5)
-                        _sli_chunk = {
-                            "id": _sli_row[0], "summary": _sli_row[1], "content": _sli_row[2],
-                            "chunk_type": _sli_row[3] or "", "importance": _sli_row[4] or 0.5,
-                            "access_count": _sli_row[5], "created_at": _sli_row[6],
-                            "lru_gen": _sli_row[7], "project": _sli_row[8] or project,
-                            "fts_rank": _sli_min_rank * _sli_mult,
-                        }
-                        fts_results.append(_sli_chunk)
+                        for _sli_row in _sli_rows:
+                            _sli_ac = _sli_row[5] or 0
+                            _sli_mult = 0.9 if _sli_ac == 0 else (0.7 if _sli_ac <= 1 else 0.5)
+                            _sli_chunk = {
+                                "id": _sli_row[0], "summary": _sli_row[1], "content": _sli_row[2],
+                                "chunk_type": _sli_row[3] or "", "importance": _sli_row[4] or 0.5,
+                                "access_count": _sli_row[5], "created_at": _sli_row[6],
+                                "lru_gen": _sli_row[7], "project": _sli_row[8] or project,
+                                "fts_rank": _sli_min_rank * _sli_mult,
+                            }
+                            fts_results.append(_sli_chunk)
                         _deferred.log(DMESG_DEBUG, "retriever",
-                                      f"iter1600_sparse_local_candidate_inject: "
-                                      f"id={_sli_row[0][:12]} imp={_sli_row[4]:.2f}",
+                                      f"iter1873_sli_all_local: injected {len(_sli_rows)} "
+                                      f"local chunks into candidates",
                                       session_id=session_id, project=project)
                 except Exception:
                     pass
