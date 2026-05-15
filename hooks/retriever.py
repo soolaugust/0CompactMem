@@ -5703,7 +5703,11 @@ def main():
                     #   全低于 floor 但 _sf_above_l=[] 未处理 → 低分垃圾直接注入。
                     #   FULL 路径 floor_gate_skip 全灭时 top_k=[]，LITE 遗漏。
                     # 修复：全灭时清空 top_k；单条也检查 floor（去掉 len>1 限制）。
-                    _sf_lite = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+                    # iter1885: lite_floor_sync_small_db — 对齐 FULL iter1884 (<20→<30)
+                    # 根因（数据驱动，2026-05-15）：24-chunk 库 LITE 81% 单条注入 vs FULL 57%。
+                    #   FULL _score_floor=0.05(<30) 但 LITE _sf_lite=0.10(<20→20-29 用 0.10)。
+                    #   pair score 通常 0.03-0.08，LITE floor=0.10 系统性杀死 pair → 单条率飙升。
+                    _sf_lite = 0.05 if _db_chunk_count < 30 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_sparse and _local_chunk_count > 0 and _sf_lite > 0.05:
                         _sf_lite = 0.05
                     if _local_chunk_count == 0 and _sf_lite < 0.10:

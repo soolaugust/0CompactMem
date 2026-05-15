@@ -5086,7 +5086,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         top_k = list(_seen_dd_dh.values())
                     # iter1842: score_floor_gate_lite — daemon LITE 路径同步 score_floor
                     # iter1843: lite_floor_gate_allbelow — 全灭时清空(对齐 FULL iter1043)
-                    _sf_lite_d = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+                    # iter1885: lite_floor_sync_small_db — 对齐 FULL iter1884 (<20→<30)
+                    _sf_lite_d = 0.05 if _db_chunk_count < 30 else (0.10 if _db_chunk_count < 50 else 0.12)
                     if _local_sparse_d and _local_chunk_count_d > 0 and _sf_lite_d > 0.05:
                         _sf_lite_d = 0.05
                     if _local_chunk_count_d == 0 and _sf_lite_d < 0.10:
