@@ -5834,7 +5834,11 @@ def main():
 
                     # 迭代98：分离约束知识和普通知识，约束优先展示
                     # 迭代306：hard_deadline 路径也附加 raw_snippet（importance >= 0.75）
-                    _hd_high_ids = [c["id"] for _, c in top_k if (c.get("importance") or 0) >= 0.75]
+                    # iter1892: hd_raw_coverage_widen — 0.75→0.50 扩大原文附加覆盖
+                    # 数据驱动（2026-05-15）：5/23 chunk imp 0.50-0.74 有 content(552-1375 chars)
+                    #   但无 raw_snippet，LITE 注入只输出 summary(~60 chars)，信息密度极低。
+                    #   降低阈值使覆盖率 78%→100%，每条 LITE 注入增加 ~150 chars 有效上下文。
+                    _hd_high_ids = [c["id"] for _, c in top_k if (c.get("importance") or 0) >= 0.50]
                     _hd_raw: dict = {}
                     if _hd_high_ids:
                         try:
