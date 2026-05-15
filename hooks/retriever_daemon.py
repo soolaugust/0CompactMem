@@ -5087,8 +5087,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _local_chunk_count_d == 0 and _sf_lite_d < 0.10:
                         _sf_lite_d = 0.10
                     if top_k:
+                        # iter1880: lite_floor_protected_fix — tuple 无 .get()，用 _fallback_protected_ids
+                        _fpi_ld = _fallback_protected_ids if '_fallback_protected_ids' in dir() else set()
                         _sf_ab_ld = [(s, c) for s, c in top_k
-                                     if s >= _sf_lite_d or c.get("_fallback_protected")]
+                                     if s >= _sf_lite_d
+                                     or (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) in _fpi_ld]
                         if _sf_ab_ld:
                             if len(_sf_ab_ld) < len(top_k):
                                 top_k = _sf_ab_ld
