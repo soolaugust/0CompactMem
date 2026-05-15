@@ -5380,6 +5380,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _div_floor_d = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                     _div_score_d = max(positive[0][0] * 0.25, _div_floor_d)
                     positive.append((_div_score_d, _div_chunk_d))
+                    _diversity_pair_ids.add(_div_pick_d[0])  # iter1881
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter867_diversity_rotation: db_pick {_div_pick_d[0][:12]} "
                                   f"imp={_div_pick_d[4]:.2f} ac={_div_pick_d[5]} idx={_div_idx_d}",
@@ -5441,6 +5442,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter771: tiny_db_fallback_relax — 小库降至 0.15
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
         _fallback_protected_ids = set()
+        _diversity_pair_ids = set()  # iter1881: diversity_pair_sat_floor_shield
         # iter1675: sparse_noise_floor_relax — sync hard_deadline path
         _FALLBACK_NOISE_FLOOR_FULL = 0.05 if _local_sparse_d else (0.15 if _db_chunk_count < 50 else 0.25)
         # iter1667: scoring_wipeout_ftrace — 全灭时记录候选分布，使 ftrace 非空
@@ -6873,6 +6875,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   iter1755: _ri threshold 8→6 (降低垄断阈值)
             #   iter1756: same_project_leniency — 同项目 floor 0.50→0.30
             def _sat_hit_d(s, c):
+                # iter1881: diversity_pair_sat_floor_shield — sync retriever.py
+                _cid_sat = c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")
+                if _cid_sat in _diversity_pair_ids:
+                    return False
                 # iter1567 sync: sparse 项目本地 chunk 豁免 sat_floor
                 if _local_sparse_d and _sat_floor_proj(c) == project:
                     return False

@@ -6638,7 +6638,7 @@ def main():
                     _div_chunk = {"id": _div_pick[0], "summary": _div_pick[1],
                                   "content": _div_pick[2], "chunk_type": _div_pick[3],
                                   "importance": _div_pick[4], "access_count": _div_pick[5],
-                                  "_fallback_protected": True}
+                                  "_fallback_protected": True, "_diversity_pair": True}
                     # iter1713: diversity_pair_floor_safe — score 保底=floor 防 floor_gate 二杀
                     # 根因（数据驱动，2026-05-13）：diversity_pair 从未成功注入(ftrace 0 次)。
                     #   _div_score = top1*0.25，小库 top1~0.3 → pair_score=0.075 < floor=0.08
@@ -9414,6 +9414,13 @@ def main():
         _LOCAL_SAT_AC_THRESH = 7 if _db_chunk_count < 50 else 5
         if len(top_k) > 0:
             def _sat_floor_apply(s, c):
+                # iter1881: diversity_pair_sat_floor_shield — diversity_pair 豁免 sat_floor
+                # 根因（数据驱动，2026-05-15）：diversity_pair 从未成功注入(ftrace 0/20次)。
+                #   pair score=max(top1*0.25, floor)≈0.10 < _SAT_FLOOR_EFF=0.15 → sat_floor 清零。
+                #   导致 50% 注入为单条，知识组合率严重不足。
+                # 修复：_diversity_pair 标记的 chunk 跳过 sat_floor，由 7d/cooldown 兜底防垄断。
+                if c.get("_diversity_pair"):
+                    return (s, c)
                 # iter1567: sat_floor_sparse_local_shield — sparse 项目本地 chunk 豁免 sat_floor
                 # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 ACTIVE local, ac=8)
                 #   唯一本地知识 58c70136 被 sat_floor(ac>=7, score<0.25) 设为 0.0 +
