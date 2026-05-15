@@ -9396,7 +9396,8 @@ def main():
         # 数据驱动（2026-05-08）：c9accb7b(feishu CLI, ac=4) 7d 注入 4 次 score=0.19/0.30，
         #   import-90139(PE LKMM, ac=7) 7d 注入 6 次 — 均逃逸旧门槛(global ac>=5, local ac>=10)。
         # 修复：global ac 4→4(含), local ac 10→7。预计减少 ~30% 低分垄断注入。
-        _GLOBAL_SAT_FLOOR = 0.25
+        # iter1875: tiny_db_global_sat_floor_relax — <50 库降为 0.15
+        _GLOBAL_SAT_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
         # iter1573: local_sat_floor_dbsize_tier — 按 DB size 分级 ac 阈值
         # 根因（数据驱动，2026-05-12）：iter1571 统一 ac>=5 在 32-chunk 库中过度 suppress，

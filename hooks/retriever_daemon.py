@@ -4424,40 +4424,68 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (rc>3 即 suppress)
                 _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
             # iter1600: sparse_local_candidate_inject — sparse 项目本地 chunk 主动注入候选池
-            # 根因（数据驱动，2026-05-12）：_local_sparse 项目的本地 chunk 因 FTS5 关键词
-            #   不匹配从未进入候选池。正常路径下跨项目 chunk 通过评分→本地 chunk 零机会参与竞争。
-            # 修复：检查 FTS 结果是否含本地 chunk，缺失则从 DB 补入（fts_rank = min * 0.5）。
+            # iter1874: sync iter1873 sli_all_local + iter1868 never_injected_local_inject
             if _local_sparse_d and fts_results:
                 _sli_has_local = any(c[_CI_CP] == project for c in fts_results)
                 if not _sli_has_local:
                     try:
-                        # iter1632: immutable_conn_stale_fix — 同上
                         import sqlite3 as _sli_sql
                         _sli_conn = _sli_sql.connect(str(STORE_DB), timeout=2)
-                        # iter1761: sli_least_accessed_priority — sync retriever.py
-                        _sli_r = _sli_conn.execute(
-                            "SELECT id, summary, content, importance, last_accessed, "
-                            "chunk_type, COALESCE(access_count,0), created_at, "
-                            "0.0, COALESCE(lru_gen,0), project, "
-                            "verification_status, confidence_score, "
-                            "COALESCE(retrievability,1.0), COALESCE(source_reliability,0.7), "
-                            "COALESCE(emotional_weight,0.0), COALESCE(emotional_valence,0.0) "
+                        # iter1877: fix 17→13 col — tuple must match _CI_* (13 fields)
+                        _sli_rows = _sli_conn.execute(
+                            "SELECT id, summary, content, COALESCE(importance,0.5), last_accessed, "
+                            "chunk_type, COALESCE(access_count,0), COALESCE(created_at,last_accessed), "
+                            "0.0, COALESCE(lru_gen,0), COALESCE(project,''), "
+                            "verification_status, confidence_score "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                            "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 5",
                             (project,)
-                        ).fetchone()
+                        ).fetchall()
                         _sli_conn.close()
-                        if _sli_r:
+                        if _sli_rows:
                             _sli_min_rank = min(c[_CI_FR] for c in fts_results)
-                            _sli_t = list(_sli_r)
-                            _sli_t[_CI_FR] = _sli_min_rank * 0.5
-                            fts_results.append(tuple(_sli_t))
+                            for _sli_r in _sli_rows:
+                                _sli_ac = _sli_r[6] or 0
+                                _sli_mult = 0.9 if _sli_ac == 0 else (0.7 if _sli_ac <= 1 else 0.5)
+                                _sli_t = list(_sli_r)
+                                _sli_t[_CI_FR] = _sli_min_rank * _sli_mult
+                                fts_results.append(tuple(_sli_t))
                             _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                                          f"iter1600_sparse_local_candidate_inject: "
-                                          f"id={_sli_r[0][:12]} imp={_sli_r[3]:.2f}",
+                                          f"iter1874_sli_all_local: injected {len(_sli_rows)} "
+                                          f"local chunks into candidates",
                                           session_id=session_id, project=project)
                     except Exception:
                         pass
+            elif not _local_sparse_d and fts_results and _local_chunk_count > 0:
+                # iter1874: sync iter1868 — non-sparse 项目补入从未注入的本地 chunk
+                try:
+                    _nili_fts_ids = [c[_CI_ID] for c in fts_results if c[_CI_ID]]
+                    import sqlite3 as _nili_sql
+                    _nili_conn = _nili_sql.connect(str(STORE_DB), timeout=2)
+                    _nili_ph = ",".join("?" for _ in _nili_fts_ids)
+                    # iter1877: fix 17→13 col — tuple must match _CI_* (13 fields)
+                    _nili_row = _nili_conn.execute(
+                        "SELECT id, summary, content, COALESCE(importance,0.5), last_accessed, "
+                        "chunk_type, COALESCE(access_count,0), COALESCE(created_at,last_accessed), "
+                        "0.0, COALESCE(lru_gen,0), COALESCE(project,''), "
+                        "verification_status, confidence_score "
+                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        f"AND id NOT IN ({_nili_ph}) "
+                        "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                        [project] + _nili_fts_ids
+                    ).fetchone()
+                    _nili_conn.close()
+                    if _nili_row and (_nili_row[6] or 0) <= 1:
+                        _nili_min_rank = min(c[_CI_FR] for c in fts_results)
+                        _nili_t = list(_nili_row)
+                        _nili_t[_CI_FR] = _nili_min_rank * 0.8
+                        fts_results.append(tuple(_nili_t))
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter1874_never_injected_local: "
+                                      f"id={_nili_row[0][:12]} ac={_nili_row[6]}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
             fts_ids = {chunk[_CI_ID] for chunk in fts_results}  # iter235: positional tuple
             final = [(_score_chunk(chunk, chunk[_CI_FR] / max_rank), chunk)
                      for chunk in fts_results]
@@ -6365,13 +6393,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _lt_fb = (_itl_lifetime.get(c[_CI_ID], (0,))[0] if _itl_lifetime else 0)
                     _fb_ac_d = c[_CI_AC] or 0
                     # iter1846: ceiling 1→0 封堵 7d 重置逃逸 — daemon sync
+                    # iter1876: small_db_fallback_ceiling_floor — <50 库 ceiling 最低=1
+                    #   sync retriever.py iter1857。小库唯一知识源不应被 ceiling=0 永久封死。
+                    _fb_small_floor = 1 if _db_chunk_count < 50 else 0
                     if _lt_fb >= 5 and _fb_ac_d >= 5:
-                        return 0
+                        return _fb_small_floor
                     if _lt_fb >= 4 and _fb_ac_d >= 4:
                         return 1
                     if c.get("project", "") == "global":
                         if _fb_ac_d >= 5:
-                            return 0  # iter1846: sync
+                            return _fb_small_floor
                         if _fb_ac_d >= 4:
                             return max(1, _fb_ceiling_d - 3)
                         return _fb_ceiling_d
@@ -6379,9 +6410,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _lt_fb >= 6:
                         return 1
                     if _fb_ac_d >= 7:
-                        return 0
+                        return _fb_small_floor
                     elif _fb_ac_d >= 5:
-                        return max(1, _fb_ceiling_d - 2)  # iter1846: sync
+                        return max(1, _fb_ceiling_d - 2)
                     # iter1549: ac4_tiny_db_7d_cap2 — sync fallback ceiling path
                     elif _fb_ac_d >= 4:
                         return 2 if _s672_tiny else max(2, _fb_ceiling_d - 2)
@@ -6802,7 +6833,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         #   真正相关时 score>=0.5（如操作飞书时 score=0.99）。
         # 修复：global + design_constraint + ac>=5 → floor 提升到 0.25。
         # iter1147: saturated_floor_tighten — ac 门槛收紧 (global 5→4, local 10→7)
-        _GLOBAL_SAT_FLOOR = 0.25
+        # iter1875: tiny_db_global_sat_floor_relax — <50 库降为 0.15
+        # 数据驱动（2026-05-15）：24-chunk 库 65% 注入仅 1 条 chunk，
+        #   跨项目有价值知识（score 0.15~0.24）被 0.25 floor 拦截。
+        #   小库知识密度低，跨项目知识是重要补充，不应过度 suppress。
+        _GLOBAL_SAT_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
         # iter1573: local_sat_floor_dbsize_tier — 同步 retriever.py
         _LOCAL_SAT_AC_THRESH = 7 if _db_chunk_count < 50 else 5
