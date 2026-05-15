@@ -6888,6 +6888,11 @@ def evict_lowest_retention(conn: sqlite3.Connection, project: str,
     # 低 retention 新 chunk（如 conversation_summary，importance=0.65）。
     # 修复：created_at >= datetime('now', '-10 minutes') 的 chunk 不参与 kswapd 硬淘汰。
     # OS 类比：Linux cgroup v2 memory.min — 保护新分配的页面不在 grace period 内被回收。
+    # iter1889: high_importance_eviction_shield — importance>=0.9 不参与水位淘汰
+    # 根因（数据驱动，2026-05-15）：3 个 imp=0.85-0.95 的 design_constraint 被 ZONE_LOW
+    #   水位淘汰（balloon 小配额触发），但 _reclaim_stale_chunks 保护了 imp>=0.9，
+    #   evict_lowest_retention 却没有，导致高价值知识被误杀。
+    # 修复：对齐 _reclaim_stale_chunks 的保护阈值 0.9。
     rows = conn.execute(
         f"""SELECT id, importance, last_accessed, COALESCE(access_count, 0),
                    COALESCE(oom_adj, 0), COALESCE(lru_gen, 0),
@@ -6895,6 +6900,7 @@ def evict_lowest_retention(conn: sqlite3.Connection, project: str,
             FROM memory_chunks
             WHERE project=? AND chunk_type NOT IN ({protect_placeholders})
               AND COALESCE(oom_adj, 0) > -1000
+              AND importance < 0.9
               AND (created_at IS NULL OR datetime(created_at) < datetime('now', '-10 minutes'))
             ORDER BY COALESCE(lru_gen, 0) DESC, importance ASC, last_accessed ASC
             LIMIT ?""",
