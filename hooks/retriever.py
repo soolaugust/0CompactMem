@@ -1899,6 +1899,46 @@ def main():
                         if _cnt_6h > 0:
                             _recent_6h_counts[_cid647] = _cnt_6h
                 _injection_timeline = _pruned
+                # ── iter1890: timeline_backfill — recall_traces → timeline 回补 ──
+                # 根因（数据驱动，2026-05-15）：8 条 timeline 缺失（traces 记录注入但 timeline 无对应条目）。
+                #   import-b1d88(traces=3,tl=1), 0aff0d67(traces=7,tl=5), 9a1c5b4f(traces=4,tl=2)。
+                #   缺失导致 7d_thresh/lifetime_suppress 判定偏松，垄断 chunk 周期性逃逸。
+                # 修复：加载 timeline 后从 recall_traces 回补 21d 内缺失的注入时间戳，一次性自愈。
+                try:
+                    _bf_rows = _rc_conn.execute(
+                        "SELECT top_k_json, timestamp FROM recall_traces "
+                        "WHERE injected=1 AND timestamp>? AND top_k_json IS NOT NULL AND top_k_json!='[]'",
+                        (_cutoff_21d,)
+                    ).fetchall()
+                    _bf_patched = 0
+                    for _bf_row in _bf_rows:
+                        try:
+                            _bf_tk = json.loads(_bf_row[0])
+                        except Exception:
+                            continue
+                        _bf_ts = _bf_row[1]
+                        for _bf_item in _bf_tk:
+                            if not isinstance(_bf_item, dict):
+                                continue
+                            _bf_cid = _bf_item.get("id", "")
+                            if not _bf_cid:
+                                continue
+                            _bf_existing = set(_injection_timeline.get(_bf_cid, []))
+                            if _bf_ts not in _bf_existing:
+                                _injection_timeline.setdefault(_bf_cid, []).append(_bf_ts)
+                                _bf_patched += 1
+                                _cnt = sum(1 for t in _injection_timeline[_bf_cid] if t > _cutoff_7d)
+                                if _cnt > 0:
+                                    _recent_7d_counts[_bf_cid] = _cnt
+                                _cnt24 = sum(1 for t in _injection_timeline[_bf_cid] if t > _cutoff_24h)
+                                if _cnt24 > 0:
+                                    _recent_24h_counts[_bf_cid] = _cnt24
+                    if _bf_patched > 0:
+                        _deferred.log(DMESG_INFO, "retriever",
+                                      f"iter1890_timeline_backfill: patched {_bf_patched} missing entries",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
                 # ── iter659: timeline_ghost_gc — 清理已删除 chunk 的 timeline 条目 ──
                 # 根因：chunk 被删除/swap 后 timeline 残留幽灵条目（实测 27 条），
                 #   浪费 JSON 读写 I/O 且污染 7d 计数上限估算。
