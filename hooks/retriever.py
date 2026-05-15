@@ -8115,11 +8115,17 @@ def main():
         _cross_floor_full = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1].get("id", "")
+            # iter1872: pair_global_dc_gate_832 — 对齐 iter1608/1698 排除高内化 global dc
+            # 根因（数据驱动，2026-05-15）：0aff0d67(git commit,ac=5,global,dc) score=0.010
+            #   被 iter832 pair 选中注入。iter895/1698 有 dc+ac>=4 gate，iter832 遗漏。
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
                               if c.get("id", "") != _ps_top1_id and s >= _full_pair_floor
                               and (c.get("project", "") in ("", project) or s >= _cross_floor_full)
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
-                              and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
+                              and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)
+                              and not (c.get("chunk_type") == "design_constraint"
+                                       and (c.get("access_count", 0) or 0) >= 4
+                                       and c.get("project", "") in ("global", ""))]
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
                 # iter1812: pair_unconditional_floor_protect — 同步 iter868
@@ -9192,11 +9198,15 @@ def main():
             #   score=0.05 的跨项目 chunk(migration统计/feishu CLI)——pair_floor=0.05 对 <20 库
             #   过低，完全不相关的跨项目知识通过 pair 逃逸 cross_floor(0.12)。
             # 修复：pair 候选增加 cross_project 检查，跨项目 chunk 须同时满足 _cross_floor_lite。
+            # iter1872: pair_global_dc_gate_832 — LITE 同步 FULL global dc gate
             _ps_lite_cands = [(s, c) for s, c in _pre_suppress_top_k_lite
                               if c.get("id", "") != _ps_lite_top1_id and s >= _lt_pair_floor
                               and (c.get("project", "") in ("", project) or s >= _cross_floor_lite)
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
-                              and _pair_suppress_ok_lite(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
+                              and _pair_suppress_ok_lite(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)
+                              and not (c.get("chunk_type") == "design_constraint"
+                                       and (c.get("access_count", 0) or 0) >= 4
+                                       and c.get("project", "") in ("global", ""))]
             if _ps_lite_cands:
                 _ps_lite_best = max(_ps_lite_cands, key=lambda x: x[0])
                 # iter1565: pair_inherit_floor_protect_lite — LITE post_suppress_pair 继承 _fallback_protected
