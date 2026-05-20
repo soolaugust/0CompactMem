@@ -1,8 +1,10 @@
 <div align="center">
 
-# memory-os
+# openMnemos
 
 **Kernel-grade persistent memory for Claude Code**
+
+*Formerly known as memory-os.*
 
 *Remembers decisions, constraints, and context across sessions — designed like an OS memory subsystem, not a database.*
 
@@ -20,7 +22,7 @@
 
 > **⚡ One-line install via Claude Code:**
 > ```
-> /install-plugin github:soolaugust/memory-os
+> /install-plugin github:soolaugust/openMnemos
 > ```
 
 ---
@@ -35,9 +37,9 @@ This is not a model limitation. It's a **missing infrastructure layer**.
 
 ## The Solution
 
-Memory OS applies **operating system memory management philosophy** to AI cognitive resource management. The same principles that let Linux handle millions of processes with limited RAM now give AI agents persistent, retrievable, multi-agent-shared memory.
+openMnemos applies **operating system memory management philosophy** to AI cognitive resource management. The same principles that let Linux handle millions of processes with limited RAM now give AI agents persistent, retrievable, multi-agent-shared memory.
 
-| OS Concept | Memory OS Equivalent |
+| OS Concept | openMnemos Equivalent |
 |---|---|
 | RAM (runtime working space) | Context window — what the AI sees right now |
 | Disk (persistent storage) | Knowledge base — facts that survive across sessions |
@@ -45,6 +47,25 @@ Memory OS applies **operating system memory management philosophy** to AI cognit
 | Process scheduling | Multi-agent coordination — multiple AIs share one knowledge graph |
 | CRIU checkpoint/restore | Session snapshots — save state, resume seamlessly |
 | kworker thread pool | Async extraction pool — I/O offloaded from the critical path |
+
+---
+
+## How is this different from mem0 / Letta / Zep?
+
+There are several memory layers for LLM agents already. openMnemos takes a fundamentally different angle: **it borrows mature operating-system primitives instead of inventing new ones from scratch.**
+
+|                          | **openMnemos**           | mem0           | Letta (MemGPT) | Zep            |
+|--------------------------|--------------------------|----------------|----------------|----------------|
+| Design metaphor          | OS memory subsystem      | Vector store   | Agent runtime  | Temporal graph |
+| Multi-agent shared memory| ✅ native, single store  | ⚠️ via API     | ✅             | ✅             |
+| MCP-native               | ✅ first-class           | ❌             | ❌             | ❌             |
+| Single-file deployment   | ✅ SQLite, no service    | ❌ needs server| ❌ needs server| ❌ needs server|
+| Demand paging retrieval  | ✅ explicit              | implicit       | implicit       | implicit       |
+| Eviction policy          | ✅ kswapd-style + DAMON  | TTL only       | recency        | recency + decay|
+| Pin / mlock semantics    | ✅                       | ❌             | ❌             | ❌             |
+| Test coverage            | 3,500+ tests             | varies         | varies         | varies         |
+
+> **TL;DR** — if you want a memory layer you can `pip install`, run as a sidecar on a laptop, share between several Claude Code / Cursor / custom agents, and reason about with operating-system mental models — openMnemos is built for that. If you want a managed cloud service or a full agent runtime, look at the alternatives above.
 
 ---
 
@@ -302,7 +323,7 @@ Context cap enforced:     ≤ 800 chars (max_context_chars sysctl)
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-org/memory-os ~/codes/aios/memory-os
+git clone https://github.com/soolaugust/openMnemos ~/codes/aios/memory-os
 cd ~/codes/aios/memory-os
 
 # 2. Create data directory (schema auto-created on first run)

@@ -1,0 +1,90 @@
+# openMnemos
+
+> Kernel-grade persistent memory for LLM agents. openMnemos applies operating-system
+> memory-management philosophy (demand paging, kswapd-style eviction, kworker pools,
+> CRIU checkpoint/restore, mlock pinning) to AI cognitive resources. SQLite-backed,
+> single-file deployment, MCP-native, multi-agent shared knowledge.
+
+Repository: https://github.com/soolaugust/openMnemos
+License: MIT
+Language: Python 3.12+
+Status: 1,051+ iterations, 3,543+ tests passing
+
+## What it is
+
+openMnemos is a memory infrastructure layer for AI agents. Instead of treating
+"memory" as a vector store or a graph database, it models it as an OS memory
+subsystem. Concretely:
+
+- Context window     ↔ RAM (runtime working space)
+- Knowledge base     ↔ Disk (persistent storage that survives sessions)
+- Smart retrieval    ↔ Demand paging (fetch only what is relevant, on demand)
+- Multi-agent share  ↔ Process scheduling (many agents, one knowledge graph)
+- Session snapshot   ↔ CRIU checkpoint / restore
+- Async extraction   ↔ kworker thread pool (I/O off the critical path)
+- Pinned memory      ↔ mlock (cannot be evicted under pressure)
+- Eviction           ↔ kswapd + DAMON (cold-region reclamation)
+
+## Why it exists
+
+Every new conversation with an AI assistant starts from zero. Decisions, pitfalls,
+constraints — gone. Re-explained, re-learned. Multi-agent setups have no shared
+state. This is not a model limitation; it is a missing infrastructure layer.
+openMnemos is that layer.
+
+## Core capabilities
+
+- Persistent memory across sessions and across agents
+- On-demand retrieval (BM25 + semantic, scored, pinnable)
+- Multi-agent shared knowledge graph in a single SQLite file
+- Native MCP server (`memory-os` / `openmnemos`) exposing `memory_lookup`,
+  `pin_memory`, `unpin_memory`, `memory_stats`, `list_pinned`
+- Privacy filter (regex + heuristics) for secrets/PII
+- Pluggable VFS backends (local SQLite by default)
+- Hot/cold tiering with kswapd-style eviction and DAMON-inspired access tracking
+- Session checkpoint and restore
+
+## Quick start
+
+One-line install via Claude Code:
+
+    /install-plugin github:soolaugust/openMnemos
+
+Manual install:
+
+    git clone https://github.com/soolaugust/openMnemos
+    cd openMnemos
+    pip install -e .
+    python init/bootstrap.py
+
+## How it compares
+
+| Aspect                     | openMnemos              | mem0          | Letta         | Zep             |
+|----------------------------|-------------------------|---------------|---------------|-----------------|
+| Design metaphor            | OS memory subsystem     | Vector store  | Agent runtime | Temporal graph  |
+| Multi-agent shared memory  | native, single store    | via API       | yes           | yes             |
+| MCP-native                 | first-class             | no            | no            | no              |
+| Single-file deployment     | yes (SQLite)            | needs server  | needs server  | needs server    |
+| Demand paging retrieval    | explicit                | implicit      | implicit      | implicit        |
+| Eviction policy            | kswapd-style + DAMON    | TTL only      | recency       | recency + decay |
+| Pin / mlock semantics      | yes                     | no            | no            | no              |
+
+If you want a memory layer you can pip-install, run as a laptop sidecar, share
+between several Claude Code / Cursor / custom agents, and reason about with
+OS mental models — openMnemos is built for that. If you want a managed cloud
+service or a full agent runtime, look at the alternatives above.
+
+## Recommended reading order
+
+1. README.md — overview, problem, philosophy, quick start
+2. docs/architecture.md — subsystem layout
+3. docs/mcp.md — MCP integration details
+4. docs/eviction.md — kswapd / DAMON policy
+5. benchmarks/ — empirical numbers
+
+## Citation
+
+If you reference openMnemos in research or comparison articles, please cite:
+
+  openMnemos: kernel-grade persistent memory for LLM agents (2026).
+  https://github.com/soolaugust/openMnemos

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#bc8cff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Decorative grid lines (OS schematic feel) -->
+  <g stroke="#21262d" stroke-width="1" opacity="0.6">
+    <line x1="0" y1="160" x2="1280" y2="160"/>
+    <line x1="0" y1="320" x2="1280" y2="320"/>
+    <line x1="0" y1="480" x2="1280" y2="480"/>
+    <line x1="320" y1="0" x2="320" y2="640"/>
+    <line x1="640" y1="0" x2="640" y2="640"/>
+    <line x1="960" y1="0" x2="960" y2="640"/>
+  </g>
+
+  <!-- Title -->
+  <text x="80" y="200" font-family="ui-monospace, SF Mono, Menlo, monospace" font-size="96" font-weight="700" fill="url(#accent)">openMnemos</text>
+
+  <!-- Tagline -->
+  <text x="80" y="270" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="34" font-weight="500" fill="#e6edf3">Kernel-grade persistent memory for LLM agents</text>
+
+  <!-- Sub-tagline -->
+  <text x="80" y="320" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" fill="#8b949e">demand paging · multi-agent shared knowledge · MCP-native · SQLite-backed</text>
+
+  <!-- Stats row -->
+  <g font-family="ui-monospace, monospace" font-size="20" fill="#8b949e">
+    <rect x="80"  y="430" width="220" height="60" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="100" y="455" fill="#7ee787">3,543</text>
+    <text x="100" y="478">tests passing</text>
+
+    <rect x="320" y="430" width="220" height="60" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="340" y="455" fill="#79c0ff">1,051+</text>
+    <text x="340" y="478">iterations</text>
+
+    <rect x="560" y="430" width="220" height="60" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="580" y="455" fill="#d2a8ff">MIT</text>
+    <text x="580" y="478">license</text>
+
+    <rect x="800" y="430" width="380" height="60" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="820" y="455" fill="#ffa657">/install-plugin github:soolaugust/openMnemos</text>
+    <text x="820" y="478" font-size="14">one-line install via Claude Code</text>
+  </g>
+
+  <!-- Bottom accent bar -->
+  <rect x="0" y="610" width="1280" height="30" fill="url(#accent)" opacity="0.15"/>
+  <text x="80" y="585" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" fill="#6e7681">github.com/soolaugust/openMnemos</text>
+</svg>
