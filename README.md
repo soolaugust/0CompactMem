@@ -13,6 +13,7 @@
 [![Tests](https://img.shields.io/badge/tests-3543%20passing-brightgreen)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Iterations](https://img.shields.io/badge/iterations-1051%2B-orange)](#roadmap)
+[![Discussions](https://img.shields.io/badge/discuss-on%20GitHub-blue?logo=github)](https://github.com/soolaugust/openMnemos/discussions)
 
 [English](./README.md) · [中文](./README.zh.md)
 
