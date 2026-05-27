@@ -1,0 +1,22 @@
+{
+  "retention": {
+    "recall_at_5": 0.4,
+    "mrr_at_5": 0.4
+  },
+  "survival": {
+    "pinned_survival": 1.0,
+    "baseline_survival": 0.0
+  },
+  "multi_agent": {
+    "write_visibility": 1.0,
+    "pin_respect": 1.0
+  },
+  "latency": {
+    "lookup_p50": 0.07621198892593384,
+    "lookup_p95": 0.22485502995550632,
+    "write_p50": 2.340047969482839,
+    "write_p95": 5.762660992331803,
+    "pin_p50": 0.007302965968847275,
+    "pin_p95": 0.013859942555427551
+  }
+}

@@ -1,12 +1,12 @@
 {
   "name": "memory-os",
   "description": "Kernel-grade persistent memory for Claude Code. Remembers decisions, constraints, and context across sessions — designed like an OS memory subsystem, not a database.",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "author": {
-    "name": "zhidao su"
+    "name": "soolaugust"
   },
-  "homepage": "https://github.com/soolaugust/memory-os",
-  "repository": "https://github.com/soolaugust/memory-os",
+  "homepage": "https://github.com/soolaugust/0CompactMem",
+  "repository": "https://github.com/soolaugust/0CompactMem",
   "license": "MIT",
   "keywords": [
     "memory",

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memory-os"
+version = "0.1.0"
+description = "Kernel-grade persistent memory for AI agents — designed like an OS memory subsystem"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    { name = "soolaugust", email = "soolaugust@gmail.com" },
+]
+keywords = ["memory", "mcp", "claude", "agent", "persistence", "context"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "mcp>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/soolaugust/0CompactMem"
+Repository = "https://github.com/soolaugust/0CompactMem"
+Issues = "https://github.com/soolaugust/0CompactMem/issues"
+
+[project.scripts]
+memory-os = "mcp_memory_lookup:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+only-include = [
+    "mcp_memory_lookup.py",
+    "store_vfs.py",
+    "store_vfs_schema.py",
+    "store_vfs_effects_new.py",
+    "scorer.py",
+    "bm25.py",
+    "config.py",
+    "utils.py",
+    "schema.py",
+]

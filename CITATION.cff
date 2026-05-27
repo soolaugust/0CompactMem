@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "0CompactMem: Full OS Memory Semantics for LLM Agent Persistence"
+authors:
+  - family-names: Su
+    given-names: Zhidao
+    email: soolaugust@gmail.com
+type: software
+license: MIT
+repository-code: "https://github.com/soolaugust/0CompactMem"
+url: "https://github.com/soolaugust/0CompactMem"
+version: "0.1.0"
+date-released: "2026-05-25"
+keywords:
+  - persistent memory
+  - LLM agents
+  - operating systems
+  - memory management
+  - MCP
+  - demand paging
+  - eviction
+  - pinning
+abstract: >-
+  0CompactMem is an agent memory layer that implements the full spectrum
+  of OS memory-management primitives for LLM agent persistence. It maps
+  demand paging to on-demand retrieval, kswapd-style watermarks to
+  capacity-aware eviction, mlock to hard/soft pin semantics, DAMON to
+  access tracking, and CRIU to session checkpoint/restore. Implemented
+  as a single SQLite file with an MCP-native interface.
+preferred-citation:
+  type: article
+  title: "Beyond Eviction: Full OS Memory Semantics for LLM Agent Persistence"
+  authors:
+    - family-names: Su
+      given-names: Zhidao
+  year: 2026
+  url: "https://github.com/soolaugust/0CompactMem/releases/download/v0.1.0/paper.pdf"
