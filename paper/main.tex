@@ -291,6 +291,15 @@ Multiple agent instances access the same SQLite database file. WAL (Write-Ahead 
 
 \paragraph{Privacy.} A write-boundary privacy filter strips sensitive patterns (API keys, credentials, PII) before persistence, using regex patterns and heuristic detection.
 
+\paragraph{MemTrace: Failure Attribution.} Inspired by MemTrace~\cite{memtrace2026}, we implement an operation tracer (analogous to Linux's \texttt{ftrace}) that logs write, retrieve, evict, and pin operations. When retrieval fails, \texttt{diagnose\_miss(query, expected\_id)} traces the chunk lifecycle and returns one of four root causes:
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{never\_written}: chunk was never stored
+  \item \textbf{evicted}: chunk existed but was removed (with timestamp and reason)
+  \item \textbf{query\_mismatch}: chunk exists but retrieval terms don't overlap stored text
+  \item \textbf{pinned but missed}: chunk is pinned (physically safe) but lexically unreachable
+\end{itemize}
+This enables systematic debugging of the 0.35 Recall@5 gap---attributing each miss to a specific pipeline stage rather than treating the system as a black box.
+
 %% ============================================================
 \section{Evaluation}
 \label{sec:eval}
