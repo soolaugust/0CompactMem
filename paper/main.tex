@@ -44,11 +44,11 @@ The system is open source (MIT) at \url{https://github.com/soolaugust/0CompactMe
 \section{Introduction}
 \label{sec:intro}
 
-Long-running LLM agents accumulate knowledge across sessions: architectural decisions, user preferences, domain constraints, and inter-agent agreements. When the context window compacts or a session ends, this knowledge vanishes unless persisted externally. The resulting ``context compaction'' problem---where agents repeatedly re-learn previously established facts---is widely recognized as a primary productivity bottleneck in AI-assisted workflows~\cite{longmemeval2024}.
+Long-running LLM agents accumulate knowledge across sessions: architectural decisions, user preferences, domain constraints, and inter-agent agreements. When the context window compacts or a session ends, this knowledge vanishes unless persisted externally. The resulting ``context compaction'' problem---where agents repeatedly re-learn previously established facts---motivates the growing body of work on persistent memory for agents~\cite{longmemeval2024,memgpt2023}.
 
 Recent systems address this by providing persistent memory stores for agents. Mem0~\cite{mem0}, Letta (MemGPT)~\cite{memgpt2023}, Zep~\cite{zep2024}, and A-Mem~\cite{amem2025} offer vector-based retrieval with various augmentations. More recently, AMV-L~\cite{amvl2026} treats agent memory as a ``managed systems resource'' with lifecycle-driven eviction, and HTM-EAR~\cite{htmear2026} employs hierarchical tiered memory with importance-aware eviction watermarks.
 
-However, all existing systems map \emph{at most one or two} OS memory primitives---invariably eviction and sometimes tiered storage. This is analogous to building an operating system with only \texttt{kswapd} and no page fault handler, no \texttt{mlock}, no process isolation, and no checkpoint mechanism. The result: no system can \emph{guarantee} that a critical constraint survives arbitrary memory pressure; no system provides on-demand retrieval that scales sub-linearly with store size; and no system enables multiple agents to share memory without explicit synchronization protocols.
+However, the systems we surveyed map \emph{at most one or two} OS memory primitives---invariably eviction and sometimes tiered storage. This is analogous to building an operating system with only \texttt{kswapd} and no page fault handler, no \texttt{mlock}, no process isolation, and no checkpoint mechanism. The result: no system can \emph{guarantee} that a critical constraint survives arbitrary memory pressure; no system provides on-demand retrieval that scales sub-linearly with store size; and no system enables multiple agents to share memory without explicit synchronization protocols.
 
 \paragraph{Contributions.} We make three contributions:
 \begin{enumerate}[leftmargin=*,nosep]
@@ -65,7 +65,7 @@ However, all existing systems map \emph{at most one or two} OS memory primitives
 
 We categorize existing agent memory systems by which OS primitives they (implicitly) implement:
 
-\paragraph{Store-only systems.} Mem0~\cite{mem0} and Zep~\cite{zep2024} provide a persistent vector store with similarity retrieval. They implement no capacity management---memory grows unboundedly until external intervention. In OS terms, these are systems with infinite RAM and no swap.
+\paragraph{Store-only systems.} Mem0~\cite{mem0} and Zep~\cite{zep2024} provide a persistent vector store with similarity retrieval. They implement no explicit eviction policy---while mem0 deduplicates and merges memories, capacity grows without back-pressure. In OS terms, these are systems without \texttt{kswapd}.
 
 \paragraph{Eviction-aware systems.} AMV-L~\cite{amvl2026} introduces value-driven lifecycle management with promotion, demotion, and eviction tiers, achieving 3.1$\times$ throughput improvement over TTL-based approaches. HTM-EAR~\cite{htmear2026} uses hierarchical HNSW-based working memory with importance-aware eviction scoring. Both map \texttt{kswapd}-like eviction but lack pinning guarantees and demand-paging semantics.
 
@@ -81,7 +81,7 @@ For readers from the AI/ML community, we briefly review the OS primitives we map
   \item \textbf{Demand paging}: pages are loaded into RAM only when accessed (page fault $\to$ disk read), not pre-loaded.
   \item \textbf{kswapd}: kernel thread that reclaims pages when free memory drops below watermarks (high/low/min).
   \item \textbf{DAMON}: Data Access Monitor---tracks page access frequency to identify hot/cold regions without hardware counters.
-  \item \textbf{mlock}: locks pages in RAM, preventing eviction. \texttt{mlock} (hard) survives all reclaim paths; \texttt{MADV\_WILLNEED} (soft) survives most but not OOM.
+  \item \textbf{mlock}: locks pages in RAM, preventing eviction by any reclaim path including the OOM killer.
   \item \textbf{CRIU}: Checkpoint/Restore In Userspace---snapshots process state for migration or resume.
   \item \textbf{kworker}: deferred background work (writeback, compaction) that doesn't block the request path.
   \item \textbf{Shared memory (shmem)}: multiple processes access the same physical pages without copying.
@@ -241,7 +241,7 @@ The \texttt{pin\_memory} operation provides two levels:
   \item \textbf{Soft pin}: the chunk survives normal reclaim (stale sweep, DAMON-dead collection) but may be evicted under extreme pressure. Use case: important but non-critical quantitative evidence.
 \end{itemize}
 
-This two-level semantics mirrors Linux's distinction between \texttt{mlock()} (survives OOM killer selection) and \texttt{MADV\_WILLNEED} (advisory, not guaranteed).
+This two-level semantics is inspired by Linux's \texttt{mlock()} (absolute guarantee) vs.\ \texttt{MCL\_FUTURE} with selective unlocking (configurable protection levels).
 
 \subsection{CRIU: Session Checkpoint/Restore}
 
@@ -250,6 +250,17 @@ At session end (Stop hook), 0CompactMem snapshots the current working set---rece
 \subsection{kworker: Asynchronous Background Processing}
 
 Knowledge extraction, tool profiling, and memory consolidation run as asynchronous hooks that never block the agent's request path. This mirrors Linux's \texttt{kworker} threads that handle deferred writeback and compaction without blocking foreground processes.
+
+\subsection{TaC Integration: Thinking-as-Compression}
+
+Recent work on Thinking-as-Compression (TaC)~\cite{tac2026} demonstrates that reasoning models can naturally compress long contexts during their thinking process. We integrate TaC into the PreCompact hook: when accumulated knowledge exceeds the injection budget, a local LLM compresses the text while preserving keywords and decisions.
+
+Measured results (1{,}563-char input, 800-char budget):
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{Truncation}: 800 chars output, 64\% keyword recall
+  \item \textbf{TaC} (gemma3:1b): 529 chars output, 79\% keyword recall
+\end{itemize}
+TaC achieves +15\% recall in 34\% less space. The trade-off is latency (7.6s for local 1B model); we run it only in the PreCompact path (not request-path), consistent with the kworker pattern. TaC is optional---the system falls back to truncation if no local model is available.
 
 \subsection{Shared Memory: Multi-Agent via WAL}
 
@@ -286,7 +297,7 @@ We evaluate 0CompactMem on three benchmarks designed to test different OS-primit
 
 \subsection{Benchmark 1: Multi-Session Retention}
 
-\paragraph{Setup.} Adapted from LongMemEval~\cite{longmemeval2024}: 200 knowledge items accumulated across 20 simulated sessions. At session 21, we query all 200 items with varied paraphrasing.
+\paragraph{Setup.} 20 knowledge items (architectural decisions, infrastructure choices) are stored. We then issue 20 paraphrased queries---each using different vocabulary from the stored text---and measure whether the correct item appears in the top-5 results.
 
 \paragraph{Metrics.} Recall@5, MRR@5.
 
@@ -294,7 +305,7 @@ We evaluate 0CompactMem on three benchmarks designed to test different OS-primit
 
 \begin{table}[t]
 \centering
-\caption{Retrieval quality comparison (20 paraphrased queries over 20 knowledge items). Measured via \texttt{benchmark\_comparison.py}.}
+\caption{Retrieval quality (20 paraphrased queries, 20 items). Measured via \texttt{benchmark\_comparison.py}.}
 \label{tab:retention}
 \small
 \begin{tabular}{lcc}
@@ -408,7 +419,7 @@ $-$ WAL           & \checkmark & \checkmark & ---        & \checkmark \\
 \begin{enumerate}[leftmargin=*,nosep]
   \item No single primitive achieves all four properties simultaneously.
   \item Each primitive contributes exactly one irreplaceable guarantee.
-  \item Removing pinning makes constraint survival \emph{impossible} under pressure (measured: 0\% without pins vs 100\% with pins).
+  \item Removing pinning makes constraint survival \emph{impossible} under pressure (measured: 0\% without pins vs 82\% retrievable with pins; all 50 pinned entries physically survive).
   \item Removing WAL sharing makes multi-agent visibility \emph{impossible} (measured: 0\% with separate stores).
   \item These are not graceful degradations but binary losses---the guarantee exists or it doesn't.
 \end{enumerate}
@@ -423,7 +434,7 @@ This supports our thesis: the primitives form a minimal complete set where each 
 
 \paragraph{Pin usage patterns.} The deployed store contains hard-pinned architectural constraints and API contracts. These represent a small fraction of total chunks but are disproportionately critical---their loss causes observable agent misbehavior (re-violating previously-established constraints).
 
-\paragraph{Store growth.} The production store has grown to $>$2{,}000 chunks over several months of daily use. FTS5 retrieval latency remains sub-millisecond at this scale (consistent with our 10{,}000-chunk benchmark), but result relevance degrades without eviction due to accumulation of superseded decisions and stale debugging context.
+\paragraph{Store growth.} The production store currently holds $\sim$40 chunks after eviction (22 active). During active development sessions, chunk count grows rapidly before watermark-triggered eviction reduces it. The 10{,}000-chunk latency benchmark (0.09ms p50) confirms FTS5 scales well beyond current production usage.
 
 \paragraph{Hook performance.} The lifecycle hooks (SessionStart, Stop, PreCompact) are configured with timeouts (10ms for sync hooks). Async hooks (extractor, profiler) run in background without blocking the agent turn, consistent with the kworker design pattern.
 
